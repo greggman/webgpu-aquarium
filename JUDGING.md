@@ -291,3 +291,26 @@ Biggest gaps (ranked):
 6. Caustics on vertical rock faces and coral branches.
 
 What works: surface cameras near AAA, seed4-reef layered foreground, kelp forests seeds 1-3, sand caustics, palettes, particles.
+
+## Review 12 — FAIL (avg 6.7)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 7 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 7 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 7 |
+
+Biggest gaps (ranked):
+1. Plastic coral/plant materials: flat single colours, neon wire strands (sea whips), no base AO.
+2. Kelp reads as a curtain: regular ladder stems, specular slivers, no floor/focal point in kelp shots.
+3. Seed4-wide washed out by shaft veil; mostly empty frame.
+4. Low-detail close foregrounds; stacked pancake table corals.
+5. School fish grey/see-through with glowing snouts; uniform size/spacing.
+
+What works: seed4-reef best frame, seed2 deep-blue, surface shots, seed4 kelp backlight, 3/4 overhead, temporal stability.
