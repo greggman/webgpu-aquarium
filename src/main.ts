@@ -208,7 +208,8 @@ async function main() {
     camera.setPose(spots.tour[0].pos, spots.tour[0].target);
     tour.begin(camera.pose);
   }
-  const idleToAttract = 20;
+  // The cinematic tour resumes after this many seconds without input.
+  const idleToAttract = 5;
 
   const clock = new Clock(numParam('time') ?? 0, params.get('paused') === '1');
   const dynres = new DynamicResolution(quality);

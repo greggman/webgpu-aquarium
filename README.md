@@ -36,8 +36,8 @@ Other scripts:
 | Touch: right side | Drag to look; two fingers drag vertically for up/down |
 | Gamepad | Left stick swim, right stick look, triggers up/down, bumper faster |
 
-After 20 seconds without input the camera takes a cinematic tour of the reef;
-any input hands control back. The camera is kept inside the part of the basin
+The camera starts on a cinematic tour of the reef; any input hands control to
+you, and the tour picks back up after 5 seconds without input. The camera is kept inside the part of the basin
 that was designed to be seen: a current gently pushes you back near the edges.
 
 ## URL parameters

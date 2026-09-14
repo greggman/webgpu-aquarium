@@ -11,7 +11,8 @@ export interface InputState {
 
 export class Input {
   /** Seconds since the last user input. */
-  idleTime = 0;
+  /** Seconds since the last user input (starts large: nobody has touched anything yet). */
+  idleTime = 1e9;
   private keys = new Set<string>();
   private mouseDX = 0;
   private mouseDY = 0;

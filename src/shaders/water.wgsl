@@ -123,10 +123,21 @@ fn surfaceFromBelow(dir: vec3f) -> vec3f {
   let w0 = sampleWaves(hit, frame.time);
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let w1 = sampleWaves(rot * hit * 0.37 + vec2f(3.1, 1.7), frame.time * 0.6);
+  // Wind chop on top of the swell: a finer, faster copy of the waves in a third
+  // orientation plus small drifting capillary ripples, so the surface never
+  // reads as a glassy sheet.
+  let rot2 = mat2x2f(-0.28, 0.96, -0.96, -0.28);
+  let w2 = sampleWaves(rot2 * hit * 2.6 + vec2f(-5.3, 2.2), frame.time * 1.7);
+  let ripUv = hit * 1.9 + vec2f(frame.time * 0.35, -frame.time * 0.22);
+  let e = 0.05;
+  let n0 = fbm2(ripUv, 3);
+  let ripple = vec2f(fbm2(ripUv + vec2f(e, 0.0), 3) - n0, fbm2(ripUv + vec2f(0.0, e), 3) - n0) / e;
   // Distant surface looks flatter (normals average out) and the fine ripples
   // wash out first, which keeps the edge of Snell's window soft.
   let fade = 1.0 / (1.0 + t * 0.07);
-  let g = (w0.grad * 1.6 * fade + (transpose(rot) * w1.grad) * 1.2) * mix(0.6, 1.0, fade);
+  let fineFade = 1.0 / (1.0 + t * 0.2);
+  let g = (w0.grad * 2.6 * fade + (transpose(rot) * w1.grad) * 2.0 +
+    (transpose(rot2) * w2.grad) * 1.2 * fineFade + ripple * 0.12 * fineFade) * mix(0.6, 1.0, fade);
   let n = normalize(vec3f(-g.x, -1.0, -g.y)); // facing down, toward the viewer
 
   let cosI = clamp(dot(-dir, n), 0.0, 1.0);
