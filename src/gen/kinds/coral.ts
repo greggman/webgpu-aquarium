@@ -647,7 +647,7 @@ export async function createCoral(
     }
     for (let i = 0; i < ctx.count(rng.int(18, 28) * density * area); i++) {
       const [x, z] = inCluster(1);
-      place(CoralKind.Branching, x, z, rng.range(0.6, 1.9));
+      place(CoralKind.Branching, x, z, rng.range(0.55, 1.35));
     }
     for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);

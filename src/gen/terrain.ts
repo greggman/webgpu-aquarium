@@ -58,7 +58,7 @@ export function randomTerrainSettings(
     floorDepth: rng.range(-19, -14),
     center: [0, 0],
     basinRadius: rng.range(52, 64),
-    rimHeight: rng.range(9, 13),
+    rimHeight: rng.range(7, 10),
     gapAngle: rng.range(0, Math.PI * 2),
     gapWidth: rng.range(0.45, 0.8),
     duneAmp: rng.range(0.8, 2.0),
@@ -111,7 +111,12 @@ fn basinHeight(p: vec2f) -> f32 {
   h -= gap * drop * 45.0;
 
   // Never break the surface.
-  h = min(h, P.surfaceY - 2.5 - fbm2(p * 0.05, 2));
+  // Never break the surface, but approach the cap smoothly (a hard min() would
+  // leave flat, straight-edged slabs just under the water).
+  let cap = P.surfaceY - 4.0 - fbm2(p * 0.05, 2) * 2.0;
+  let k = 4.0;
+  let hh = clamp(0.5 + 0.5 * (cap - h) / k, 0.0, 1.0);
+  h = mix(cap, h, hh) - k * hh * (1.0 - hh);
   return h;
 }
 
