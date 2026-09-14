@@ -165,6 +165,10 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 }
 
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
+  // Anything right against the lens dissolves instead of smearing the frame.
+  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.35, 1.3, length(frame.camPos - i.world))) {
+    discard;
+  }
   let kind = u32(inst.params.w);
   let tint = inst.color.rgb;
   let accent = palette(inst.color.a, vec3f(0.6), vec3f(0.4), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
@@ -210,8 +214,8 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     }
     case ${CoralKind.Brain}u: {
       let ridge = i.uv.z;
-      let groove = mix(tint * 0.35, accent * 0.4, 0.3);
-      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), smoothstep(0.2, 0.8, ridge));
+      let groove = mix(tint * 0.2, accent * 0.25, 0.3);
+      s.albedo = mix(groove, tint * (0.8 + 0.35 * fine.r), smoothstep(0.25, 0.75, ridge));
       s.roughness = 0.75;
       s.translucency = 0.1;
     }
@@ -455,7 +459,7 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
           // labyrinth aliases into scattered dots).
           rng.range(1.8, 2.6),
           rng.range(5, 8),
-          rng.range(0.03, 0.05),
+          rng.range(0.06, 0.09),
           0,
           rng.range(-40, 40),
           rng.range(-40, 40),

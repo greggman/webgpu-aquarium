@@ -135,7 +135,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // Soft mottling instead of drawn veins: slightly thicker patches let a
       // little less light through.
       let mottle = 0.5 + 0.5 * sin(i.uv.y * 9.0 + veins * 2.0);
-      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.94 + 0.06 * mottle);
+      // Each blade differs a little in age and colour.
+      let bladeHash = fract(sin(i.uv.z * 91.7 + inst.params.x) * 43758.5);
+      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.94 + 0.06 * mottle) *
+        mix(vec3f(0.85, 0.9, 0.8), vec3f(1.12, 1.05, 0.95), bladeHash);
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
       s.albedo = c;
       s.translucency = 0.9 + 0.08 * mottle;
@@ -352,7 +355,7 @@ function kelpPlant(
             base[2] + Math.sin(a) * 0.04,
             a,
             len,
-            rng.range(0.22, 0.34),
+            rng.range(0.16, 0.38),
             // How strongly the blade streams downcurrent along its length.
             rng.range(0.45, 0.8) + canopy * 0.2,
             canopy,
@@ -360,8 +363,8 @@ function kelpPlant(
             ...outward,
           ],
           Part.KelpBlade,
-          hi && !coarse ? 4 : 1,
-          hi && !coarse ? 32 : 6,
+          hi && !coarse ? 4 : 2,
+          hi && !coarse ? 32 : 10,
         ),
       );
       // Every blade springs from a gas bladder.
@@ -631,7 +634,7 @@ export async function createPlants(
       wgsl: plantMaterial,
       lod: {
         low: variants.map((_, v) => kelpLow.find(k => k[0] === v)?.[1] ?? -1),
-        distance: 14,
+        distance: 20,
       },
     }),
     createPropKind(renderer, {

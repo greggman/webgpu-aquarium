@@ -963,7 +963,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     // Each curious fish holds its own spot so they don't pile up on one point.
     let side = sin(sim.time * 0.15 + id * 2.1) * 1.0 + (fract(id * 0.618) - 0.5) * 4.0;
     let right = normalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
-    let spot = sim.camPos + sim.camDir * (2.4 + fract(id * 0.37) * 2.6) + right * side;
+    // Far enough to stay inside the focus range (closer, they fill the lens as blurry shapes).
+    let spot = sim.camPos + sim.camDir * (4.0 + fract(id * 0.37) * 3.0) + right * side;
     let toSpot = spot - f.pos;
     acc += toSpot * curious * 1.4 * smoothstep(22.0, 6.0, cd);
   }
@@ -1322,7 +1323,7 @@ export async function createFish(
         s.curiosity ?? 0,
         // Schools keep well clear of the lens: out-of-focus fish right in
         // front of the camera read as ghosts.
-        s.curiosity ? 0.9 : Math.max(3.5, 1.5 + len * 3),
+        s.curiosity ? 2.2 : Math.max(3.5, 1.5 + len * 3),
         s.roam ?? 0,
         s.roam ? 0.9 / s.roam : 0,
       ],

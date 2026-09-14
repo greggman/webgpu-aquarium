@@ -27,12 +27,15 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
 
   // Eroded strata: horizontal ledges that bulge out and undercut, giving
   // overhangs and crevices between layers.
-  let layer = p.y * strataFreq + fbm3(q * 1.7, 2) * 0.6;
+  // Layers of uneven thickness (warped heavily), and each ledge only juts out
+  // on some sides, so the rock never reads as a stack of even plates.
+  let layer = p.y * strataFreq + fbm3(q * 1.1, 3) * 1.6;
   let f = fract(layer);
   let ledge = smoothstep(0.0, 0.25, f) * (1.0 - smoothstep(0.55, 1.0, f));
   let side = normalize(vec3f(p.x, 0.0, p.z) + vec3f(1e-4));
   let horizontal = 1.0 - abs(dir.y);
-  p += side * (ledge - 0.45) * 0.09 * length(shape) * horizontal;
+  let patchy = smoothstep(-0.15, 0.35, fbm3(q * 0.9 + vec3f(floor(layer) * 7.3), 2));
+  p += side * (ledge - 0.45) * 0.1 * length(shape) * horizontal * patchy;
 
   // Porous surface: pits and pockets.
   // Pits cluster in eroded patches of mixed sizes instead of an even stamp.
@@ -159,7 +162,7 @@ export async function createRocks(
             rng.range(-50, 50),
             rng.range(-50, 50),
             // Eroded ledges up the column.
-            rng.range(2.2, 3.2),
+            rng.range(1.4, 2.2),
           ],
         },
       ],
@@ -177,14 +180,17 @@ export async function createRocks(
   const instances: Instance[] = [];
   // A few stone types per basin (pale limestone, grey-blue basalt, dark
   // weathered rock), so neighbouring rocks don't all read as the same clay.
-  const stones: [number, number, number][] = [
-    [1.2, 1.1, 0.92],
-    [0.82, 0.88, 0.98],
-    [0.66, 0.62, 0.58],
-    [1.02, 0.94, 0.86],
+  const families: [number, number, number][] = [
+    [1.25, 1.15, 0.95], // pale limestone
+    [0.8, 0.88, 1.0], // grey-blue basalt
+    [0.62, 0.58, 0.55], // dark weathered rock
+    [1.2, 0.98, 0.72], // ochre sandstone
+    [1.05, 0.9, 0.9], // pinkish coralline-crusted
   ];
+  // Each basin has its own geology: two or three stone families.
+  const stones = rng.shuffle([...families]).slice(0, rng.int(2, 3));
   const tint = (): [number, number, number, number] => {
-    const st = rng.weighted(stones, [3, 2, 2, 3]);
+    const st = rng.weighted(stones, [4, 2, 1].slice(0, stones.length));
     const b = rng.range(0.85, 1.12);
     return [st[0] * b, st[1] * b, st[2] * b, rng.range(0, 100)];
   };
