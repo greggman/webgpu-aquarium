@@ -10,6 +10,7 @@ import {defineStruct, StructBuffer} from '../gpu/structs.ts';
 import {dispatch2D, readBuffer} from '../gpu/util.ts';
 import {noise, surfaceLib} from '../shaders/index.ts';
 import type {Rng} from '../core/rng.ts';
+import propsWgsl from '../shaders/props.wgsl';
 
 export const TerrainParams = defineStruct('TerrainParams', {
   seed: 'u32',
@@ -393,6 +394,7 @@ export async function generateTerrain(
 
 const renderShader = /* wgsl */ `
 ${surfaceLib}
+${propsWgsl}
 
 struct Grid { count: u32, worldSize: f32 };
 @group(1) @binding(0) var<uniform> grid: Grid;
@@ -482,8 +484,9 @@ fn fs(i: VOut) -> FOut {
 
   let sandN = normalize(vec3f(n.x - sandGrad.x, n.y, n.z - sandGrad.y));
   // Rock normal: perturb along noise-derived tangent directions.
-  let rockPert = vec3f(triFine.r - 0.5, 0.0, triFine.a - 0.5) * 0.9 + vec3f(tri.r - 0.5, 0.0, tri.b - 0.5) * 0.5;
-  let rockN = normalize(n + rockPert * (1.0 - c0 * 0.5));
+  // Rock relief: layered height from the detail textures, as a true bump map.
+  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 - (1.0 - smoothstep(0.02, 0.2, c0)) * 0.6;
+  let rockN = bumpFromHeight(n, p, rockHeight, 0.35);
   n = normalize(mix(sandN, rockN, rockW));
 
   // Sand: warm, with darker patches of debris and fine speckle.

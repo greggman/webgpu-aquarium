@@ -5,7 +5,12 @@
 
 import {createShader} from '../../gpu/device.ts';
 import {fullscreenVS} from '../../shaders/index.ts';
-import {HDR_FORMAT, type FrameContext, type PostEffect, type Targets} from '../renderer.ts';
+import {
+  HDR_FORMAT,
+  type FrameContext,
+  type PostEffect,
+  type Targets,
+} from '../renderer.ts';
 
 const NEAR = 0.05;
 
@@ -81,19 +86,44 @@ fn composite(i: FSOut) -> @location(0) vec4f {
 }
 `;
 
-export async function createDof(device: GPUDevice): Promise<PostEffect & {setFocus(d: number): void}> {
+export async function createDof(
+  device: GPUDevice,
+): Promise<PostEffect & {setFocus(d: number): void}> {
   const module = createShader(device, 'dof:shader', shader);
   const bgl = device.createBindGroupLayout({
     label: 'dof:bgl',
     entries: [
-      {binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {sampleType: 'float'}},
-      {binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {sampleType: 'depth'}},
-      {binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {sampleType: 'float'}},
-      {binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: {type: 'filtering'}},
-      {binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: {type: 'uniform'}},
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: {sampleType: 'float'},
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: {sampleType: 'depth'},
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: {sampleType: 'float'},
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: {type: 'filtering'},
+      },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: {type: 'uniform'},
+      },
     ],
   });
-  const layout = device.createPipelineLayout({label: 'dof:pipeline-layout', bindGroupLayouts: [bgl]});
+  const layout = device.createPipelineLayout({
+    label: 'dof:pipeline-layout',
+    bindGroupLayouts: [bgl],
+  });
   const make = (entryPoint: string) =>
     device.createRenderPipelineAsync({
       label: `dof:${entryPoint}-pipeline`,
@@ -101,8 +131,16 @@ export async function createDof(device: GPUDevice): Promise<PostEffect & {setFoc
       vertex: {module, entryPoint: 'vsFullscreen'},
       fragment: {module, entryPoint, targets: [{format: HDR_FORMAT}]},
     });
-  const [prefilter, blur, composite] = await Promise.all([make('prefilter'), make('blur'), make('composite')]);
-  const sampler = device.createSampler({label: 'dof:sampler', magFilter: 'linear', minFilter: 'linear'});
+  const [prefilter, blur, composite] = await Promise.all([
+    make('prefilter'),
+    make('blur'),
+    make('composite'),
+  ]);
+  const sampler = device.createSampler({
+    label: 'dof:sampler',
+    magFilter: 'linear',
+    minFilter: 'linear',
+  });
   const uniform = device.createBuffer({
     label: 'dof:uniform',
     size: 16,
@@ -127,9 +165,20 @@ export async function createDof(device: GPUDevice): Promise<PostEffect & {setFoc
         label: `dof:bind-group-${key}`,
         layout: bgl,
         entries: [
-          {binding: 0, resource: color.createView({label: `dof:color-view-${key}`})},
-          {binding: 1, resource: targets.depth.createView({label: `dof:depth-view-${key}`})},
-          {binding: 2, resource: halfTex.createView({label: `dof:half-view-${key}`})},
+          {
+            binding: 0,
+            resource: color.createView({label: `dof:color-view-${key}`}),
+          },
+          {
+            binding: 1,
+            resource: targets.depth.createView({
+              label: `dof:depth-view-${key}`,
+            }),
+          },
+          {
+            binding: 2,
+            resource: halfTex.createView({label: `dof:half-view-${key}`}),
+          },
           {binding: 3, resource: sampler},
           {binding: 4, resource: {buffer: uniform}},
         ],
@@ -138,7 +187,13 @@ export async function createDof(device: GPUDevice): Promise<PostEffect & {setFoc
     }
     return g!;
   };
-  const passTo = (ctx: FrameContext, label: string, view: GPUTexture, pipeline: GPURenderPipeline, bg: GPUBindGroup) => {
+  const passTo = (
+    ctx: FrameContext,
+    label: string,
+    view: GPUTexture,
+    pipeline: GPURenderPipeline,
+    bg: GPUBindGroup,
+  ) => {
     const pass = ctx.encoder.beginRenderPass({
       label: `dof:${label}-pass`,
       colorAttachments: [{view, loadOp: 'clear', storeOp: 'store'}],
@@ -166,14 +221,16 @@ export async function createDof(device: GPUDevice): Promise<PostEffect & {setFoc
           label: `dof:half-${i}`,
           size: [hw, hh],
           format: HDR_FORMAT,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          usage:
+            GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         }),
       );
       output = device.createTexture({
         label: 'dof:output',
         size: [t.width, t.height],
         format: HDR_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
       });
     },
     run(ctx: FrameContext, input: GPUTexture) {
@@ -182,11 +239,27 @@ export async function createDof(device: GPUDevice): Promise<PostEffect & {setFoc
       }
       // Aperture scales with resolution so the look is resolution independent.
       const aperture = (targets.height / 1080) * 5;
-      device.queue.writeBuffer(uniform, 0, new Float32Array([focus, aperture, 10, 0]));
+      device.queue.writeBuffer(
+        uniform,
+        0,
+        new Float32Array([focus, aperture, 10, 0]),
+      );
       // The input alternates between TAA history textures; cache per texture.
-      passTo(ctx, 'prefilter', half[0], prefilter, group(`pre-${input.label}`, input, dummy));
+      passTo(
+        ctx,
+        'prefilter',
+        half[0],
+        prefilter,
+        group(`pre-${input.label}`, input, dummy),
+      );
       passTo(ctx, 'blur', half[1], blur, group('blur', dummy, half[0]));
-      passTo(ctx, 'composite', output, composite, group(`comp-${input.label}`, input, half[1]));
+      passTo(
+        ctx,
+        'composite',
+        output,
+        composite,
+        group(`comp-${input.label}`, input, half[1]),
+      );
       return output;
     },
   };

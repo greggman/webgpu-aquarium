@@ -96,7 +96,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let n = V.steps;
   // Spend more samples near the camera where shafts are most visible.
   var accum = vec3f(0.0);
-  let ext = extinction() * frame.misc.z;
+  // Shafts fade out faster than the fog so distant ones don't read as pillars.
+  let ext = extinction() * frame.misc.z * 2.2;
   var prevT = 0.0;
   for (var i = 0u; i < n; i++) {
     let f = (f32(i) + jitter) / f32(n);

@@ -95,7 +95,7 @@ fn skyRadiance(d: vec3f) -> vec3f {
   let horizon = frame.ambientColor * vec3f(1.6, 1.5, 1.35) * 2.2;
   let zenith = frame.ambientColor * vec3f(0.8, 1.0, 1.25) * 1.8;
   var sky = mix(horizon, zenith, pow(clamp(d.y, 0.0, 1.0), 0.6));
-  sky += frame.sunColor * (pow(mu, 1500.0) * 60.0 + pow(mu, 60.0) * 1.2 + pow(mu, 6.0) * 0.25);
+  sky += frame.sunColor * (pow(mu, 1500.0) * 22.0 + pow(mu, 60.0) * 1.6 + pow(mu, 6.0) * 0.3);
   return sky;
 }
 

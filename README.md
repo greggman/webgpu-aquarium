@@ -1,0 +1,81 @@
+# WebGPU Aquarium
+
+A procedurally generated underwater world rendered with WebGPU. Every run grows a
+new reef: terrain, rocks, coral, plants, creatures and fish species are all
+generated from a seed, mostly in GPU compute shaders.
+
+## Running
+
+```sh
+npm install
+npm start          # build in watch mode and serve on http://localhost:8080/
+```
+
+Other scripts:
+
+| Command | What it does |
+|---|---|
+| `npm run build` | Production build into `dist/` |
+| `npm run serve` | Serve `dist/` with express |
+| `npm run lint` / `npm run fix` | gts lint / auto-fix |
+| `npm run typecheck` | TypeScript type check |
+| `npm run unit` | Unit tests (math, struct layout, RNG, play area) |
+| `npm test` | Build, unit tests, and the puppeteer smoke test |
+| `npm run shots` | Screenshots for visual review (`--help` for options) |
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Click, then mouse | Look (pointer lock) |
+| W A S D / arrows | Swim |
+| Space / E, C / Q | Up, down |
+| Shift | Swim faster |
+| Touch: left side | Virtual stick to swim |
+| Touch: right side | Drag to look; two fingers drag vertically for up/down |
+| Gamepad | Left stick swim, right stick look, triggers up/down, bumper faster |
+
+After 20 seconds without input the camera takes a cinematic tour of the reef;
+any input hands control back. The camera is kept inside the part of the basin
+that was designed to be seen: a current gently pushes you back near the edges.
+
+## URL parameters
+
+| Parameter | Example | Meaning |
+|---|---|---|
+| `seed` | `?seed=42` | World seed (random if omitted; shown in the HUD) |
+| `quality` | `?quality=mobile` | `mobile`, `medium`, `high`, `ultra` (auto-detected otherwise) |
+| `style` | `?style=golden-hour` | Force a water style: `tropical`, `lagoon`, `deep-blue`, `kelp-forest`, `golden-hour` |
+| `camera` | `?camera=reef` | Start at a preset: `reef`, `kelp`, `wide`, `overhead`, `surface` (disables the tour) |
+| `time` | `?time=20` | Start time in seconds |
+| `paused` | `?paused=1` | Start paused (for deterministic captures) |
+| `profile` | `?profile` | Show frame timing HUD |
+| `hud` | `?hud=0` | Hide the HUD |
+
+## How it works
+
+- **Seafloor**: a compute shader builds a basin heightfield (dunes, outcrops, a
+  ring of cliffs with a gap into deep water), then normals, horizon-based AO and
+  material masks. The data is read back for placement and the play area.
+- **Meshes**: rocks, coral, anemones, urchins, starfish, shells, seahorses,
+  kelp, sea fans, fish and jellyfish are parametric patches evaluated by one
+  generic GPU mesh builder (`src/gen/meshgen.ts`).
+- **Fish**: each seed invents species (body shape, fins, pattern, behaviour).
+  A compute shader runs flocking with terrain, rock and camera avoidance.
+- **Light**: per-channel absorption and scattering, animated compute caustics
+  from the Jacobian of refracted surface waves, a texel-snapped sun shadow map,
+  volumetric shafts raymarched at reduced resolution, Snell's window.
+- **Post**: SSAO, TAA, depth of field, bloom, AgX tone mapping and a per-style
+  colour grade.
+- **Quality tiers** scale resolution, shadow size, volumetric steps and content
+  density; dynamic resolution holds the frame-rate target.
+
+## Development notes
+
+- Every WebGPU object is labelled; in all builds an unlabelled object is reported
+  as an error. `uncapturederror` messages go to the console, the on-screen
+  overlay and `window.__aquarium.errors`.
+- `window.__aquarium` exposes `ready`, `errors`, `frame`, `setCamera`,
+  `setTime`, `step(seconds, frames)` and `pause` for tests.
+- Visual quality is reviewed by the `aaa-judge` agent
+  (`.claude/agents/aaa-judge.md`); verdicts are logged in `JUDGING.md`.
