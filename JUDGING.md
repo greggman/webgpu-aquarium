@@ -217,3 +217,28 @@ Biggest gaps (ranked):
 8. Evenly spaced parallel shafts.
 
 What works: seed2/seed4 surface shots near key-art quality; ribbon school over pillar in seed4-wide; seed3 grade; speckle and cell artifacts fixed; richer coral mix.
+
+## Review 9 — FAIL (avg 6.2)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 6 |
+
+Biggest gaps (ranked):
+1. Materials: uniform mossy clay rocks (need hue/roughness variation, wet top specular, crevice AO); plastic table corals; kelp needs backlit glow on every seed.
+2. Close-up kelp faceted, background slivers between blades.
+3. DOF smear streaks on near terrain, dither checker on seed4 rock; seed1 reef/wide duplicate framing.
+4. Fish don't read as animals up close.
+5. Caustics weak on rock/coral tops.
+6. Reds don't fade with distance.
+7. Lone hard shaft in seed2; milky near shaft in seed4-reef.
+
+What works: shaft bundles (seed3/4 wide), seed2 palette, seed3-reef kelp framing, far terrain dissolve, Snell's window, overhead coral density, seed3-kelp dappling.
