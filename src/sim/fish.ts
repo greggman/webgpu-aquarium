@@ -678,7 +678,9 @@ fn fishBody(pat: Patch, uv: vec2f) -> SurfacePoint {
   let v = uv.y;
   let th = uv.x * TAU;
   let h = bodyProfile(pat, v, pat.p0.x);
-  let w = bodyProfile(pat, v, pat.p0.y);
+  // Real fish carry more volume than a flat profile suggests; a thicker body
+  // keeps them from reading as cards or discs when seen at an angle.
+  let w = bodyProfile(pat, v, max(pat.p0.y * 1.5, pat.p0.x * 0.32));
   let e = 2.0 / pat.p2.w;
   let c = cos(th);
   let s = sin(th);
@@ -723,7 +725,7 @@ fn fishFin(pat: Patch, uv: vec2f, bottom: bool) -> SurfacePoint {
 
 fn fishPectoral(pat: Patch, uv: vec2f, side: f32) -> SurfacePoint {
   let bv = 0.26;
-  let root = vec3f(side * bodyProfile(pat, bv, pat.p0.y) * 0.85, -bodyProfile(pat, bv, pat.p0.x) * 0.3, bodyZ(bv));
+  let root = vec3f(side * bodyProfile(pat, bv, max(pat.p0.y * 1.5, pat.p0.x * 0.32)) * 0.85, -bodyProfile(pat, bv, pat.p0.x) * 0.3, bodyZ(bv));
   let size = pat.p2.x;
   let chord = size * (1.0 - uv.y * 0.55);
   let p = root + vec3f(side * uv.y * size * 0.7, -uv.y * size * 0.25, -uv.x * chord - uv.y * size * 0.45);
@@ -1160,7 +1162,10 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let irid = palette(dot(n, V) * 1.3 + i.uv.y, vec3f(0.5), vec3f(0.5), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
     // Backs are darker and less saturated than the pattern suggests, as on real fish.
     let back = smoothstep(0.3, 0.9, sin(i.uv.x * 6.2831853));
-    c = mix(c, c * vec3f(0.55, 0.6, 0.65), back * 0.5);
+    c = mix(c, c * vec3f(0.4, 0.46, 0.52), back * 0.75);
+    // Pale belly.
+    let belly = smoothstep(-0.2, -0.85, sin(i.uv.x * 6.2831853));
+    c = mix(c, mix(c, vec3f(0.85, 0.85, 0.8), 0.55), belly);
     s.albedo = c * (0.9 + 0.12 * mottle) * mix(1.0, 0.8, scaleEdge) * mix(1.0, 0.7, lateral);
     s.emissive = irid * rim * sp.colAccent.w * 0.05 * max(frame.sunColor.g, 1.0) * 0.2;
     s.roughness = mix(0.42, 0.18, sp.colAccent.w);

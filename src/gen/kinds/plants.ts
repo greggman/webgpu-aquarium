@@ -120,12 +120,13 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     default: {
       // Blades: darker at the base, golden and translucent toward the tips,
       // with faint longitudinal veins and ragged dead tips.
-      let vein = smoothstep(0.85, 1.0, veins);
-      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.97 - 0.08 * vein);
+      // Soft mottling instead of drawn veins: slightly thicker patches let a
+      // little less light through.
+      let mottle = 0.5 + 0.5 * sin(i.uv.y * 9.0 + veins * 2.0);
+      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.94 + 0.06 * mottle);
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
       s.albedo = c;
-      // Veins block some of the light passing through, so they show when backlit.
-      s.translucency = 0.95 - vein * 0.12;
+      s.translucency = 0.9 + 0.08 * mottle;
       s.roughness = 0.45;
       s.f0 = 0.03;
     }
@@ -232,7 +233,8 @@ function grassClump(rng: Rng, hi: boolean): Variant {
           Math.sin(a) * d,
           rng.range(0, Math.PI * 2),
           rng.range(0.35, 0.8),
-          rng.range(0.012, 0.022),
+          // Wide enough to stay above a pixel at mid distance (thin blades alias).
+          rng.range(0.028, 0.045),
           rng.range(0.05, 0.35),
           rng.range(-0.05, 0.1),
           rng.range(0.0, 0.004),
@@ -289,13 +291,14 @@ function kelpPlant(
 
     const bladeCount = Math.round(h * (hi ? 3.6 : 2.0));
     for (let b = 0; b < bladeCount; b++) {
-      const t = 0.12 + (b / bladeCount) * 0.88 + rng.range(-0.02, 0.02);
+      // Irregular spacing and direction, so blades never read as leaf pairs.
+      const t = rng.range(0.1, 1.0);
       const idx = Math.min(
         points.length - 1,
         Math.max(0, Math.round(t * segs)),
       );
       const base = points[idx];
-      const a = b * 2.39996 + rng.range(-0.5, 0.5);
+      const a = rng.range(0, Math.PI * 2);
       // Blades in the top fifth lie along the surface as a canopy.
       const canopy = Math.max(0, (t - 0.8) / 0.2);
       const outward = [
@@ -342,6 +345,34 @@ function kelpPlant(
         );
       }
     }
+  }
+  // Canopy mat: long fronds from the top of the holdfast's stipes spread out
+  // flat just under the surface, overlapping into a dark, light-dappling mat.
+  const mat = hi ? rng.int(14, 22) : rng.int(7, 11);
+  for (let m = 0; m < mat; m++) {
+    const a = rng.range(0, Math.PI * 2);
+    const r = rng.range(0, 0.6);
+    patches.push(
+      P(
+        [
+          Math.cos(a) * r + rng.range(0.5, 2.0),
+          height * rng.range(0.97, 1.0),
+          Math.sin(a) * r,
+          a,
+          rng.range(2.5, 4.5),
+          rng.range(0.16, 0.26),
+          rng.range(0.3, 0.6),
+          1,
+          rng.range(0.04, 0.08),
+          Math.cos(a),
+          rng.range(-0.05, 0.08),
+          Math.sin(a),
+        ],
+        Part.KelpBlade,
+        hi ? 4 : 2,
+        hi ? 24 : 10,
+      ),
+    );
   }
   return {patches, radius: height};
 }
@@ -408,7 +439,7 @@ export async function createPlants(
 
   // Seagrass meadows on sandy ground with the plant mask.
   const meadow = scatter(rng, {
-    count: ctx.count(hi ? 2600 : 1600),
+    count: ctx.count(hi ? 2000 : 1200),
     minDist: 0.35,
     center,
     radius: R + 15,

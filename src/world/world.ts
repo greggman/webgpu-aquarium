@@ -82,17 +82,18 @@ const STYLES: WaterStyle[] = [
   {
     // Kelp coast: murky green-gold, softer light.
     name: 'kelp-forest',
-    absorption: [0.13, 0.045, 0.038],
-    scattering: 0.017,
-    ambient: [0.22, 0.56, 0.84],
-    sunColor: [13, 12, 9],
+    // Temperate kelp coast: clean cool blue-green water, golden kelp.
+    absorption: [0.12, 0.04, 0.03],
+    scattering: 0.016,
+    ambient: [0.2, 0.55, 0.9],
+    sunColor: [13.5, 12.5, 10.5],
     sunElevation: [0.7, 1.0],
     exposure: 0.4,
     grade: grade({
-      lift: [0.008, 0.008, 0.0],
-      gain: [1.08, 1.0, 0.88],
-      saturation: 1.1,
-      grain: 0.45,
+      lift: [0.0, 0.004, 0.012],
+      gain: [1.05, 1.0, 0.94],
+      saturation: 1.12,
+      grain: 0.4,
       bloom: 0.07,
     }),
   },
@@ -312,7 +313,8 @@ export function cameraSpots(
   // From just outside the forest edge, looking in and up toward the canopy,
   // so the lens isn't buried in a blade.
   const kelpTarget = ground(kx, kz);
-  kelpTarget[1] += 5;
+  // Aim well up the stipes so the canopy and the light above it are in frame.
+  kelpTarget[1] += 9;
   const forestR = kelpForests[0]?.radius ?? 8;
   const kelp = spotLookingAt(
     nav,

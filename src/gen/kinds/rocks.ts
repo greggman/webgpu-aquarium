@@ -148,8 +148,11 @@ export async function createRocks(
     scale: number,
     sink: number,
     growth: number,
+    onTop = false,
   ) => {
-    const y = ctx.groundY(x, z) - scale * sink;
+    // Stacked rocks sit on whatever is already there (terrain or other rocks).
+    const base = onTop ? ctx.surfaceTop(x, z) : ctx.groundY(x, z);
+    const y = base - scale * sink;
     const n = ctx.terrain.normalAt(x, z);
     const up: [number, number, number] = [n[0] * 0.6, 1, n[2] * 0.6];
     instances.push({
@@ -168,6 +171,34 @@ export async function createRocks(
       });
     }
   };
+
+  // Bommies: at the most important reef clusters, a tall outcrop of stacked
+  // boulders rises above head height. Upper stones are offset outward so the
+  // mass has overhangs and dark undercuts, and coral later encrusts its top.
+  for (const c of ctx.clusters.slice(0, 3)) {
+    const cx = c.x + rng.range(-1, 1);
+    const cz = c.z + rng.range(-1, 1);
+    const tiers = c.rank === 0 ? 3 : 2;
+    let spread = rng.range(1.6, 2.4);
+    for (let tier = 0; tier < tiers; tier++) {
+      const stones = tier === 0 ? rng.int(3, 4) : rng.int(2, 3);
+      for (let s = 0; s < stones; s++) {
+        const a = rng.range(0, Math.PI * 2);
+        const r = rng.range(0.2, 1) * spread;
+        const scale = rng.range(1.6, 2.6) * (1 - tier * 0.15);
+        place(
+          cx + Math.cos(a) * r,
+          cz + Math.sin(a) * r,
+          scale,
+          tier === 0 ? 0.3 : 0.55,
+          1,
+          tier > 0,
+        );
+      }
+      // Next tier overhangs a little further out on one side.
+      spread *= rng.range(0.7, 1.05);
+    }
+  }
 
   // Foundation rocks under each reef cluster.
   for (const c of ctx.clusters) {

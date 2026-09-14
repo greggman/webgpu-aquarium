@@ -84,7 +84,10 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   let dist = length(p - frame.camPos);
   // Deeper points see blurrier caustics (the focal lines spread out), and
   // distant ones are filtered so they don't shimmer.
-  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06), 0.0, 6.0);
+  // Blurrier on slopes too, so tilted surfaces get soft moving patches rather
+  // than a crisp web of lines.
+  let tilt = 1.0 - clamp(normal.y, 0.0, 1.0);
+  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06) + tilt * 3.5, 0.0, 6.0);
   // Two rotated, rescaled samples multiplied together hide the tiling.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;

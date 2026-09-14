@@ -118,7 +118,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let phase = 0.06 + min(waterPhase(dot(dir, frame.sunDir)), 0.3) * 0.6;
   let raw = accum * frame.scattering * phase * V.strength;
   // Soft clamp: bright shafts roll off instead of blowing the frame out.
-  let current = raw / (1.0 + dot(raw, vec3f(0.2126, 0.7152, 0.0722)) * 0.6);
+  // Seen from above, shafts are edge-on columns that only add a milky smear
+  // over the seabed; fade them when looking down.
+  let lookDown = mix(0.2, 1.0, smoothstep(-0.85, -0.1, dir.y));
+  let current = raw * lookDown / (1.0 + dot(raw, vec3f(0.2126, 0.7152, 0.0722)) * 0.6);
 
   // Temporal accumulation with reprojection of a representative point.
   let rep = frame.camPos + dir * min(dist, 12.0);
