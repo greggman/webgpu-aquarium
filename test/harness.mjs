@@ -37,7 +37,7 @@ export async function openAquarium(ctx, params = {}, viewport = {}) {
     logs.push(line);
     console.log(line);
   });
-  const qs = new URLSearchParams(params).toString();
+  const qs = new URLSearchParams({hud: '0', ...params}).toString();
   await page.goto(`${ctx.base}index.html${qs ? '?' + qs : ''}`, {
     waitUntil: 'load',
   });
