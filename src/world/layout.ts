@@ -37,6 +37,8 @@ export interface GenContext {
   obstacles: NavSphere[];
   /** Kelp forest locations (filled in by the plant generator). */
   kelpForests: KelpForest[];
+  /** Tall thin props (x, base y, z, top y) that clutter a view if right in front of the lens. */
+  tallProps: [number, number, number, number][];
   /** Anemone positions (filled in by the critter generator), homes for clownfish. */
   anemones: [number, number, number][];
   /** A generator stream unique to `name`. */
@@ -66,6 +68,7 @@ export function createGenContext(
     occupied: new SpatialHash(2),
     obstacles,
     kelpForests: [],
+    tallProps: [],
     anemones: [],
     surfaceTop: (x, z) => {
       let top = terrain.heightAt(x, z);

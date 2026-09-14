@@ -326,6 +326,7 @@ function spotLookingAt(
   height: number,
   preferredAngle: number,
   clear: (x: number, z: number) => boolean = () => true,
+  lensClear: (pos: Vec3, target: Vec3) => boolean = () => true,
 ): CameraSpot {
   // Try angles around the preferred one (and a little nearer/further); take
   // the first spot passing every test, else the one failing the fewest.
@@ -353,12 +354,13 @@ function spotLookingAt(
       const score =
         (inside ? 8 : 0) +
         (clear(x, z) ? 2 : 0) +
+        (lensClear(pos, target) ? 1 : 0) +
         (lineOfSight(terrain, pos, target) ? 2 : 0) +
         (openForeground(terrain, nav, pos, target) ? 1 : 0) -
         k * 0.01 -
         (distScale === 1 ? 0 : 0.05) -
         lift * 0.05;
-      if (score >= 13 - 0.2) {
+      if (score >= 14 - 0.2) {
         return spot;
       }
       if (score > bestScore) {
@@ -376,6 +378,7 @@ export function cameraSpots(
   nav: NavVolume,
   clusters: {x: number; y: number; z: number; radius: number}[],
   kelpForests: KelpForest[] = [],
+  tallProps: [number, number, number, number][] = [],
 ): {presets: Record<string, CameraSpot>; tour: TourStop[]} {
   const rng = new Rng(desc.seed ^ 0xca3e7a);
   const c = desc.terrain.center;
@@ -390,6 +393,23 @@ export function cameraSpots(
 
   // Keeps a camera out of kelp stands: blades right in front of the lens
   // hide the subject. Canopies stream downcurrent (+x) from their holdfasts.
+  // Keeps the middle of the frame free of a whip or branch a few metres
+  // ahead, which would only read as out-of-focus clutter over the subject.
+  const lensClear = (pos: Vec3, target: Vec3) => {
+    const hx = target[0] - pos[0];
+    const hz = target[2] - pos[2];
+    const hl = Math.hypot(hx, hz) || 1;
+    return tallProps.every(([x, , z, top]) => {
+      const dx = x - pos[0];
+      const dz = z - pos[2];
+      const along = (dx * hx + dz * hz) / hl;
+      if (along < 0.3 || along > 5 || top < pos[1] - 1.2) {
+        return true;
+      }
+      const across = Math.abs(dx * hz - dz * hx) / hl;
+      return across > 0.5 + along * 0.35;
+    });
+  };
   const kelpClear = (x: number, z: number) =>
     kelpForests.every(f =>
       f.stems.every(([sx, sz]) => Math.hypot(sx + 2.5 - x, sz - z) > 5.5),
@@ -407,6 +427,7 @@ export function cameraSpots(
     1.1,
     gapA + Math.PI + 0.35,
     kelpClear,
+    lensClear,
   );
 
   // Kelp: from just outside the forest edge, on the side away from the sun,
@@ -513,6 +534,7 @@ export function cameraSpots(
     3.6,
     away,
     kelpClear,
+    lensClear,
   );
 
   // Overhead: a high three-quarter view down onto the reef, so the bommie

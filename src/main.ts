@@ -102,6 +102,7 @@ async function main() {
     nav,
     gen.clusters,
     gen.kelpForests,
+    gen.tallProps,
   );
 
   const targetsFormats = {

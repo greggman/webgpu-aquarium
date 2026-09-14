@@ -612,7 +612,7 @@ fn fs(i: VOut) -> FOut {
   // Rock: dark stone, crevices darker still.
   // Layered stone tones from smooth noise (no cell pattern, which tiles into a honeycomb).
   var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.8 + 0.25 * triFine.r);
-  rockCol *= mix(0.6, 1.0, smoothstep(0.3, 0.7, broad.r * 0.7 + triFine.a * 0.3));
+  rockCol *= mix(0.78, 1.0, smoothstep(0.25, 0.75, broad.r * 0.7 + triFine.a * 0.3));
   // Encrusting growth: green algae, pink/orange coralline algae, purple sponge.
   let hueSel = triplanar(p, n, 0.045).r;
   // Short algal turf is olive-brown, not lawn green.
@@ -622,7 +622,7 @@ fn fs(i: VOut) -> FOut {
   var growth = mix(algae, coralline, smoothstep(0.42, 0.58, hueSel));
   growth = mix(growth, sponge, smoothstep(0.62, 0.72, hueSel) * 0.8);
   growth *= 0.85 + 0.3 * triFine.r;
-  let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.4, 0.6, tri.r * 0.75 + triFine.r * 0.25 + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
+  let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.3, 0.75, tri.r * 0.75 + triFine.r * 0.25 + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
   rockCol = mix(rockCol, growth, growthAmt);
 
   // Reef zones: a carpet of coral rubble, not felt. Lumpy broken fragments

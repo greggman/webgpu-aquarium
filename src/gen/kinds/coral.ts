@@ -45,7 +45,9 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let q = dir * pat.p1.x + pat.p2.xyz;
   // Meandering labyrinth: level lines of warped noise become ridges.
   let field = fbm3(q, 4) * pat.p1.y + fbm3(q * 2.3, 2) * 1.5;
-  let ridge = pow(1.0 - abs(sin(field)), 2.5);
+  // Rounded ridges and valleys of similar width, like real meandroid coral
+  // (thin sharp ridges read as painted contour lines).
+  let ridge = smoothstep(-0.75, 0.75, sin(field));
   let rim = smoothstep(0.0, 0.25, uv.y);
   p += dir * (ridge * pat.p1.z * rim + fbm3(q * 0.7, 2) * 0.08);
   // Slight flare and sink at the base.
@@ -165,11 +167,12 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 }
 
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
+  let kind = u32(inst.params.w);
   // Anything right against the lens dissolves instead of smearing the frame.
-  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.35, 1.3, length(frame.camPos - i.world))) {
+  let camDist = length(frame.camPos - i.world);
+  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.3, 0.9, camDist)) {
     discard;
   }
-  let kind = u32(inst.params.w);
   let tint = inst.color.rgb;
   let accent = palette(inst.color.a, vec3f(0.6), vec3f(0.4), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
   let lp = i.local * inst.posScale.w;
@@ -180,7 +183,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let broad = triplanarDetail(lp, nIn, 0.6);
   let cup = smoothstep(0.02, 0.3, polyps.g);
   let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
-  let bumped = bumpFromHeight(nIn, i.world, height, 0.1);
+  // Thin branches get only a faint bump: stretched along a narrow tube the
+  // polyp texture turns into barcode stripes.
+  let thin = kind == ${CoralKind.Whip}u || kind == ${CoralKind.Branching}u;
+  let bumped = bumpFromHeight(nIn, i.world, height, select(0.1, 0.02, thin));
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -198,7 +204,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       var c = base * mix(0.55, 1.05, clamp(along * 0.7 + gen * 0.5, 0.0, 1.0)) * (0.85 + 0.3 * broad.r);
       c = mix(c, mix(tint * 1.25 + 0.08, accent, inst.params.y * 0.6), tip * 0.45);
       // Fine polyp mottling breaks up the smooth gradient along each branch.
-      c *= 0.82 + 0.3 * polyps.r;
+      c *= 0.85 + 0.25 * fine.r;
       // Polyp cups are darker pits.
       c *= mix(0.6, 1.0, smoothstep(0.05, 0.35, i.uv.w)) * mix(0.8, 1.0, cup);
       // Colour varies branch to branch, and the base is shaded by the colony.
@@ -214,8 +220,8 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     }
     case ${CoralKind.Brain}u: {
       let ridge = i.uv.z;
-      let groove = mix(tint * 0.2, accent * 0.25, 0.3);
-      s.albedo = mix(groove, tint * (0.8 + 0.35 * fine.r), smoothstep(0.25, 0.75, ridge));
+      let groove = mix(tint * 0.45, accent * 0.4, 0.25);
+      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridge);
       s.roughness = 0.75;
       s.translucency = 0.1;
     }
@@ -223,21 +229,21 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let top = i.uv.z < 0.5;
       let rim = smoothstep(0.8, 1.0, i.uv.y);
       // Table corals are muted browns and tans with a paler growing rim.
-      let muted = mix(tint, vec3f(0.52, 0.44, 0.32), 0.7);
-      // A plate is a mat of fused radial branchlets: streaks that fan out from
-      // the centre at roughly constant spacing (more of them further out),
-      // broken up by noise, with corallite bumps and irregular dark blotches.
-      let fan = i.uv.x * 6.2831853 * mix(12.0, 70.0, i.uv.y) + fine.g * 5.0 + broad.r * 3.0;
+      let muted = mix(tint, vec3f(0.46, 0.38, 0.26), 0.5);
+      // A plate is a mat of fused radial branchlets: streaks fanning out from
+      // the centre (a fixed count, so no ring-shaped phase moiré), broken up
+      // by noise, with corallite bumps and irregular dark blotches.
+      let fan = i.uv.x * 6.2831853 * 42.0 + fine.g * 4.0 + broad.r * 3.0;
       let streak = smoothstep(0.2, 0.9, 0.5 + 0.5 * sin(fan)) * smoothstep(0.05, 0.3, i.uv.y);
       let blotch = smoothstep(0.35, 0.7, broad.r);
       // Underside is shaded and dull; the top has a darker older centre.
       let centre = smoothstep(0.5, 0.0, i.uv.y);
       var c = muted * select(0.38, 1.0, top) * (0.75 + 0.4 * fine.r) * mix(1.0, 0.72, centre);
-      c *= mix(0.6, 1.0, streak) * mix(0.55, 1.0, cup) * mix(1.0, 0.7, blotch);
-      c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
+      c *= mix(0.8, 1.0, streak) * mix(0.6, 1.0, cup) * mix(1.0, 0.7, blotch);
+      c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.35);
       s.albedo = c;
-      s.roughness = 0.8;
-      s.translucency = 0.2;
+      s.roughness = 0.85;
+      s.translucency = 0.05;
     }
     case ${CoralKind.Sponge}u: {
       let inside = i.uv.z;
@@ -259,7 +265,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // Sea whips: muted, horny axis with a fuzz of polyps; darker at the base.
       let along = i.uv.y;
       let muted = mix(tint, vec3f(dot(tint, vec3f(0.33))), 0.45) * 0.8;
-      s.albedo = muted * mix(0.45, 1.0, smoothstep(0.0, 0.5, along)) * (0.75 + 0.35 * polyps.r) *
+      s.albedo = muted * mix(0.45, 1.0, smoothstep(0.0, 0.5, along)) * (0.8 + 0.25 * fine.r) *
         mix(1.0, 1.15, smoothstep(0.7, 1.0, along));
       s.translucency = 0.25;
       s.roughness = 0.85;
@@ -482,9 +488,11 @@ function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
   // Tiered plates on a short stalk: each tier smaller and offset, like
   // layered Acropora tables, with crinkled rather than star-shaped edges.
   // Mostly single plates; an occasional second, well-offset tier.
-  const tiers = rng.bool(0.25) ? 2 : 1;
+  const tiers = rng.bool(0.12) ? 2 : 1;
   const baseR = rng.range(0.6, 1.1);
-  const stalkH = rng.range(0.2, 0.45);
+  // A short stalk lifts the plate clear of the bottom, so it casts a dark
+  // shadow and never reads as a disc lying in the sand.
+  const stalkH = rng.range(0.25, 0.42);
   const patches: Patch[] = [];
   let top = 0;
   for (let t = 0; t < tiers; t++) {
@@ -680,7 +688,7 @@ export async function createCoral(
     const sink = massive
       ? vi.height * scale * 0.22 + vi.radius * scale * slope * 0.5
       : table
-        ? 0.12 * scale + vi.radius * scale * slope * 0.25
+        ? 0.03 * scale
         : 0.04 * scale;
     const y = ctx.surfaceTop(x, z) - sink;
     instances.push({
@@ -703,6 +711,12 @@ export async function createCoral(
       ],
       variant,
     });
+    if (
+      (kind === CoralKind.Whip || kind === CoralKind.Branching) &&
+      vi.height * scale > 0.35
+    ) {
+      ctx.tallProps.push([x, y, z, y + vi.height * scale]);
+    }
     // Big coral heads are solid to the camera and to fish.
     const v = vi;
     const solid =
