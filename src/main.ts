@@ -15,6 +15,44 @@ import {Caustics, makeWaves, WAVE_TILE} from './render/caustics.ts';
 import {SunShadow} from './render/shadows.ts';
 import {createVolumetrics} from './render/volumetrics.ts';
 import {createSsao} from './render/ssao.ts';
+import {createDof} from './render/post/dof.ts';
+import type {GenContext} from './world/layout.ts';
+
+/** Distance along the view ray to the first terrain, rock or reef hit. */
+function focusDistance(
+  pos: readonly number[],
+  dir: readonly number[],
+  gen: GenContext,
+): number {
+  let best = 30;
+  for (let t = 0.5; t < 30; t += 0.25) {
+    const x = pos[0] + dir[0] * t;
+    const y = pos[1] + dir[1] * t;
+    const z = pos[2] + dir[2] * t;
+    if (y < gen.terrain.heightAt(x, z) + 0.3) {
+      best = t;
+      break;
+    }
+  }
+  const hits = [
+    ...gen.obstacles.map(o => ({c: o.center, r: o.radius})),
+    ...gen.clusters.map(c => ({c: [c.x, c.y + 0.8, c.z], r: c.radius * 0.6})),
+  ];
+  for (const h of hits) {
+    const ox = h.c[0] - pos[0];
+    const oy = h.c[1] - pos[1];
+    const oz = h.c[2] - pos[2];
+    const along = ox * dir[0] + oy * dir[1] + oz * dir[2];
+    if (along <= 0) {
+      continue;
+    }
+    const d2 = ox * ox + oy * oy + oz * oz - along * along;
+    if (d2 < h.r * h.r) {
+      best = Math.min(best, Math.max(0.5, along - Math.sqrt(h.r * h.r - d2)));
+    }
+  }
+  return best;
+}
 import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
@@ -132,7 +170,12 @@ async function main() {
     await createSsao(renderer),
     volumetrics,
   );
-  renderer.post.push(taa, {
+  const dof = quality.dof ? await createDof(device) : null;
+  renderer.post.push(taa);
+  if (dof) {
+    renderer.post.push(dof);
+  }
+  renderer.post.push({
     name: 'bloom',
     resize: t => bloom.resize(t),
     run: (ctx, input) => {
@@ -226,6 +269,7 @@ async function main() {
   let lastFrameStart = performance.now();
   let fpsAvg = 60;
   let frameIndex = 0;
+  let focus = 8;
   let gpuMs = 0;
   let cpuMs = 0;
   let gpuPending = false;
@@ -298,12 +342,15 @@ async function main() {
     jitteredProj[8] += (jx * 2) / t.width;
     jitteredProj[9] += (jy * 2) / t.height;
     mat4.multiply(jitteredProj, view, jitteredViewProj);
-    shadow.update(
-      pose.pos,
-      forwardFromAngles(pose.yaw, pose.pitch),
-      desc.sunDir,
-      desc.surfaceY,
-    );
+    const forward = forwardFromAngles(pose.yaw, pose.pitch);
+    shadow.update(pose.pos, forward, desc.sunDir, desc.surfaceY);
+    if (dof) {
+      // Focus on whatever the camera is looking at, eased like a camera operator would.
+      const target = focusDistance(pose.pos, forward, gen);
+      const ease = 1 - Math.exp(-(clock.paused ? 0.2 : realDt) * 3);
+      focus += (target - focus) * ease;
+      dof.setFocus(focus);
+    }
 
     const g = renderer.globals.data;
     g.set('view', view);

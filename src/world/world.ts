@@ -335,7 +335,18 @@ export function cameraSpots(
     target: reefTarget,
   };
 
-  const presets = {reef, kelp, wide, overhead};
+  // Surface: low beside the hero reef, looking up toward the sun through the
+  // shafts at Snell's window.
+  const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
+  const upX = hero.x - Math.cos(sunFlat) * (hero.radius + 2);
+  const upZ = hero.z - Math.sin(sunFlat) * (hero.radius + 2);
+  const upY = Math.min(nav.floorAt(upX, upZ) + 0.6, nav.ceiling() - 2);
+  const surface: CameraSpot = {
+    pos: [upX, upY, upZ],
+    target: [upX + Math.cos(sunFlat) * 5, upY + 6, upZ + Math.sin(sunFlat) * 5],
+  };
+
+  const presets = {reef, kelp, wide, overhead, surface};
 
   // Tour: visit the reef clusters (and the kelp) in order around the basin,
   // alternating low and high passes.
