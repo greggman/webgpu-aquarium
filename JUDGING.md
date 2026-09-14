@@ -191,3 +191,29 @@ Biggest gaps (ranked):
 7. Surface camera has no subject.
 
 What works: seed2-reef frame, mid-distance kelp forests, ripple distance fade, palettes, temporal stability, surface sunburst.
+
+## Review 8 — FAIL (avg 6.1)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 5 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 6 |
+
+Biggest gaps (ranked):
+1. Materials: plastic table plates (need rim thickness, dark AO underside), clay rocks with black decal pits, DOF smearing near terrain into colour.
+2. Kelp close-ups like lettuce: blades along the whole stipe, faceted edges, weak sway.
+3. Caustics over-softened: bring back a sharp animated network on sand, rock tops and coral.
+4. Hero fish still toys; mid-distance fish blurred.
+5. Framing: reef/wide near-duplicates; bare blurred mound foregrounds; overhead lacks a focal point.
+6. Bommies read as snowman stacks.
+7. Far ridges silhouette hard; seed 2 lacks vertical gradient; bright cyan background mound.
+8. Evenly spaced parallel shafts.
+
+What works: seed2/seed4 surface shots near key-art quality; ribbon school over pillar in seed4-wide; seed3 grade; speckle and cell artifacts fixed; richer coral mix.
