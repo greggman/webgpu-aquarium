@@ -337,3 +337,28 @@ Biggest gaps (ranked):
 5. Empty surface frames and subjectless wide shot (seed4).
 
 What works: seed4-wide veil fixed, muted sea whips, no glowing snouts, seed2 deep-blue grade, seed4-reef warm shafts, caustics, stability.
+
+## Review 14 — FAIL (avg 6.8)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 7 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 7 |
+| 7 | Composition, grade & mood | 7 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 7 |
+
+Biggest gaps (ranked):
+1. Pillars read as stacked pancakes (regular ledges).
+2. Brain coral veins are colour not relief; table corals flat discs.
+3. Edge-on tables and base-less whip fragments at the surface lens.
+4. Kelp uniform hedge; far LOD reads as streak cards.
+5. Same rock palette in every seed.
+6. Weak focal hierarchy in reef/wide shots.
+7. Curious fish soft/ghosted near lens.
+
+What works: surface cameras near reference mood, kelp backlighting, school volumes, sand caustics, no floating coral, distance fog.
