@@ -443,7 +443,8 @@ export function cameraSpots(
   const overhead: CameraSpot = {
     pos: [
       hero.x + Math.cos(ohA) * 5.8,
-      nav.ceiling() - 0.5,
+      // Drop below the kelp canopy when a forest is close by.
+      nav.ceiling() - (ohBest < 12 ? 2.5 : 0.5),
       hero.z + Math.sin(ohA) * 5.8,
     ],
     target: reefTarget,

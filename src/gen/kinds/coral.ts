@@ -214,8 +214,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let fan = i.uv.x * 6.2831853 * mix(12.0, 70.0, i.uv.y) + fine.g * 5.0 + broad.r * 3.0;
       let streak = smoothstep(0.2, 0.9, 0.5 + 0.5 * sin(fan)) * smoothstep(0.05, 0.3, i.uv.y);
       let blotch = smoothstep(0.35, 0.7, broad.r);
-      var c = muted * select(0.62, 1.0, top) * (0.75 + 0.4 * fine.r);
-      c *= mix(0.82, 1.0, streak) * mix(0.85, 1.0, cup) * mix(1.0, 0.75, blotch);
+      // Underside is shaded and dull; the top has a darker older centre.
+      let centre = smoothstep(0.5, 0.0, i.uv.y);
+      var c = muted * select(0.38, 1.0, top) * (0.75 + 0.4 * fine.r) * mix(1.0, 0.72, centre);
+      c *= mix(0.7, 1.0, streak) * mix(0.62, 1.0, cup) * mix(1.0, 0.75, blotch);
       c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
       s.albedo = c;
       s.roughness = 0.8;
@@ -648,13 +650,16 @@ export async function createCoral(
     // Massive heads grow up out of the substrate: bury their base (and seat
     // them along the slope) so no dark underside or floating rim shows.
     const massive = kind === CoralKind.Brain || kind === CoralKind.Sponge;
+    const table = kind === CoralKind.Table;
     if (massive) {
       lean = Math.max(lean, 0.7);
     }
     const slope = Math.hypot(n[0], n[2]) / Math.max(n[1], 0.2);
     const sink = massive
       ? vi.height * scale * 0.22 + vi.radius * scale * slope * 0.5
-      : 0.04 * scale;
+      : table
+        ? 0.12 * scale + vi.radius * scale * slope * 0.25
+        : 0.04 * scale;
     const y = ctx.surfaceTop(x, z) - sink;
     instances.push({
       pos: [x, y, z],

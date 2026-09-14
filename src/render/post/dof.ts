@@ -35,7 +35,8 @@ fn cocAt(p: vec2i) -> f32 {
   // is deep when focused far and shallow when focused close, like a real lens.
   // Signed: negative in front of the focus plane, positive behind. Background
   // blur is capped lower than foreground: distant water is soft already.
-  return clamp((1.0 / dof.focus - 1.0 / z) * dof.aperture, -dof.maxCoc, dof.maxCoc * 0.3);
+  // Near blur is capped too: a smeared foreground reads as a mistake, not a lens.
+  return clamp((1.0 / dof.focus - 1.0 / z) * dof.aperture, -dof.maxCoc * 0.5, dof.maxCoc * 0.3);
 }
 
 // Downsample to half resolution, storing colour and CoC (in pixels at half res).
@@ -240,7 +241,7 @@ export async function createDof(
         return input;
       }
       // Aperture scales with resolution so the look is resolution independent.
-      const aperture = (targets.height / 1080) * 9;
+      const aperture = (targets.height / 1080) * 6;
       device.queue.writeBuffer(
         uniform,
         0,

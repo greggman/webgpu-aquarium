@@ -101,6 +101,11 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 }
 
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
+  // Blades right in front of the lens dissolve rather than smear the frame.
+  let camD = length(frame.camPos - i.world);
+  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.4, 1.8, camD)) {
+    discard;
+  }
   let part = u32(i.uv.w + 0.5);
   let tint = inst.color.rgb;
   var s = defaultSurface();
@@ -297,11 +302,11 @@ function kelpPlant(
     );
 
     // Few, broad blades: giant kelp reads as ribbons, not a leafy hedge.
-    const bladeCount = Math.round(h * (hi ? 1.7 : 1.0));
+    const bladeCount = Math.round(h * (hi ? 2.0 : 1.1));
     for (let b = 0; b < bladeCount; b++) {
       // Irregular spacing and direction, so blades never read as leaf pairs.
-      // The lower third of each stipe is bare trunk.
-      const t = rng.range(0.35, 1.0);
+      // Blades grow along nearly the whole stipe; only the very base is bare.
+      const t = 0.12 + Math.pow(rng.float(), 0.8) * 0.88;
       const idx = Math.min(
         points.length - 1,
         Math.max(0, Math.round(t * segs)),
@@ -335,7 +340,7 @@ function kelpPlant(
           ],
           Part.KelpBlade,
           hi ? 6 : 2,
-          hi ? 24 : 9,
+          hi ? 36 : 9,
         ),
       );
       // Every blade springs from a gas bladder.
@@ -539,7 +544,7 @@ export async function createPlants(
           ),
           // Olive-brown: saturated yellow turns saffron when backlit.
           color: [0.46 * g, 0.38 * g, 0.16 * g, 0],
-          params: [rng.range(0, 100), 0.014, 0, 0],
+          params: [rng.range(0, 100), 0.024, 0, 0],
           variant: kelpVariants[vi],
         });
         stems.push([x, z]);

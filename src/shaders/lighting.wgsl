@@ -93,13 +93,15 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;
   let c2 = textureSampleLevel(tCaustics, sLinearRepeat, rot * uv * 0.73 + 0.31, lod).rgb;
   // Soft-compress the focal lines so they sparkle without blowing out.
-  let raw = sqrt(c1 * c2) * 1.1;
-  // Peaks roll off hard: close to the camera the focal lines are sharp and
+  // The geometric mean of two uncorrelated patterns loses contrast: restore
+  // it so the focal network reads as bright lines over darker cells.
+  let raw = pow(sqrt(c1 * c2), vec3f(1.7)) * 1.35;
+  // Peaks roll off: close to the camera the focal lines are sharp and
   // would otherwise blow out into white blotches on bright sand.
-  let c = raw / (1.0 + max(raw - vec3f(0.9), vec3f(0.0)) * 0.9);
+  let c = raw / (1.0 + max(raw - vec3f(1.1), vec3f(0.0)) * 0.5);
   // Distance and slope both mute the pattern: far floors would otherwise read
   // as a tiled web, and slopes as bright white netting.
-  let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.025) *
+  let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.015) *
     mix(1.0, 0.4, smoothstep(18.0, 45.0, dist)) * mix(1.0, 0.35, smoothstep(0.08, 0.45, tilt));
   // Only surfaces facing the sun catch the pattern; steep faces would smear it.
   let facing = smoothstep(0.45, 0.92, dot(normal, frame.sunDir));

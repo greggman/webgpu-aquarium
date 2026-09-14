@@ -237,7 +237,8 @@ export async function createRocks(
         1,
       );
     }
-    if (big || rng.bool(0.5)) {
+    // Only occasionally a second head on top; usually coral crowns the pillar.
+    if (rng.bool(0.25)) {
       const a = rng.range(0, Math.PI * 2);
       place(
         cx + Math.cos(a) * scale * 0.45,
