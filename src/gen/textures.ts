@@ -33,7 +33,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   // b: sand ripples, warped so they wander like real wave ripples
   let warp = fbm2p(uv * 3.0, 4, 3) * 2.2 + fbm2p(uv * 11.0, 2, 11) * 0.25;
-  let phase = (uv.y + uv.x * 0.18) * 20.0 + warp;
+  // Whole cycles across the tile in both axes, so the ripples wrap seamlessly.
+  let phase = (uv.y + uv.x * 0.2) * 20.0 + warp;
   let ripple = pow(0.5 + 0.5 * sin(phase * 6.2831853), 1.6);
 
   // a: fine grain

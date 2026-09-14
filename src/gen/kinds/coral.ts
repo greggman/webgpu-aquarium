@@ -30,7 +30,8 @@ fn branchSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let bump = (smoothstep(0.0, 0.45, cells) - 0.5) * pat.p1.y;
   let fade = smoothstep(0.0, 0.06, uv.y);
   o.pos += o.normal * bump * fade;
-  o.normal = vec3f(0.0);
+  // Keep the smooth analytic tube normal: finite differences across only a
+  // few segments facet the branch into a prism.
   o.uv = vec4f(uv.x, uv.y, pat.p0.w, cells);
   o.ao = mix(0.45, 1.0, clamp(uv.y * 0.6 + pat.p0.w * 0.6, 0.0, 1.0));
   o.mat = f32(${CoralKind.Branching});
@@ -44,7 +45,10 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   var p = dir * pat.p0.xyz;
   let q = dir * pat.p1.x + pat.p2.xyz;
   // Meandering labyrinth: level lines of warped noise become ridges.
-  let field = fbm3(q, 4) * pat.p1.y + fbm3(q * 2.3, 2) * 1.5;
+  // Evenly spaced valleys (a stripe field bent by noise) rather than noise
+  // level lines, which come out as irregular map-like blotches.
+  let stripeDir = normalize(vec3f(sin(pat.p2.x), 0.3 * cos(pat.p2.y), cos(pat.p2.x)));
+  let field = dot(dir, stripeDir) * pat.p1.y * 3.2 + fbm3(q * 0.8, 3) * 7.0 + fbm3(q * 2.0, 2) * 1.6;
   // Rounded ridges and valleys of similar width, like real meandroid coral
   // (thin sharp ridges read as painted contour lines).
   let ridge = smoothstep(-0.75, 0.75, sin(field));
@@ -181,7 +185,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // Thin branches get only a faint bump: stretched along a narrow tube the
   // polyp texture turns into barcode stripes.
   let thin = kind == ${CoralKind.Whip}u || kind == ${CoralKind.Branching}u;
-  let bumped = bumpFromHeight(nIn, i.world, height, select(0.1, 0.02, thin));
+  // Massive heads: the meander ridges themselves also drive the bump, so the
+  // relief reads at pixel scale (not just as colour).
+  let brainRidge = select(0.0, i.uv.z * 1.5, kind == ${CoralKind.Brain}u);
+  let bumped = bumpFromHeight(nIn, i.world, height + brainRidge, select(0.12, 0.02, thin));
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -215,9 +222,12 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     }
     case ${CoralKind.Brain}u: {
       let ridge = i.uv.z;
-      let groove = mix(tint * 0.45, accent * 0.4, 0.25);
-      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridge);
-      s.roughness = 0.75;
+      // Grooves only slightly darker in albedo; the relief and AO carry the rest.
+      let groove = mix(tint * 0.75, accent * 0.6, 0.15);
+      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridge) * (0.9 + 0.2 * polyps.r);
+      s.ao *= mix(0.55, 1.0, ridge);
+      // A thin wet sheen on the ridge crests.
+      s.roughness = mix(0.8, 0.45, ridge);
       s.translucency = 0.1;
     }
     case ${CoralKind.Table}u: {
@@ -356,12 +366,13 @@ function branchingVariant(
   const patches: Patch[] = chains.map(c => {
     const {offset, count} = aux.addChain(c.points);
     return {
-      segU: hi ? 8 : 5,
+      segU: hi ? 12 : 5,
       segV: Math.max(4, count * (hi ? 3 : 2)),
       params: [
         offset,
         count,
-        c.depth === c.maxDepth || c.points.length < 5 ? 0.12 : 0.06,
+        // Rounded, blunt growing tips.
+        c.depth === c.maxDepth || c.points.length < 5 ? 0.22 : 0.1,
         c.maxDepth ? c.depth / c.maxDepth : 1,
         rng.range(28, 45),
         0.006,
@@ -458,9 +469,9 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
           0,
           // Few, broad meanders that the mesh can actually resolve (a fine
           // labyrinth aliases into scattered dots).
-          rng.range(1.8, 2.6),
-          rng.range(5, 8),
-          rng.range(0.06, 0.09),
+          rng.range(2.4, 3.2),
+          rng.range(6, 9),
+          rng.range(0.05, 0.08),
           0,
           rng.range(-40, 40),
           rng.range(-40, 40),

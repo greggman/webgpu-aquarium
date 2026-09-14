@@ -1364,7 +1364,10 @@ export async function createFish(
           ctx.clusters[
             Math.min(
               ctx.clusters.length - 1,
-              Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length),
+              // A good share gathers at the hero reef, where the cameras look.
+              rng.bool(0.4)
+                ? 0
+                : Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length),
             )
           ];
         home = [c.x, c.y + 1.2, c.z, c.radius + s.homeRadius];
