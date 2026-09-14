@@ -29,3 +29,32 @@ Biggest gaps (ranked):
 8. Seeds 1 and 2 look too alike.
 
 What works: temporal stability, animated chromatic caustics, smooth fog, dappled kelp light, seed 3's blue grade, jellyfish translucency, ray shadow.
+
+## Review 2 — commit 94f207b — FAIL (avg 5.2)
+
+Evidence: seeds 1–4 × reef/wide/kelp/overhead, high tier, 1080p, 2-frame sequences.
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 6 |
+| 2 | Water medium | 6 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 4 |
+| 5 | Geometry & silhouettes | 4 |
+| 6 | Life & animation | 5 |
+| 7 | Composition, grade & mood | 5 |
+| 8 | Variety across seeds | 6 |
+| 9 | Technical artifacts | 5 |
+
+Biggest gaps (ranked):
+1. Rocks read as faceted pyramids with glossy marbled Voronoi cells instead of porous, layered, encrusted reef rock.
+2. The reef is dominated by one tube-coral generator; plates look like lily pads.
+3. Kelp still reads as bamboo: needs wavy leaning stipes, wide ruffled blades, a surface canopy, fish.
+4. Shafts: hard-edged background columns with moiré; blowout in one seed; no occlusion gaps.
+5. Life too small and far: needs hero fish within 2–4 m and fish in the kelp.
+6. Seeds 1 and 3 water grades too flat (cyan wash / green soup).
+7. Composition: reef centred on flat sand; frame against open blue or rock walls.
+8. Caustics smear on steep faces and look like a pool from above; black hole under table coral.
+
+Already addressed after this capture (before review 3): terrain pinnacles removed, smooth
+terrain cap, DOF with depth-buffer autofocus, clearer lagoon/kelp styles.
