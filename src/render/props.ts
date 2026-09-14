@@ -160,6 +160,11 @@ export interface PropKindOptions {
   alphaTest?: boolean;
   castShadows?: boolean;
   cullMode?: GPUCullMode;
+  /**
+   * Level of detail: `low[v]` is a cheaper stand-in variant for variant `v`
+   * (or -1), used beyond `distance` metres and always in the shadow pass.
+   */
+  lod?: {low: number[]; distance: number};
 }
 
 export function packInstances(list: Instance[]): {
@@ -252,6 +257,10 @@ export async function createPropKind(
   // camera or the shadow map can see are copied into the GPU buffer: first the
   // camera-visible set, then the shadow-visible set, each grouped by variant.
   const {data, ranges} = packInstances(o.instances);
+  // Every mesh variant gets a range (LOD stand-ins may have no instances of their own).
+  while (ranges.length < o.mesh.variants.length) {
+    ranges.push({first: o.instances.length, count: 0});
+  }
   const FLOATS = INSTANCE_SIZE / 4;
   const count = Math.max(1, o.instances.length);
   const variantOf = new Uint16Array(count);
@@ -279,6 +288,15 @@ export async function createPropKind(
   const shadowRanges = ranges.map(() => ({first: 0, count: 0}));
   const castShadows = o.castShadows !== false;
 
+  const lowOf = ranges.map((_, v) => o.lod?.low[v] ?? -1);
+  const lodD2 = (o.lod?.distance ?? Infinity) ** 2;
+  // Instances drawn with variant w: its own, plus those of variants whose
+  // low-detail stand-in is w.
+  const sourcesOf = ranges.map((_, w) => [
+    w,
+    ...lowOf.flatMap((l, u) => (l === w && u !== w ? [u] : [])),
+  ]);
+
   const cull = (view: CullView) => {
     const m = view.viewProj;
     const sm = view.shadowViewProj;
@@ -286,61 +304,79 @@ export async function createPropKind(
     const maxD2 = view.maxDistance * view.maxDistance;
     let cursor = 0;
     // Camera pass.
-    for (let v = 0; v < variantCount; v++) {
-      const r = ranges[v];
-      camRanges[v].first = cursor;
-      for (let i = r.first; i < r.first + r.count; i++) {
-        const b = i * FLOATS;
-        const x = data[b];
-        const y = data[b + 1];
-        const z = data[b + 2];
-        const rad = radiusOf[i];
-        const dx = x - cp[0];
-        const dy = y - cp[1];
-        const dz = z - cp[2];
-        if (dx * dx + dy * dy + dz * dz > maxD2 + rad * rad * 4) {
+    for (let w = 0; w < variantCount; w++) {
+      camRanges[w].first = cursor;
+      for (const v of sourcesOf[w]) {
+        const r = ranges[v];
+        if (!r) {
           continue;
         }
-        // Clip-space sphere test against the side planes (w = distance ahead).
-        const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
-        const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
-        const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
-        const pad = rad * 1.5;
-        if (
-          cw < -pad ||
-          cx > cw * 1.05 + pad * 1.2 ||
-          cx < -cw * 1.05 - pad * 1.2 ||
-          cy > cw * 1.05 + pad * 1.2 ||
-          cy < -cw * 1.05 - pad * 1.2
-        ) {
-          continue;
-        }
-        visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
-        cursor++;
-      }
-      camRanges[v].count = cursor - camRanges[v].first;
-    }
-    // Shadow pass: inside the orthographic shadow box.
-    for (let v = 0; v < variantCount; v++) {
-      const r = ranges[v];
-      shadowRanges[v].first = cursor;
-      if (castShadows) {
+        const own = v === w;
+        const hasLow = lowOf[v] >= 0 && lowOf[v] !== v;
         for (let i = r.first; i < r.first + r.count; i++) {
           const b = i * FLOATS;
           const x = data[b];
           const y = data[b + 1];
           const z = data[b + 2];
-          const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
-          const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
-          const pad = radiusOf[i] * Math.abs(sm[0]) * 1.5;
-          if (Math.abs(sx) > 1 + pad || Math.abs(sy) > 1 + pad) {
+          const rad = radiusOf[i];
+          const dx = x - cp[0];
+          const dy = y - cp[1];
+          const dz = z - cp[2];
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > maxD2 + rad * rad * 4) {
+            continue;
+          }
+          // Near instances draw at full detail, far ones as their stand-in.
+          const far = d2 > lodD2;
+          if (own ? hasLow && far : !far) {
+            continue;
+          }
+          // Clip-space sphere test against the side planes (w = distance ahead).
+          const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+          const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+          const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+          const pad = rad * 1.5;
+          if (
+            cw < -pad ||
+            cx > cw * 1.05 + pad * 1.2 ||
+            cx < -cw * 1.05 - pad * 1.2 ||
+            cy > cw * 1.05 + pad * 1.2 ||
+            cy < -cw * 1.05 - pad * 1.2
+          ) {
             continue;
           }
           visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
           cursor++;
         }
       }
-      shadowRanges[v].count = cursor - shadowRanges[v].first;
+      camRanges[w].count = cursor - camRanges[w].first;
+    }
+    // Shadow pass: inside the orthographic shadow box, at low detail.
+    for (let w = 0; w < variantCount; w++) {
+      shadowRanges[w].first = cursor;
+      if (castShadows) {
+        for (const v of sourcesOf[w]) {
+          const r = ranges[v];
+          if (!r || (v === w && lowOf[v] >= 0 && lowOf[v] !== v)) {
+            continue;
+          }
+          for (let i = r.first; i < r.first + r.count; i++) {
+            const b = i * FLOATS;
+            const x = data[b];
+            const y = data[b + 1];
+            const z = data[b + 2];
+            const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
+            const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
+            const pad = radiusOf[i] * Math.abs(sm[0]) * 1.5;
+            if (Math.abs(sx) > 1 + pad || Math.abs(sy) > 1 + pad) {
+              continue;
+            }
+            visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
+            cursor++;
+          }
+        }
+      }
+      shadowRanges[w].count = cursor - shadowRanges[w].first;
     }
     if (cursor) {
       device.queue.writeBuffer(

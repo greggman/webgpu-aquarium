@@ -5,7 +5,7 @@ import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
 import {AuxBuilder} from '../tree.ts';
-import type {Rng} from '../../core/rng.ts';
+import {Rng} from '../../core/rng.ts';
 import shapes from '../../shaders/shapes.wgsl';
 import propsWgsl from '../../shaders/props.wgsl';
 import {scatter} from '../../world/scatter.ts';
@@ -274,6 +274,8 @@ function kelpPlant(
   aux: AuxBuilder,
   height: number,
   hi: boolean,
+  /** Same plant (same random choices) with coarse tessellation, for distance. */
+  coarse = false,
 ): Variant {
   const patches: Patch[] = [];
   // Giant kelp: a holdfast sends up several stipes that all climb to the
@@ -307,7 +309,12 @@ function kelpPlant(
     }
     const stipe = aux.addChain(points);
     patches.push(
-      P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
+      P(
+        [stipe.offset, stipe.count],
+        Part.Stipe,
+        hi && !coarse ? 6 : 3,
+        coarse ? segs : segs * 2,
+      ),
     );
 
     // Few, broad blades: giant kelp reads as ribbons, not a leafy hedge.
@@ -348,8 +355,8 @@ function kelpPlant(
             ...outward,
           ],
           Part.KelpBlade,
-          hi ? 4 : 2,
-          hi ? 22 : 9,
+          hi && !coarse ? 4 : 1,
+          hi && !coarse ? 22 : 6,
         ),
       );
       // Every blade springs from a gas bladder.
@@ -364,8 +371,8 @@ function kelpPlant(
               rng.range(0.03, 0.05),
             ],
             Part.Bladder,
-            8,
-            6,
+            coarse ? 4 : 8,
+            coarse ? 3 : 6,
           ),
         );
       }
@@ -394,8 +401,8 @@ function kelpPlant(
           Math.sin(a),
         ],
         Part.KelpBlade,
-        hi ? 4 : 2,
-        hi ? 24 : 10,
+        hi && !coarse ? 4 : 1,
+        hi && !coarse ? 24 : 7,
       ),
     );
   }
@@ -439,11 +446,15 @@ export async function createPlants(
     grassVariants.push(variants.length);
     variants.push(grassClump(rng, hi));
   }
+  const kelpLow: [number, number][] = [];
   for (let i = 0; i < 5; i++) {
     kelpVariants.push(variants.length);
     const kelpHeight = rng.range(9, 14);
     kelpHeights.push(kelpHeight);
-    variants.push(kelpPlant(rng, aux, kelpHeight, hi));
+    const seed = rng.nextU32();
+    variants.push(kelpPlant(new Rng(seed), aux, kelpHeight, hi));
+    kelpLow.push([variants.length - 1, variants.length]);
+    variants.push(kelpPlant(new Rng(seed), aux, kelpHeight, hi, true));
   }
   const mesh = await buildMesh(
     renderer.device,
@@ -517,7 +528,8 @@ export async function createPlants(
     const clumps = scatter(
       rng,
       {
-        count: ctx.count(hi ? 34 : 20),
+        // Stands with open lanes between them, so blue water shows through.
+        count: ctx.count(hi ? 26 : 16),
         minDist: 3.2,
         center: fc,
         radius: rng.range(10, 15),
@@ -552,7 +564,7 @@ export async function createPlants(
             rng.range(-0.3, 0.3),
           ),
           // Olive-brown: saturated yellow turns saffron when backlit.
-          color: [0.46 * g, 0.38 * g, 0.16 * g, 0],
+          color: [0.4 * g, 0.37 * g, 0.18 * g, 0],
           params: [rng.range(0, 100), 0.024, 0, 0],
           variant: kelpVariants[vi],
         });
@@ -606,6 +618,10 @@ export async function createPlants(
       mesh,
       instances,
       wgsl: plantMaterial,
+      lod: {
+        low: variants.map((_, v) => kelpLow.find(k => k[0] === v)?.[1] ?? -1),
+        distance: 14,
+      },
     }),
     createPropKind(renderer, {
       name: 'fans',

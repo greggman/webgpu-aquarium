@@ -56,13 +56,19 @@ const STYLES: WaterStyle[] = [
   {
     // Emerald lagoon: green-teal water.
     name: 'lagoon',
-    absorption: [0.11, 0.03, 0.022],
-    scattering: 0.02,
-    ambient: [0.22, 0.66, 1.0],
-    sunColor: [13.5, 13, 10.8],
+    absorption: [0.11, 0.032, 0.026],
+    scattering: 0.015,
+    ambient: [0.2, 0.62, 1.0],
+    sunColor: [14, 13.2, 11],
     sunElevation: [0.75, 1.05],
-    exposure: 0.36,
-    grade: grade({lift: [0.004, 0.008, 0.0], gain: [1.06, 1.0, 0.92]}),
+    exposure: 0.37,
+    grade: grade({
+      lift: [0.0, 0.004, 0.006],
+      gamma: [1.0, 1.0, 1.02],
+      gain: [1.08, 1.0, 0.92],
+      contrast: 1.26,
+      saturation: 1.22,
+    }),
   },
   {
     // Deep indigo open-ocean blue with high contrast.
@@ -281,8 +287,22 @@ function openForeground(
   };
   const heading = Math.atan2(b[2] - a[2], b[0] - a[0]);
   const base = terrain.heightAt(a[0], a[2]);
+  // Sitting on a ridge crest that runs away from the lens fills the bottom of
+  // the frame with its smooth back.
+  const px = -Math.sin(heading);
+  const pz = Math.cos(heading);
+  for (const t of [1.5, 3, 4.5]) {
+    const cx = a[0] + Math.cos(heading) * t;
+    const cz = a[2] + Math.sin(heading) * t;
+    const c = terrain.heightAt(cx, cz);
+    const l = terrain.heightAt(cx + px * 3, cz + pz * 3);
+    const r = terrain.heightAt(cx - px * 3, cz - pz * 3);
+    if (c - Math.min(l, r) > 0.6 && c > a[1] - 1.8) {
+      return false;
+    }
+  }
   // A fan across the lower half of the frame, not just the centre line.
-  for (const off of [-0.45, -0.22, 0, 0.22, 0.45]) {
+  for (const off of [-0.6, -0.3, 0, 0.3, 0.6]) {
     const dx = Math.cos(heading + off);
     const dz = Math.sin(heading + off);
     for (let t = 1; t <= 8; t += 0.5) {
@@ -311,14 +331,20 @@ function spotLookingAt(
   // the first spot passing every test, else the one failing the fewest.
   let best: CameraSpot | null = null;
   let bestScore = -Infinity;
-  for (const distScale of [1, 0.8, 1.25]) {
+  for (const [distScale, lift] of [
+    [1, 0],
+    [0.8, 0],
+    [1.25, 0],
+    [1, 1.3],
+    [1.25, 2.6],
+  ]) {
     for (let k = 0; k < 16; k++) {
       const a = preferredAngle + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.4;
       const d = dist * distScale;
       const x = target[0] + Math.cos(a) * d;
       const z = target[2] + Math.sin(a) * d;
       const y = Math.min(
-        Math.max(terrain.heightAt(x, z), target[1] - 1) + height,
+        Math.max(terrain.heightAt(x, z), target[1] - 1) + height + lift,
         nav.ceiling() - 0.5,
       );
       const pos: Vec3 = [x, Math.max(y, nav.floorAt(x, z) + 0.2), z];
@@ -330,7 +356,8 @@ function spotLookingAt(
         (lineOfSight(terrain, pos, target) ? 2 : 0) +
         (openForeground(terrain, nav, pos, target) ? 1 : 0) -
         k * 0.01 -
-        (distScale === 1 ? 0 : 0.05);
+        (distScale === 1 ? 0 : 0.05) -
+        lift * 0.05;
       if (score >= 13 - 0.2) {
         return spot;
       }
@@ -405,9 +432,9 @@ export function cameraSpots(
     }
     let best: [number, number, number] | undefined;
     let bestScore = -Infinity;
-    for (let i = 0; i < 48; i++) {
-      const a = sunFlat + Math.PI + rng.range(-1.2, 1.2);
-      const r = rng.range(extent * 0.7, extent + 10);
+    for (let i = 0; i < 120; i++) {
+      const a = sunFlat + Math.PI + rng.range(-Math.PI, Math.PI);
+      const r = rng.range(extent * 0.8, extent + 14);
       const x = fx + Math.cos(a) * r;
       const z = fz + Math.sin(a) * r;
       const y = Math.min(nav.floorAt(x, z) + 3, nav.ceiling() - 1);
@@ -423,13 +450,15 @@ export function cameraSpots(
           gap = Math.min(gap, Math.hypot(sx + along - x, sz - z));
         }
       }
-      // Clear of trunks, close enough that the forest fills the frame.
       // Clear of blades (they reach ~4 m from a stipe), yet near enough that
-      // the forest fills the frame.
+      // the forest fills the frame; prefer the side away from the sun so the
+      // forest is backlit.
+      const away = Math.cos(a - (sunFlat + Math.PI));
       const score =
-        Math.min(gap, 6) -
-        Math.abs(gap - 6) * 0.3 -
-        Math.max(0, r - extent) * 0.08;
+        Math.min(gap, 7) -
+        Math.abs(gap - 7) * 0.25 -
+        Math.max(0, r - extent) * 0.06 +
+        away * 0.8;
       if (score > bestScore) {
         bestScore = score;
         best = [x, y, z];
@@ -486,15 +515,16 @@ export function cameraSpots(
     kelpClear,
   );
 
-  // Overhead: high above the reef looking down at it.
+  // Overhead: a high three-quarter view down onto the reef, so the bommie
+  // stands out against the sand and the water darkens toward the horizon.
   // Offset to the side farthest from any kelp, so no canopy blade sits in
   // front of the lens.
   let ohA = 0.54;
   let ohBest = -Infinity;
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
-    const x = hero.x + Math.cos(a) * 5.8;
-    const z = hero.z + Math.sin(a) * 5.8;
+    const x = hero.x + Math.cos(a) * 10;
+    const z = hero.z + Math.sin(a) * 10;
     let gap = 100;
     for (const f of kelpForests) {
       for (const [sx, sz] of f.stems) {
@@ -508,12 +538,12 @@ export function cameraSpots(
   }
   const overhead: CameraSpot = {
     pos: [
-      hero.x + Math.cos(ohA) * 5.8,
+      hero.x + Math.cos(ohA) * 10,
       // Drop below the kelp canopy when a forest is close by.
-      nav.ceiling() - (ohBest < 12 ? 2.5 : 0.5),
-      hero.z + Math.sin(ohA) * 5.8,
+      Math.min(nav.ceiling() - (ohBest < 12 ? 2.5 : 0.5), hero.y + 7.5),
+      hero.z + Math.sin(ohA) * 10,
     ],
-    target: reefTarget,
+    target: [hero.x, hero.y + 0.5, hero.z],
   };
 
   // Surface: low at the foot of the hero reef, looking up past the bommie

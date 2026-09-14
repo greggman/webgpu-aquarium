@@ -686,7 +686,7 @@ fn bodyH(pat: Patch, v: f32) -> f32 {
 
 /** Body half-width: a little fuller than the species profile, never a card. */
 fn bodyW(pat: Patch, v: f32) -> f32 {
-  return bodyProfile(pat, v, max(pat.p0.y * 1.15, pat.p0.x * 0.72 * 0.28));
+  return bodyProfile(pat, v, max(pat.p0.y * 1.35, pat.p0.x * 0.72 * 0.34));
 }
 
 fn fishBody(pat: Patch, uv: vec2f) -> SurfacePoint {
@@ -1225,8 +1225,12 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
       let d = length(vec2f(i.local.z - eyeZ, i.local.y - sp.extra.z));
       let eye = smoothstep(sp.extra.w, sp.extra.w * 0.8, d);
       let pupil = smoothstep(sp.extra.w * 0.6, sp.extra.w * 0.45, d);
-      s.albedo = mix(s.albedo, vec3f(0.85, 0.75, 0.3), eye);
-      s.albedo = mix(s.albedo, vec3f(0.01), pupil);
+      // A dark socket ring, a gold iris and a large black pupil with a catch
+      // light: the eye is what makes a fish read as an animal.
+      let socket = smoothstep(sp.extra.w * 1.45, sp.extra.w * 1.05, d);
+      s.albedo *= 1.0 - socket * 0.45;
+      s.albedo = mix(s.albedo, vec3f(0.8, 0.68, 0.28), eye);
+      s.albedo = mix(s.albedo, vec3f(0.005), pupil);
       s.roughness = mix(s.roughness, 0.05, eye);
     }
   } else {
@@ -1307,7 +1311,7 @@ export async function createFish(
         s.wander,
         s.homePull,
         s.body[0] * 0.72 * 0.28,
-        s.eye,
+        s.eye * 1.35,
         s.curiosity ?? 0,
         s.curiosity ? 0.9 : 1.5 + len * 3,
         s.roam ?? 0,

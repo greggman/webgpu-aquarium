@@ -117,7 +117,10 @@ fn spongeSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let pores = worley3(q);
   let knobs = fbm3(q * 0.6, 3);
   let outward = normalize(vec3f(p.x, 0.0, p.z) + vec3f(1e-4));
-  p += outward * ((smoothstep(0.05, 0.35, pores) - 1.0) * pat.p1.y * 1.6 + knobs * 0.02) * (1.0 - prof.z);
+  // Pores fade out toward the lip so the rim is a smooth, thick, rolled edge
+  // (pits cut into a thin rim read as a low-poly sawtooth).
+  let lipFade = 1.0 - smoothstep(0.42, 0.6, uv.y);
+  p += outward * ((smoothstep(0.05, 0.35, pores) - 1.0) * pat.p1.y * 1.6 * lipFade + knobs * 0.02) * (1.0 - prof.z);
   p += vec3f(fbm3(q * 0.3, 2), 0.0, fbm3(q * 0.3 + 9.0, 2)) * 0.08 * prof.y;
   // Lean the tube.
   p += vec3f(pat.p2.w, 0.0, pat.p3.x) * prof.y * prof.y / max(pat.p0.z, 0.01);
@@ -188,7 +191,9 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // the growing tips pale and slightly see-through.
       let base = mix(tint * vec3f(0.7, 0.6, 0.5), tint, smoothstep(0.0, 0.45, along * 0.8 + gen * 0.4));
       var c = base * mix(0.55, 1.05, clamp(along * 0.7 + gen * 0.5, 0.0, 1.0)) * (0.85 + 0.3 * broad.r);
-      c = mix(c, mix(vec3f(0.95, 0.92, 0.85), accent, inst.params.y), tip * 0.75);
+      c = mix(c, mix(tint * 1.25 + 0.08, accent, inst.params.y * 0.6), tip * 0.45);
+      // Fine polyp mottling breaks up the smooth gradient along each branch.
+      c *= 0.82 + 0.3 * polyps.r;
       // Polyp cups are darker pits.
       c *= mix(0.6, 1.0, smoothstep(0.05, 0.35, i.uv.w)) * mix(0.8, 1.0, cup);
       s.albedo = c;
@@ -757,13 +762,13 @@ export async function createCoral(
   const center = ctx.nav.o.center;
   // Carpet the reef zones (ridge crests and flanks) so coral grows up the
   // slopes, not just in clumps on flat sand.
-  for (let i = 0; i < ctx.count(9000); i++) {
+  for (let i = 0; i < ctx.count(11000); i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = Math.sqrt(rng.float()) * (ctx.desc.terrain.basinRadius + 10);
     const x = center[0] + Math.cos(a) * r;
     const z = center[1] + Math.sin(a) * r;
     const reef = ctx.terrain.maskAt(1, x, z);
-    if (rng.float() > reef * reef * 0.95 + 0.02) {
+    if (rng.float() > Math.pow(reef, 1.6) * 0.95 + 0.02) {
       continue;
     }
     const kind = rng.weighted(
