@@ -58,3 +58,31 @@ Biggest gaps (ranked):
 
 Already addressed after this capture (before review 3): terrain pinnacles removed, smooth
 terrain cap, DOF with depth-buffer autofocus, clearer lagoon/kelp styles.
+
+## Review 3 — commit 7ffc0c0 — FAIL (avg 5.4)
+
+Evidence: seeds 1–4 × reef/wide/kelp/overhead/surface, high tier, 1080p, 1-frame sequences.
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 6 |
+| 2 | Water medium | 6 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 4 |
+| 5 | Geometry & silhouettes | 5 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 5 |
+| 8 | Variety across seeds | 6 |
+| 9 | Technical artifacts | 5 |
+
+Biggest gaps (ranked):
+1. Materials read as toys and clay: plastic fish, plasticine sponges, plastic table plates, flat card kelp.
+2. Kelp forest is an orchard of paper cutouts: no canopy, sawtooth blade edges, no fish, camera clipping blades.
+3. Every scene is one coral clump on flat rippled sand: needs reef walls, overhangs, drop-offs, channels, slopes.
+4. Shafts only good in seed 4 (slanted): others are vertical combs or flat-bottomed bars with banding.
+5. Seeds 1 and 3 are green soup; near-field sand is mint.
+6. Surface view is cartoonish: hard ripples, no sky, flat teal outside Snell's window.
+7. Caustics blow out on slopes and look like a pool from above.
+
+What works: seed 4 reef/wide mood, sand caustics, seed 2 blue fade, dappled kelp shadows, gentle DOF,
+branching coral silhouettes, hero fish and schools with tail motion, sunburst in surface shots, stability.
