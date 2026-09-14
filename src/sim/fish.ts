@@ -1177,8 +1177,14 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let h2 = fract(h1 * 17.13 + 0.37);
     let tilt = vec3f(h1 - 0.5, h2 - 0.5, (h1 + h2) * 0.5 - 0.5) * (0.25 + 0.6 * sp.colAccent.w);
     s.normal = normalize(bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04) + tilt * 0.5);
-    // Eyes.
+    // Face: gill cover edge behind the eye, darker snout and mouth line, then the eye.
     if (!isRay) {
+      let gill = smoothstep(0.012, 0.0, abs(i.uv.y - 0.2 - sin(i.uv.x * 6.2831853) * 0.015)) * smoothstep(0.9, 0.3, abs(sin(i.uv.x * 6.2831853)));
+      s.albedo *= 1.0 - gill * 0.45;
+      let snout = smoothstep(0.08, 0.0, i.uv.y);
+      s.albedo *= 1.0 - snout * 0.35;
+      let mouth = smoothstep(0.01, 0.0, abs(i.local.y + 0.01)) * smoothstep(0.06, 0.0, i.uv.y);
+      s.albedo *= 1.0 - mouth * 0.7;
       let eyeZ = 0.5 - 0.1;
       let d = length(vec2f(i.local.z - eyeZ, i.local.y - sp.extra.z));
       let eye = smoothstep(sp.extra.w, sp.extra.w * 0.8, d);

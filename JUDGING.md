@@ -140,3 +140,29 @@ Biggest gaps (ranked):
 
 What works: long continuous shafts (seed 4 warm, seed 2 blue) close to HFW; sunbursts through the surface;
 velvety sponges; schools, bait ball, fish in kelp; soft sand shadows; gentle DOF; stability; distinct palettes.
+
+## Review 6 — commit 6a0d9d9 — FAIL (avg 5.9)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 6 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 5 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 5 |
+
+Biggest gaps (ranked):
+1. Kelp: willow hedge; needs bare dark lower trunks, one-sided drooping wrinkled blades, dense canopy mat seen from below; camera looking up through trunks.
+2. Fish: lacquered spinning tops / lemons / pills; need slimmer bodies (3–5x long), narrow tail stems, satin sheen, set-in eyes.
+3. No vertical reef structure; the bommie reads as a mushroom; needs 3–6 m heads with undercuts and shelf ledges.
+4. Materials: rock encrusting should follow cavities; spur turf reads as felt; coral tips need scattering.
+5. Distant sand keeps ripple contrast past 25 m; seed 1 lacks depth darkening.
+6. Grass aliasing against the bright surface; camera clips a jellyfish; shaft tops ending mid-water.
+7. Slope caustics still a white crack web; overhead ridge caustics tile.
+
+What works: seed 3/4 reef frames (closest to HFW), seed 3 grade fix, surface sunbursts, backlit kelp colour,
+schools over the reef, reduced overhead haze, stability. Variety now passes.
