@@ -78,8 +78,8 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // Encrusting life on the upper faces: fine algal turf, speckles of pink
   // coralline crust and tiny pale polyps/barnacles.
   let up = smoothstep(0.1, 0.8, nIn.y) * inst.params.x;
-  let turf = smoothstep(0.4, 0.62, mid.g * 0.5 + big.r * 0.5 + (fine.r - 0.5) * 0.35) * up;
-  let algae = mix(vec3f(0.16, 0.2, 0.08), vec3f(0.3, 0.28, 0.12), fine.g);
+  let turf = smoothstep(0.52, 0.7, mid.g * 0.5 + big.r * 0.5 + (fine.r - 0.5) * 0.35) * up;
+  let algae = mix(vec3f(0.2, 0.2, 0.1), vec3f(0.32, 0.26, 0.14), fine.g);
   let crust = smoothstep(0.72, 0.8, triplanarDetail(lp, nIn, 0.33).a) * up;
   let coralline = mix(vec3f(0.62, 0.34, 0.36), vec3f(0.72, 0.5, 0.46), fine.b);
   let specks = smoothstep(0.84, 0.9, fine.a) * up;

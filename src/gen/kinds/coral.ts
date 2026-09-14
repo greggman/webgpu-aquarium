@@ -169,6 +169,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // Polyp cups and corallite texture as a height field (before any branching,
   // so the derivatives stay in uniform control flow).
   let polyps = triplanarDetail(lp * 1.0 + inst.params.x, nIn, 9.0);
+  let broad = triplanarDetail(lp, nIn, 0.6);
   let cup = smoothstep(0.02, 0.3, polyps.g);
   let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
   let bumped = bumpFromHeight(nIn, i.world, height, 0.035);
@@ -203,9 +204,15 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let rim = smoothstep(0.8, 1.0, i.uv.y);
       // Table corals are muted browns and tans with a paler growing rim.
       let muted = mix(tint, vec3f(0.5, 0.45, 0.36), 0.45);
-      var c = muted * select(0.65, 1.0, top) * (0.75 + 0.4 * fine.g);
+      // Concentric growth bands and radial rows of polyps across the plate.
+      let rings = 0.5 + 0.5 * sin(i.uv.y * 38.0 + fine.r * 3.0);
+      let radial = 0.5 + 0.5 * sin(i.uv.x * 6.2831853 * 90.0 + fine.g * 4.0);
+      let blotch = smoothstep(0.35, 0.7, broad.r);
+      var c = muted * select(0.65, 1.0, top) * (0.7 + 0.45 * fine.g);
+      c *= mix(0.78, 1.0, rings) * mix(0.85, 1.0, radial) * mix(1.0, 0.7, blotch);
       c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
       s.albedo = c;
+      s.roughness = 0.8;
       s.translucency = 0.2;
     }
     case ${CoralKind.Sponge}u: {
@@ -660,7 +667,7 @@ export async function createCoral(
     }
     for (let i = 0; i < Math.round(rng.int(2, 4) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Table, x, z, rng.range(0.8, 1.6), 0.1);
+      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.1);
     }
     for (let i = 0; i < ctx.count(rng.int(3, 6) * density * area); i++) {
       const [x, z] = inCluster(1.1);

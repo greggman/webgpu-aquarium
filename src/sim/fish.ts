@@ -1151,15 +1151,24 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
         c = mix(c, sp.colAccent.rgb, smoothstep(0.3, 0.15, w));
       }
     }
-    // Scales: a fine cell pattern that catches light as iridescence.
-    let scaleCells = worley2p(vec2f(i.uv.y * 70.0, i.uv.x * 45.0), vec2i(0));
+    // Scales: overlapping rows (offset every other row) that catch the light,
+    // a darker lateral line, and a subtle mottling so colour isn't flat.
+    let row = floor(i.uv.y * 55.0);
+    let scaleUv = vec2f(i.uv.y * 55.0, i.uv.x * 38.0 + row * 0.5);
+    let cell = fract(scaleUv);
+    let scaleEdge = smoothstep(0.55, 0.95, length(cell - vec2f(0.2, 0.5)));
+    let lateral = smoothstep(0.035, 0.0, abs(sin(i.uv.x * 6.2831853) - 0.08)) * smoothstep(0.12, 0.3, i.uv.y);
+    let mottle = fbm2(vec2f(i.uv.y * 9.0, i.uv.x * 14.0), 3);
     let rim = pow(1.0 - max(dot(n, V), 0.0), 2.0);
     let irid = palette(dot(n, V) * 1.3 + i.uv.y, vec3f(0.5), vec3f(0.5), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
-    s.albedo = c * mix(0.85, 1.0, smoothstep(0.0, 0.4, scaleCells.y - scaleCells.x));
+    // Backs are darker and less saturated than the pattern suggests, as on real fish.
+    let back = smoothstep(0.3, 0.9, sin(i.uv.x * 6.2831853));
+    c = mix(c, c * vec3f(0.55, 0.6, 0.65), back * 0.5);
+    s.albedo = c * (0.9 + 0.12 * mottle) * mix(1.0, 0.8, scaleEdge) * mix(1.0, 0.7, lateral);
     s.emissive = irid * rim * sp.colAccent.w * 0.05 * max(frame.sunColor.g, 1.0) * 0.2;
-    s.roughness = mix(0.45, 0.25, sp.colAccent.w);
+    s.roughness = mix(0.4, 0.22, sp.colAccent.w);
     s.f0 = mix(0.04, 0.12, sp.colAccent.w);
-    s.normal = bumpNormal(n, vec3f(scaleCells.x - 0.25) * 0.05);
+    s.normal = bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04);
     // Eyes.
     if (!isRay) {
       let eyeZ = 0.5 - 0.1;
