@@ -58,7 +58,13 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   // Slow drift with the current and a gentle sink; wrap in a box around the camera.
   let drift = vec3f(0.12, -0.03 - h.y * 0.05, 0.05) * frame.time +
     vec3f(sin(frame.time * 0.3 + h.x * 20.0), cos(frame.time * 0.23 + h.z * 20.0), sin(frame.time * 0.27 + h.y * 20.0)) * 0.15;
-  let rel = fract((h * box + drift - frame.camPos) / box) * box - box * 0.5;
+  let rel0 = fract((h * box + drift - frame.camPos) / box) * box - box * 0.5;
+  // The swell's surge sloshes the whole water column back and forth (the same
+  // rhythm the seabed sways to), which makes the water itself feel alive.
+  let world0 = frame.camPos + rel0;
+  let sk = dot(world0.xz, normalize(vec2f(1.0, 0.35))) * 0.11;
+  let slosh = sin(frame.time * 0.9 - sk) + 0.25 * sin(2.0 * (frame.time * 0.9 - sk) + 0.6);
+  let rel = rel0 + vec3f(0.94, 0.05 * sin(frame.time * 1.3 + h.x * 6.0), 0.33) * slosh * 0.32;
   let p = frame.camPos + rel;
   let dist = length(rel);
   let corner = cornerOf(vi);

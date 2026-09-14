@@ -103,9 +103,12 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   // as a tiled web, and slopes as bright white netting.
   let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.015) *
     mix(1.0, 0.4, smoothstep(18.0, 45.0, dist)) * mix(1.0, 0.5, smoothstep(0.2, 0.6, tilt));
+  // The swell focusing overhead brightens and dims the pattern with the surge.
+  let sk = dot(p.xz, normalize(vec2f(1.0, 0.35))) * 0.11;
+  let pulse = 1.0 + 0.22 * sin(frame.time * 0.9 - sk + 1.2);
   // Only surfaces facing the sun catch the pattern; steep faces would smear it.
   let facing = smoothstep(0.35, 0.85, dot(normal, frame.sunDir));
-  return mix(vec3f(1.0), c, fade * facing);
+  return mix(vec3f(1.0), c * pulse, fade * facing);
 }
 
 struct GroundInfo {
@@ -119,7 +122,7 @@ fn groundInfo(p: vec3f) -> GroundInfo {
   let uv = p.xz / frame.terrain.x + 0.5;
   let ground = textureSampleLevel(tTerrain, sLinearClamp, uv, 0.0).r;
   let c = textureSampleLevel(tContact, sLinearClamp, uv, 0.0).r;
-  let nearGround = smoothstep(1.0, 0.0, p.y - ground);
+  let nearGround = smoothstep(0.5, 0.0, p.y - ground);
   return GroundInfo(ground, mix(1.0, c, nearGround));
 }
 
@@ -143,7 +146,7 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   // partly blocked: sand darkens against rocks, and their bases sink in.
   let gi = groundInfo(p);
   let contact = gi.contact;
-  let sun = sunAtDepth(p.y) * shadow * causticsAt(p, N) * mix(1.0, contact, 0.75);
+  let sun = sunAtDepth(p.y) * shadow * causticsAt(p, N) * mix(1.0, contact, 0.2);
 
   let a = max(s.roughness * s.roughness, 0.002);
   let f0 = mix(vec3f(s.f0), s.albedo, s.metallic);
@@ -170,7 +173,7 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   // Ambient: blue from above, and from below warm light bounced off the sunlit
   // sand (strongest close to the bottom), so undersides aren't dead cutouts.
   let lift = smoothstep(6.0, 0.0, p.y - gi.height);
-  let bounce = sunAtDepth(gi.height) * vec3f(0.62, 0.56, 0.44) * mix(0.04, 0.2, lift);
+  let bounce = sunAtDepth(gi.height) * vec3f(0.66, 0.58, 0.44) * mix(0.05, 0.32, lift);
   let hemi = mix(bounce, amb, N.y * 0.5 + 0.5);
   color += kd * s.albedo * hemi * s.ao * contact;
 

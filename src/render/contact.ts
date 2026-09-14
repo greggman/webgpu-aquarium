@@ -32,8 +32,8 @@ export function createContactMap(
       continue;
     }
     const h = Math.max(f.height, f.radius * 0.3);
-    // Occlusion reaches out about one prop height beyond the edge.
-    const reach = f.radius + Math.min(0.15 + h * 1.6, 5);
+    // A tight contact band: well under a metre beyond the edge.
+    const reach = f.radius + Math.min(0.1 + h * 0.45, 0.8);
     const cx = (f.x / worldSize + 0.5) * size;
     const cz = (f.z / worldSize + 0.5) * size;
     const r = reach / texel;
@@ -42,7 +42,7 @@ export function createContactMap(
     const z0 = Math.max(0, Math.floor(cz - r));
     const z1 = Math.min(size - 1, Math.ceil(cz + r));
     // Strength: squat pads occlude a thin rim; tall heads shade a wide ring.
-    const strength = Math.min(0.9, 0.6 + (h / (f.radius + 0.05)) * 0.25);
+    const strength = Math.min(0.7, 0.45 + (h / (f.radius + 0.05)) * 0.2);
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
         const d = Math.hypot((x + 0.5 - cx) * texel, (z + 0.5 - cz) * texel);
@@ -51,23 +51,24 @@ export function createContactMap(
         }
         let occ: number;
         if (d < f.radius) {
-          // Under the prop: strongest at its edge where the crevice is.
-          occ = strength * (0.8 + 0.2 * (d / f.radius));
+          // Under the prop (mostly hidden): only the rim matters.
+          occ = strength * (0.6 + 0.4 * (d / f.radius));
         } else {
           // Outside: the fraction of sky the prop's side blocks falls off with distance.
           const out = d - f.radius;
-          const falloff = h / (h + out * 1.6);
-          const edge = 1 - out / (reach - f.radius);
-          occ = strength * falloff * Math.min(1, edge * 2.5);
+          const t = out / (reach - f.radius);
+          occ = strength * (1 - t) * (1 - t);
         }
         const i = z * size + x;
-        vis[i] *= 1 - occ;
+        // Overlapping footprints don't stack (a dense coral bed would turn
+        // to mud): keep the strongest, plus a little extra for crowding.
+        vis[i] = Math.min(vis[i], 1 - occ) * (1 - occ * 0.08);
       }
     }
   }
   const data = new Uint8Array(size * size);
   for (let i = 0; i < vis.length; i++) {
-    data[i] = Math.round(Math.max(0.08, vis[i]) * 255);
+    data[i] = Math.round(Math.max(0.25, vis[i]) * 255);
   }
   const texture = device.createTexture({
     label: 'contact:texture',
