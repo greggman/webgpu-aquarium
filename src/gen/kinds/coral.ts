@@ -750,9 +750,11 @@ export async function createCoral(
         CoralKind.Whip,
         CoralKind.Table,
       ],
-      [3, 3, 2, 2, 1],
+      [4, 1, 2, 3, 1],
     );
-    place(kind, x, z, rng.range(0.4, 1.0), 0.5, true);
+    // Mixed scales (many small, a few large) so the carpet never tiles.
+    const scale = 0.3 + Math.pow(rng.float(), 2.2) * 1.2;
+    place(kind, x, z, scale, 0.5, true);
   }
 
   return createPropKind(renderer, {

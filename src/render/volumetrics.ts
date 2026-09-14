@@ -55,7 +55,8 @@ fn beam(p: vec3f) -> f32 {
   // gaps between them.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let uvc = entry / (frame.caustics.x * 2.2);
-  let lod = clamp(3.0 + depth * 0.08, 3.0, 6.0);
+  // A constant blur level keeps each shaft continuous from top to bottom.
+  let lod = 3.5;
   let c = sqrt(
     textureSampleLevel(tCaustics, sLinearRepeat, uvc, lod).g *
     textureSampleLevel(tCaustics, sLinearRepeat, rot * uvc * 0.61 + 0.31, lod).g,

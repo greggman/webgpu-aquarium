@@ -82,9 +82,9 @@ const STYLES: WaterStyle[] = [
   {
     // Kelp coast: murky green-gold, softer light.
     name: 'kelp-forest',
-    absorption: [0.14, 0.042, 0.05],
-    scattering: 0.018,
-    ambient: [0.25, 0.6, 0.7],
+    absorption: [0.13, 0.045, 0.038],
+    scattering: 0.017,
+    ambient: [0.22, 0.56, 0.84],
     sunColor: [13, 12, 9],
     sunElevation: [0.7, 1.0],
     exposure: 0.4,
@@ -309,15 +309,18 @@ export function cameraSpots(
         nav,
         (x, z) => terrain.maskAt(2, x, z) - terrain.maskAt(0, x, z) * 0.5,
       );
+  // From just outside the forest edge, looking in and up toward the canopy,
+  // so the lens isn't buried in a blade.
   const kelpTarget = ground(kx, kz);
-  kelpTarget[1] += 3;
+  kelpTarget[1] += 5;
+  const forestR = kelpForests[0]?.radius ?? 8;
   const kelp = spotLookingAt(
     nav,
     terrain,
     kelpTarget,
-    11,
-    1.8,
-    rng.range(0, Math.PI * 2),
+    forestR + 4,
+    2.0,
+    Math.atan2(c[1] - kz, c[0] - kx),
   );
 
   // Wide: an establishing shot across the hero reef toward the gap into the deep.

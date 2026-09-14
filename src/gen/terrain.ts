@@ -240,7 +240,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // Reef zones: mid-depth patches near rocks.
   var reef = clamp(smoothstep(-0.1, 0.35, fbm2(p * 0.025 + 19.0, 4)) * (1.0 - smoothstep(0.55, 0.9, slope)), 0.0, 1.0);
   // Ridge crests and flanks of the spur-and-groove zone are prime reef.
-  reef = max(reef, smoothstep(0.25, 0.7, spurMask(p)));
+  let spur = spurMask(p);
+  reef = max(reef, smoothstep(0.25, 0.7, spur));
+  // Spurs are reef framework (rock and encrusting life), not rippled sand.
+  rock = max(rock, smoothstep(0.2, 0.6, spur) * 0.95);
   // Kelp/seagrass zones: sandy, flatter, different patches.
   let kelp = clamp(smoothstep(0.0, 0.3, fbm2(p * 0.02 + 71.0, 3)) * (1.0 - rock), 0.0, 1.0);
   let moss = clamp(rock * smoothstep(0.55, 0.95, n.y) + fbm2(p * 0.2, 2) * 0.2, 0.0, 1.0);
@@ -532,7 +535,7 @@ fn fs(i: VOut) -> FOut {
   let f0s = textureSample(tDetail, sLinearRepeat, p.zx * 0.31).b;
   let fxs = textureSample(tDetail, sLinearRepeat, (p.zx + vec2f(e * 0.25, 0.0)) * 0.31).b;
   let fzs = textureSample(tDetail, sLinearRepeat, (p.zx + vec2f(0.0, e * 0.25)) * 0.31).b;
-  let sandGrad = vec2f(rx - r0, rz - r0) * rippleStrength * 1.3 +
+  let sandGrad = vec2f(rx - r0, rz - r0) * rippleStrength * 0.8 +
     vec2f(fzs - f0s, fxs - f0s) * (1.0 - rockW) * 0.5;
 
   // Rock: crack/cell pattern.

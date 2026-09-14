@@ -185,8 +185,26 @@ export async function createRocks(
     }
   }
 
-  // Boulders across rocky ground.
+  // Reef framework along the spur ridges: stacked, ledged boulders on the
+  // flanks give the ridges overhangs and a broken silhouette.
   const center = ctx.nav.o.center;
+  const framework = scatter(rng, {
+    count: ctx.count(160),
+    minDist: 1.8,
+    center,
+    radius: ctx.desc.terrain.basinRadius,
+    density: (x, z) => {
+      const reef = ctx.terrain.maskAt(1, x, z);
+      const n = ctx.terrain.normalAt(x, z);
+      // Flanks: reef zones that are sloped.
+      return reef > 0.6 ? Math.min(1, (1 - n[1]) * 6) * reef : 0;
+    },
+  });
+  for (const [x, z] of framework) {
+    place(x, z, rng.range(0.6, 1.9), rng.range(0.15, 0.4), 1);
+  }
+
+  // Boulders across rocky ground.
   const boulders = scatter(
     rng,
     {

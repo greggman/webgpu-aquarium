@@ -28,7 +28,10 @@ fn ribbon(pat: Patch, uv: vec2f, part: f32) -> SurfacePoint {
   let fwd = vec3f(cos(yaw), 0.0, -sin(yaw));
   let side = vec3f(sin(yaw), 0.0, cos(yaw));
   let v = uv.y;
-  let taper = select(1.0 - pow(v, 4.0), sin(v * 3.14159) * 0.8 + 0.2 * (1.0 - v), part > 1.5);
+  // Grass: tapering blade. Kelp: short stalk, then a long even ribbon that
+  // narrows only near its tip.
+  let kelpTaper = smoothstep(0.0, 0.1, v) * (1.0 - pow(v, 4.0)) * 0.92 + 0.08;
+  let taper = select(1.0 - pow(v, 4.0), kelpTaper, part > 1.5);
   let across = (uv.x - 0.5) * width * taper;
   // Gentle ruffles along the blade edge (low frequency: a high one aliases into a sawtooth).
   let ruffle = sin(v * 13.0 + uv.x * 2.0 + pat.p0.w * 3.0) * pat.p2.x * pow(abs(uv.x - 0.5) * 2.0, 1.5) * v;
@@ -36,10 +39,16 @@ fn ribbon(pat: Patch, uv: vec2f, part: f32) -> SurfacePoint {
   var p = pat.p0.xyz + fwd * (bendAmt + pat.p1.w * v * len) + side * across;
   // Kelp blades hang out from the stipe; grass blades rise from the ground.
   if (part > 1.5) {
+    // Kelp blades leave the stipe outward, then curve to stream downcurrent
+    // (+x), drooping slightly; canopy blades lie nearly flat.
     let dir = normalize(vec3f(pat.p2.y, pat.p2.z, pat.p2.w));
-    let s2 = normalize(cross(dir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
-    let up2 = cross(s2, dir);
-    p = pat.p0.xyz + dir * v * len + s2 * across + up2 * (ruffle + v * v * len * 0.25);
+    let stream = normalize(vec3f(1.0, mix(-0.25, 0.02, pat.p1.w), 0.3));
+    let k = pat.p1.z;
+    let along = dir * v * (1.0 - v * k * 0.5) + stream * v * v * k * 0.5;
+    let tangent = normalize(dir * (1.0 - v * k) + stream * v * k);
+    let s2 = normalize(cross(tangent, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
+    let up2 = cross(s2, tangent);
+    p = pat.p0.xyz + along * len + s2 * across + up2 * ruffle;
   } else {
     p.y += v * len * sqrt(max(1.0 - pat.p1.z * pat.p1.z, 0.1));
     p += fwd * ruffle;
@@ -94,7 +103,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   var s = defaultSurface();
   s.normal = nIn;
   s.ao = i.aoMat.x;
-  let veins = 0.5 + 0.5 * sin(i.uv.x * 40.0);
+  let veins = 0.5 + 0.5 * sin(i.uv.x * 26.0 + i.uv.y * 3.0);
   let along = i.uv.y;
   switch (part) {
     case ${Part.Stipe}u: {
@@ -112,11 +121,11 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // Blades: darker at the base, golden and translucent toward the tips,
       // with faint longitudinal veins and ragged dead tips.
       let vein = smoothstep(0.85, 1.0, veins);
-      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.95 - 0.25 * vein);
+      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.97 - 0.08 * vein);
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
       s.albedo = c;
       // Veins block some of the light passing through, so they show when backlit.
-      s.translucency = 0.95 - vein * 0.35;
+      s.translucency = 0.95 - vein * 0.12;
       s.roughness = 0.45;
       s.f0 = 0.03;
     }
@@ -244,32 +253,33 @@ function kelpPlant(
   hi: boolean,
 ): Variant {
   const patches: Patch[] = [];
-  // A holdfast sends up several stipes of different heights that curve and
-  // drift apart as they rise.
-  const stipes = rng.int(2, 4);
+  // Giant kelp: a holdfast sends up several stipes that all climb to the
+  // surface, leaning and curving as they rise, with long golden blades that
+  // stream downcurrent and a floating canopy mat at the top.
+  const stipes = rng.int(3, 5);
   for (let st = 0; st < stipes; st++) {
-    const h = height * rng.range(0.55, 1.0);
-    const segs = Math.max(6, Math.round(h * 2.5));
+    const h = height * rng.range(0.88, 1.0);
+    const segs = Math.max(8, Math.round(h * 2.2));
     const points: [number, number, number, number][] = [];
     const baseA = rng.range(0, Math.PI * 2);
-    const spread = rng.range(0.05, 0.25);
-    const bendA = rng.range(0, Math.PI * 2);
-    const bend = rng.range(0.8, 2.4);
-    const wave = rng.range(0.8, 2.2);
+    const spread = rng.range(0.1, 0.5);
+    const bendA = rng.range(-0.6, 0.6); // lean mostly downcurrent (+x)
+    const bend = rng.range(1.0, 3.0);
+    const wave = rng.range(0.8, 2.0);
     const phase = rng.range(0, Math.PI * 2);
     for (let i = 0; i <= segs; i++) {
       const t = i / segs;
       const drift = spread * t + bend * t * t;
-      const s = Math.sin(t * Math.PI * wave + phase) * 0.45 * t;
+      const w = Math.sin(t * Math.PI * wave + phase) * 0.5 * t;
       points.push([
-        Math.cos(baseA) * 0.06 +
+        Math.cos(baseA) * 0.08 +
           Math.cos(bendA) * drift +
-          Math.cos(bendA + 1.57) * s,
+          Math.cos(bendA + 1.57) * w,
         t * h,
-        Math.sin(baseA) * 0.06 +
+        Math.sin(baseA) * 0.08 +
           Math.sin(bendA) * drift +
-          Math.sin(bendA + 1.57) * s,
-        0.03 * (1 - t * 0.55),
+          Math.sin(bendA + 1.57) * w,
+        0.028 * (1 - t * 0.5),
       ]);
     }
     const stipe = aux.addChain(points);
@@ -277,23 +287,24 @@ function kelpPlant(
       P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
     );
 
-    const bladeCount = Math.round(h * (hi ? 3.2 : 1.8));
+    const bladeCount = Math.round(h * (hi ? 3.6 : 2.0));
     for (let b = 0; b < bladeCount; b++) {
-      const t = 0.1 + (b / bladeCount) * 0.9 + rng.range(-0.02, 0.02);
+      const t = 0.12 + (b / bladeCount) * 0.88 + rng.range(-0.02, 0.02);
       const idx = Math.min(
         points.length - 1,
         Math.max(0, Math.round(t * segs)),
       );
       const base = points[idx];
       const a = b * 2.39996 + rng.range(-0.5, 0.5);
-      // Near the top the blades form a floating canopy: longer, spreading flat.
-      const canopy = Math.max(0, (t - 0.72) / 0.28);
+      // Blades in the top fifth lie along the surface as a canopy.
+      const canopy = Math.max(0, (t - 0.8) / 0.2);
       const outward = [
         Math.cos(a),
-        rng.range(0.35, 1.0) * (1 - canopy * 0.9),
+        rng.range(0.2, 0.6) * (1 - canopy),
         Math.sin(a),
       ];
-      const len = rng.range(0.7, 1.3) * (1 + canopy * 2.2);
+      // Long narrow ribbons (not leaves): giant kelp blades trail far downstream.
+      const len = rng.range(1.6, 2.6) * (1 + canopy * 0.8);
       patches.push(
         P(
           [
@@ -302,18 +313,19 @@ function kelpPlant(
             base[2] + Math.sin(a) * 0.04,
             a,
             len,
-            rng.range(0.17, 0.3) * (1 + canopy * 0.3),
-            0,
-            0,
-            rng.range(0.03, 0.07),
+            rng.range(0.13, 0.21),
+            // How strongly the blade streams downcurrent along its length.
+            rng.range(0.45, 0.8) + canopy * 0.2,
+            canopy,
+            rng.range(0.03, 0.06),
             ...outward,
           ],
           Part.KelpBlade,
           hi ? 4 : 2,
-          hi ? 22 : 10,
+          hi ? 20 : 9,
         ),
       );
-      if (rng.bool(0.6)) {
+      if (rng.bool(0.5)) {
         patches.push(
           P(
             [
@@ -321,7 +333,7 @@ function kelpPlant(
               base[1],
               base[2] + Math.sin(a) * 0.035,
               0,
-              rng.range(0.018, 0.035),
+              rng.range(0.015, 0.035),
             ],
             Part.Bladder,
             8,
@@ -470,18 +482,19 @@ export async function createPlants(
           1.8,
           Math.max(
             0.5,
-            ((surface - 0.8 - y) / kelpHeights[vi]) * rng.range(0.85, 1.05),
+            ((surface - 0.4 - y) / kelpHeights[vi]) * rng.range(0.95, 1.05),
           ),
         );
         const g = rng.range(0.85, 1.1);
         instances.push({
           pos: [x, y - 0.05, z],
           scale,
+          // Little yaw: the blades are modelled streaming along the current (+x).
           rot: quatUpYaw(
-            [rng.range(-0.08, 0.08), 1, rng.range(-0.08, 0.08)],
-            rng.range(0, Math.PI * 2),
+            [rng.range(-0.05, 0.05), 1, rng.range(-0.05, 0.05)],
+            rng.range(-0.3, 0.3),
           ),
-          color: [0.52 * g, 0.38 * g, 0.12 * g, 0],
+          color: [0.55 * g, 0.4 * g, 0.12 * g, 0],
           params: [rng.range(0, 100), 0.014, 0, 0],
           variant: kelpVariants[vi],
         });

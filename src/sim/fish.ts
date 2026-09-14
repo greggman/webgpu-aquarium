@@ -159,8 +159,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   const baitHue = rng.range(0.52, 0.62);
   list.push({
     name: 'bait',
-    count: Math.round(rng.int(280, 420) * k),
-    length: [0.15, 0.22],
+    count: Math.round(rng.int(220, 320) * k),
+    length: [0.2, 0.28],
     bodyType: 0,
     body: body(
       0.17,
@@ -189,7 +189,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     band: [2.5, 9],
     speed: 1.3,
     maxSpeed: 3.2,
-    flock: [0.55, 1.6, 1.4, 1.3],
+    flock: [0.8, 1.8, 1.2, 1.6],
     turn: 2,
     tailBeat: 1.6,
     wander: 0.3,
@@ -792,9 +792,8 @@ function speciesPatches(s: SpeciesDef, hi: boolean): Patch[] {
       p(Part.RayTail, 4, 8),
     ];
   }
-  const small = s.length[1] < 0.2;
   return [
-    p(Part.Body, hi && !small ? 24 : 12, hi && !small ? 28 : 14),
+    p(Part.Body, hi ? 28 : 14, hi ? 36 : 16),
     p(Part.Tail, 6, 6),
     p(Part.Dorsal, 10, 3),
     p(Part.Anal, 6, 3),
@@ -859,7 +858,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var ali = vec3f(0.0);
   var coh = vec3f(0.0);
   var n = 0.0;
-  let sepDist = max(len * 1.6, 0.12);
+  let ownSep = max(len * 1.6, 0.12);
   for (var j = 0u; j < sim.count; j++) {
     if (j == i) {
       continue;
@@ -868,13 +867,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let d = o.pos - f.pos;
     let d2 = dot(d, d);
     let same = o.species == f.species;
+    // Keep clear of the bigger of the two fish, so a large fish never swims
+    // through a small one.
+    let sepDist = select(max(ownSep, species[u32(o.species)].motion.y * 1.6), ownSep, same);
     let reach = select(sepDist, max(nd, sepDist), same);
     if (d2 > reach * reach) {
       continue;
     }
     let dist = sqrt(d2) + 1e-4;
     if (dist < sepDist) {
-      sep -= d / dist * (sepDist - dist) / sepDist;
+      sep -= d / dist * (sepDist - dist) / sepDist * select(3.0, 1.0, same);
     }
     if (same) {
       ali += o.vel;
@@ -930,9 +932,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let curious = sp.behavior.x;
   if (curious > 0.0 && cd < 18.0) {
     let id = f32(i);
-    let side = sin(sim.time * 0.2 + id * 1.3) * 1.2;
+    // Each curious fish holds its own spot so they don't pile up on one point.
+    let side = sin(sim.time * 0.15 + id * 2.1) * 1.0 + (fract(id * 0.618) - 0.5) * 4.0;
     let right = normalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
-    let spot = sim.camPos + sim.camDir * (2.2 + fract(id * 0.37) * 1.4) + right * side;
+    let spot = sim.camPos + sim.camDir * (2.4 + fract(id * 0.37) * 2.6) + right * side;
     let toSpot = spot - f.pos;
     acc += toSpot * curious * 1.4 * smoothstep(22.0, 6.0, cd);
   }
