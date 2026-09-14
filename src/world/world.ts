@@ -303,38 +303,63 @@ export function cameraSpots(
     gapA + Math.PI + 0.35,
   );
 
-  // Kelp: from a clearing among the trunks, looking up through the forest at
-  // the canopy mat and the light breaking through it.
+  // Kelp: from just outside the forest edge, on the side away from the sun,
+  // looking up and in so the trunks stand in silhouette against open,
+  // backlit water with the canopy overhead.
   let kelp: CameraSpot;
   const forest = kelpForests[0];
   if (forest && forest.stems.length) {
-    let best: [number, number] = [forest.x, forest.z];
-    let bestGap = -1;
-    for (let i = 0; i < 400; i++) {
-      const a = rng.range(0, Math.PI * 2);
-      const r = Math.sqrt(rng.float()) * forest.radius * 0.8;
-      const x = forest.x + Math.cos(a) * r;
-      const z = forest.z + Math.sin(a) * r;
+    const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
+    // Densest point of the forest: centroid of the holdfasts.
+    let fx = 0;
+    let fz = 0;
+    for (const [sx, sz] of forest.stems) {
+      fx += sx;
+      fz += sz;
+    }
+    fx /= forest.stems.length;
+    fz /= forest.stems.length;
+    let best: [number, number, number] | undefined;
+    let bestScore = -Infinity;
+    for (let i = 0; i < 48; i++) {
+      const a = sunFlat + Math.PI + rng.range(-1.2, 1.2);
+      const r = rng.range(forest.radius * 0.6, forest.radius + 6);
+      const x = fx + Math.cos(a) * r;
+      const z = fz + Math.sin(a) * r;
+      const y = Math.min(nav.floorAt(x, z) + 2.2, nav.ceiling() - 1);
+      if (!nav.contains([x, y, z])) {
+        continue;
+      }
       let gap = Infinity;
       for (const [sx, sz] of forest.stems) {
         gap = Math.min(gap, Math.hypot(sx - x, sz - z));
       }
-      if (gap > bestGap && nav.contains([x, nav.floorAt(x, z) + 0.3, z])) {
-        bestGap = gap;
-        best = [x, z];
+      // Clear of trunks, close enough that the forest fills the frame.
+      const score = Math.min(gap, 3) - Math.abs(r - forest.radius * 0.9) * 0.15;
+      if (score > bestScore) {
+        bestScore = score;
+        best = [x, y, z];
       }
     }
-    const y = Math.min(nav.floorAt(best[0], best[1]) + 0.6, nav.ceiling() - 1);
-    // Look up (about 55 degrees), leaning toward the sun so the canopy is backlit.
-    const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
-    kelp = {
-      pos: [best[0], y, best[1]],
-      target: [
-        best[0] + Math.cos(sunFlat) * 3.5,
-        y + 5,
-        best[1] + Math.sin(sunFlat) * 3.5,
-      ],
-    };
+    if (best) {
+      const [x, y, z] = best;
+      const dx = fx - x;
+      const dz = fz - z;
+      const d = Math.hypot(dx, dz) || 1;
+      kelp = {
+        pos: [x, y, z],
+        target: [x + (dx / d) * 6, y + 4.5, z + (dz / d) * 6],
+      };
+    } else {
+      kelp = spotLookingAt(
+        nav,
+        terrain,
+        [fx, nav.floorAt(fx, fz) + 5, fz],
+        12,
+        2,
+        sunFlat + Math.PI,
+      );
+    }
   } else {
     const [kx, kz] = bestSpot(
       rng,

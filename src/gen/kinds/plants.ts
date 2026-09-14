@@ -30,11 +30,14 @@ fn ribbon(pat: Patch, uv: vec2f, part: f32) -> SurfacePoint {
   let v = uv.y;
   // Grass: tapering blade. Kelp: short stalk, then a long even ribbon that
   // narrows only near its tip.
-  let kelpTaper = smoothstep(0.0, 0.1, v) * (1.0 - pow(v, 4.0)) * 0.92 + 0.08;
+  // Rounded tip: an elliptical cap over the last fifth of the blade.
+  let tipT = clamp((v - 0.78) / 0.22, 0.0, 1.0);
+  let kelpTaper = (smoothstep(0.0, 0.08, v) * 0.9 + 0.1) * sqrt(max(1.0 - tipT * tipT, 0.0)) * 0.97 + 0.03;
   let taper = select(1.0 - pow(v, 4.0), kelpTaper, part > 1.5);
   let across = (uv.x - 0.5) * width * taper;
   // Gentle ruffles along the blade edge (low frequency: a high one aliases into a sawtooth).
-  let ruffle = sin(v * 13.0 + uv.x * 2.0 + pat.p0.w * 3.0) * pat.p2.x * pow(abs(uv.x - 0.5) * 2.0, 1.5) * v;
+  let ruffle = sin(v * 13.0 + uv.x * 2.0 + pat.p0.w * 3.0) * pat.p2.x * pow(abs(uv.x - 0.5) * 2.0, 1.5) * v +
+    sin(v * 31.0 + pat.p0.w * 7.0) * pat.p2.x * 0.35 * pow(abs(uv.x - 0.5) * 2.0, 2.0) * select(0.0, 1.0, part > 1.5);
   let bendAmt = pat.p1.z * v * v * len;
   var p = pat.p0.xyz + fwd * (bendAmt + pat.p1.w * v * len) + side * across;
   // Kelp blades hang out from the stipe; grass blades rise from the ground.
@@ -111,7 +114,9 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // in silhouette against the water).
       s.albedo = tint * vec3f(0.85, 0.66, 0.42) * (0.9 + 0.2 * veins);
       s.translucency = 0.5;
-      s.roughness = 0.5;
+      // Slimy but not glossy: a smooth stipe mirrors the blue water at its
+      // grazing edges and turns into a bright blue rod.
+      s.roughness = 0.85;
     }
     case ${Part.Bladder}u: {
       s.albedo = tint * vec3f(1.1, 1.0, 0.7);
@@ -291,7 +296,8 @@ function kelpPlant(
       P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
     );
 
-    const bladeCount = Math.round(h * (hi ? 3.6 : 2.0));
+    // Few, broad blades: giant kelp reads as ribbons, not a leafy hedge.
+    const bladeCount = Math.round(h * (hi ? 1.7 : 1.0));
     for (let b = 0; b < bladeCount; b++) {
       // Irregular spacing and direction, so blades never read as leaf pairs.
       // The lower third of each stipe is bare trunk.
@@ -311,7 +317,7 @@ function kelpPlant(
         Math.sin(a),
       ];
       // Long narrow ribbons (not leaves): giant kelp blades trail far downstream.
-      const len = rng.range(1.6, 2.6) * (1 + canopy * 0.8);
+      const len = rng.range(2.2, 3.4) * (1 + canopy * 0.6);
       patches.push(
         P(
           [
@@ -320,19 +326,20 @@ function kelpPlant(
             base[2] + Math.sin(a) * 0.04,
             a,
             len,
-            rng.range(0.13, 0.21),
+            rng.range(0.22, 0.34),
             // How strongly the blade streams downcurrent along its length.
             rng.range(0.45, 0.8) + canopy * 0.2,
             canopy,
-            rng.range(0.03, 0.06),
+            rng.range(0.05, 0.09),
             ...outward,
           ],
           Part.KelpBlade,
-          hi ? 4 : 2,
-          hi ? 20 : 9,
+          hi ? 6 : 2,
+          hi ? 24 : 9,
         ),
       );
-      if (rng.bool(0.5)) {
+      // Every blade springs from a gas bladder.
+      if (rng.bool(0.9)) {
         patches.push(
           P(
             [
@@ -340,7 +347,7 @@ function kelpPlant(
               base[1],
               base[2] + Math.sin(a) * 0.035,
               0,
-              rng.range(0.015, 0.035),
+              rng.range(0.03, 0.05),
             ],
             Part.Bladder,
             8,
@@ -530,7 +537,8 @@ export async function createPlants(
             [rng.range(-0.05, 0.05), 1, rng.range(-0.05, 0.05)],
             rng.range(-0.3, 0.3),
           ),
-          color: [0.55 * g, 0.4 * g, 0.12 * g, 0],
+          // Olive-brown: saturated yellow turns saffron when backlit.
+          color: [0.46 * g, 0.38 * g, 0.16 * g, 0],
           params: [rng.range(0, 100), 0.014, 0, 0],
           variant: kelpVariants[vi],
         });
