@@ -35,8 +35,10 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
   p += side * (ledge - 0.45) * 0.09 * length(shape) * horizontal;
 
   // Porous surface: pits and pockets.
-  let pits = worley3(q * 6.0 + warp);
-  let pocket = smoothstep(0.25, 0.0, pits);
+  // Pits cluster in eroded patches of mixed sizes instead of an even stamp.
+  let pits = min(worley3(q * 6.0 + warp), worley3(q * 13.0 + warp * 2.0) + 0.08);
+  let pitMask = smoothstep(-0.1, 0.35, fbm3(q * 1.3 + 11.0, 2));
+  let pocket = smoothstep(0.25, 0.0, pits) * pitMask;
   p -= dir * pocket * 0.045 * length(shape);
   p += dir * fbm3(q * 9.0, 2) * 0.012 * length(shape);
 

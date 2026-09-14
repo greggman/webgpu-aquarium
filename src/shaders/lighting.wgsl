@@ -87,7 +87,7 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   // Blurrier on slopes too, so tilted surfaces get soft moving patches rather
   // than a crisp web of lines.
   let tilt = 1.0 - clamp(normal.y, 0.0, 1.0);
-  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06) + tilt * 3.5, 0.0, 6.0);
+  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06) + tilt * 2.5, 0.0, 6.0);
   // Two rotated, rescaled samples multiplied together hide the tiling.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;
@@ -102,9 +102,9 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   // Distance and slope both mute the pattern: far floors would otherwise read
   // as a tiled web, and slopes as bright white netting.
   let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.015) *
-    mix(1.0, 0.4, smoothstep(18.0, 45.0, dist)) * mix(1.0, 0.35, smoothstep(0.08, 0.45, tilt));
+    mix(1.0, 0.4, smoothstep(18.0, 45.0, dist)) * mix(1.0, 0.5, smoothstep(0.2, 0.6, tilt));
   // Only surfaces facing the sun catch the pattern; steep faces would smear it.
-  let facing = smoothstep(0.45, 0.92, dot(normal, frame.sunDir));
+  let facing = smoothstep(0.35, 0.85, dot(normal, frame.sunDir));
   return mix(vec3f(1.0), c, fade * facing);
 }
 

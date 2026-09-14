@@ -207,7 +207,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let top = i.uv.z < 0.5;
       let rim = smoothstep(0.8, 1.0, i.uv.y);
       // Table corals are muted browns and tans with a paler growing rim.
-      let muted = mix(tint, vec3f(0.5, 0.45, 0.36), 0.45);
+      let muted = mix(tint, vec3f(0.52, 0.44, 0.32), 0.7);
       // A plate is a mat of fused radial branchlets: streaks that fan out from
       // the centre at roughly constant spacing (more of them further out),
       // broken up by noise, with corallite bumps and irregular dark blotches.
@@ -217,7 +217,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       // Underside is shaded and dull; the top has a darker older centre.
       let centre = smoothstep(0.5, 0.0, i.uv.y);
       var c = muted * select(0.38, 1.0, top) * (0.75 + 0.4 * fine.r) * mix(1.0, 0.72, centre);
-      c *= mix(0.7, 1.0, streak) * mix(0.62, 1.0, cup) * mix(1.0, 0.75, blotch);
+      c *= mix(0.6, 1.0, streak) * mix(0.55, 1.0, cup) * mix(1.0, 0.7, blotch);
       c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
       s.albedo = c;
       s.roughness = 0.8;

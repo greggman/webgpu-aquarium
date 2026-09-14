@@ -279,14 +279,17 @@ function openForeground(
     }
     return h;
   };
-  const base = Math.atan2(b[2] - a[2], b[0] - a[0]);
+  const heading = Math.atan2(b[2] - a[2], b[0] - a[0]);
+  const base = terrain.heightAt(a[0], a[2]);
   // A fan across the lower half of the frame, not just the centre line.
   for (const off of [-0.45, -0.22, 0, 0.22, 0.45]) {
-    const dx = Math.cos(base + off);
-    const dz = Math.sin(base + off);
+    const dx = Math.cos(heading + off);
+    const dz = Math.sin(heading + off);
     for (let t = 1; t <= 8; t += 0.5) {
+      // A rise toward the lens (relative to the ground under the camera)
+      // fills the lower frame; flat or falling ground ahead is fine.
       const h = top(a[0] + dx * t, a[2] + dz * t);
-      if (h > a[1] - 1.6 - t * 0.1) {
+      if (h > Math.min(a[1] - 0.5, base + 0.35 + t * 0.12)) {
         return false;
       }
     }

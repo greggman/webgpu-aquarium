@@ -430,7 +430,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     length: [0.38, 0.55],
     bodyType: 0,
     body: body(
-      0.4,
+      0.32,
       0.1,
       0.7,
       0.16,
@@ -671,7 +671,8 @@ fn bodyZ(v: f32) -> f32 {
 fn bodyProfile(pat: Patch, v: f32, amount: f32) -> f32 {
   let peak = 0.33;
   if (v < peak) {
-    return amount * pow(sin(v / peak * 1.5707963), pat.p0.z);
+    // Tapered snout: never a blunt, lemon-round head.
+    return amount * pow(sin(v / peak * 1.5707963), max(pat.p0.z, 0.95));
   }
   let t = smoothstep(peak, 1.0, v);
   // Narrow tail stem (caudal peduncle) before the tail fin.
@@ -1198,9 +1199,12 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let belly = smoothstep(-0.2, -0.85, sin(i.uv.x * 6.2831853));
     c = mix(c, mix(c, vec3f(0.85, 0.85, 0.8), 0.55), belly);
     s.albedo = c * (0.9 + 0.12 * mottle) * mix(1.0, 0.8, scaleEdge) * mix(1.0, 0.7, lateral);
-    s.emissive = irid * rim * sp.colAccent.w * 0.05 * max(frame.sunColor.g, 1.0) * 0.2;
+    // Guanine platelets: a colour-shifting sheen that follows the viewing
+    // angle, strongest on flanks lit from above.
+    let flank = smoothstep(-0.3, 0.6, n.y + 0.3);
+    s.emissive = irid * (rim * 0.6 + 0.15) * sp.colAccent.w * flank * 0.02 * sunAtDepth(i.world.y);
     // Satin, not lacquer: broad soft highlights with scale sparkle on top.
-    s.roughness = mix(0.55, 0.32, sp.colAccent.w);
+    s.roughness = mix(0.55, 0.22, sp.colAccent.w);
     s.f0 = mix(0.04, 0.14, sp.colAccent.w);
     // Each scale is tilted a little differently, so highlights flash across
     // the body as the fish turns (strongest on silvery species).

@@ -79,7 +79,7 @@ fn beam(p: vec3f) -> f32 {
   let lowSun = mix(0.55, 1.0, smoothstep(0.4, 0.85, frame.sunDir.y));
   // Roll off the brightest focal lines so no single shaft becomes a laser.
   let peak = pow(rel, 4.0);
-  return peak / (1.0 + peak * 0.03) * gate * mix(0.3, 2.6, bundle) * taper * lowSun * 1.6;
+  return peak / (1.0 + peak * 0.03) * gate * mix(0.45, 2.1, bundle) * taper * lowSun * 1.6;
 }
 
 @compute @workgroup_size(8, 8)

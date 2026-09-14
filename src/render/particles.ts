@@ -69,8 +69,12 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   o.pos = billboard(p, size, corner);
   o.quad = corner;
   let edgeFade = smoothstep(box * 0.5, box * 0.3, dist) * smoothstep(0.15, 0.6, dist);
-  let light = sunAtDepth(p.y) * (0.4 + waterPhase(dot(normalize(rel), frame.sunDir)) * 3.0) + ambientAtDepth(p.y);
-  o.color = light * (0.07 + 0.16 * h.z);
+  // Flecks are a little brighter than the water behind them (and catch the
+  // sun when looking toward it); never bright white specks against dark water.
+  let dirV = normalize(rel);
+  let bg = inscatterColor(p.y, dirV);
+  let sunGlint = sunAtDepth(p.y) * min(waterPhase(dot(dirV, frame.sunDir)), 0.4) * 0.12;
+  o.color = bg * (0.6 + 1.2 * h.z) + sunGlint * h.z;
   o.alpha = edgeFade * exp(-dist * 0.08) * min(1.0, (0.006 + h.x * 0.008) / size) * 0.5;
   o.kind = 0u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
