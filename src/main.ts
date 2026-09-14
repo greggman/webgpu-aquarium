@@ -17,6 +17,9 @@ import {createVolumetrics} from './render/volumetrics.ts';
 import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
+import {createGenContext} from './world/layout.ts';
+import {createRocks} from './gen/kinds/rocks.ts';
+import {createCoral} from './gen/kinds/coral.ts';
 
 const params = new URLSearchParams(location.search);
 const numParam = (name: string) =>
@@ -58,7 +61,12 @@ async function main() {
     terrainMask: terrain.maskTexture,
   });
   const nav = buildNavVolume(desc, terrain.cpu);
-  const spots = cameraSpots(desc, terrain.cpu, nav);
+  const gen = createGenContext(desc, terrain.cpu, nav, quality);
+  nav.o.obstacles = gen.obstacles;
+  // Rocks first: other content sits on top of them.
+  const rocks = await createRocks(renderer, gen);
+  const content = [rocks, ...(await Promise.all([createCoral(renderer, gen)]))];
+  const spots = cameraSpots(desc, terrain.cpu, nav, gen.clusters);
 
   const targetsFormats = {
     color: 'rgba16float',
@@ -88,6 +96,7 @@ async function main() {
       drawOpaque: p => terrainRenderer.draw(p),
       drawShadow: p => terrainRenderer.drawShadow(p),
     },
+    ...content,
     background,
     volumetrics,
   );

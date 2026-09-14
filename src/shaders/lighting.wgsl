@@ -63,7 +63,8 @@ fn sunShadow(worldPos: vec3f, normal: vec3f) -> f32 {
     let o = rot * taps[i] * texelStep * 1.8;
     sum += textureSampleCompareLevel(tShadow, sShadow, uv + o, ndc.z);
   }
-  return sum / 8.0;
+  let edge = smoothstep(0.0, 0.1, min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)));
+  return mix(1.0, sum / 8.0, edge);
 }
 
 /** World-space position where the sun ray through `p` entered the water. */

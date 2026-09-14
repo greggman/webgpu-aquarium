@@ -153,7 +153,13 @@ export class NavVolume {
     const dx = p[0] - this.o.center[0];
     const dz = p[2] - this.o.center[1];
     const R = this.o.radiusAt(Math.atan2(dz, dx));
+    const clearOfObstacles = (this.o.obstacles ?? []).every(
+      s =>
+        Math.hypot(p[0] - s.center[0], p[1] - s.center[1], p[2] - s.center[2]) >
+        s.radius + 0.6,
+    );
     return (
+      clearOfObstacles &&
       Math.hypot(dx, dz) <= R &&
       p[1] >= this.floorAt(p[0], p[2]) - 1e-3 &&
       p[1] <= this.ceiling() + 1e-3

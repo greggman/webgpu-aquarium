@@ -40,7 +40,9 @@ fn shadowTap(p: vec3f) -> f32 {
   if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0)) || clip.z < 0.0 || frame.shadow.x <= 0.0) {
     return 1.0;
   }
-  return textureSampleCompareLevel(tShadow, sShadow, uv, clip.z);
+  // Fade toward unshadowed at the map's border so its edge never shows.
+  let edge = smoothstep(0.0, 0.15, min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)));
+  return mix(1.0, textureSampleCompareLevel(tShadow, sShadow, uv, clip.z), edge);
 }
 
 fn beam(p: vec3f) -> f32 {
@@ -52,7 +54,7 @@ fn beam(p: vec3f) -> f32 {
   let c = textureSampleLevel(tCaustics, sLinearRepeat, entry / frame.caustics.x, lod).g;
   // Larger-scale variation so shafts come in groups, not a uniform comb.
   let broad = textureSampleLevel(tCaustics, sLinearRepeat, entry / (frame.caustics.x * 5.3) + 0.37, 6.0).g;
-  return pow(max(c, 0.0), 2.2) * (0.35 + 1.3 * broad * broad);
+  return pow(max(c, 0.0), 2.6) * (0.08 + 1.6 * broad * broad * broad);
 }
 
 @compute @workgroup_size(8, 8)
@@ -194,7 +196,7 @@ export async function createVolumetrics(
   const paramData = new ArrayBuffer(16);
   new Uint32Array(paramData, 0, 1)[0] = quality.volumetricSteps;
   const tune = Number(new URLSearchParams(location.search).get('vol') ?? 1);
-  new Float32Array(paramData, 4, 3).set([70, 0.22 * tune, 0.88]);
+  new Float32Array(paramData, 4, 3).set([70, 0.06 * tune, 0.88]);
   device.queue.writeBuffer(params, 0, paramData);
 
   const sampler = device.createSampler({

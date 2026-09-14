@@ -253,30 +253,28 @@ export function cameraSpots(
   desc: WorldDesc,
   terrain: TerrainData,
   nav: NavVolume,
+  clusters: {x: number; y: number; z: number; radius: number}[],
 ): {presets: Record<string, CameraSpot>; tour: TourStop[]} {
   const rng = new Rng(desc.seed ^ 0xca3e7a);
   const c = desc.terrain.center;
   const gapA = desc.terrain.gapAngle;
   const ground = (x: number, z: number): Vec3 => [x, terrain.heightAt(x, z), z];
+  const hero = clusters[0] ?? {
+    x: c[0],
+    z: c[1],
+    y: terrain.heightAt(c[0], c[1]),
+    radius: 5,
+  };
 
-  // Reef: rocky outcrop with reef growth.
-  const [rx, rz] = bestSpot(
-    rng,
-    nav,
-    (x, z) =>
-      terrain.maskAt(1, x, z) * 1.2 +
-      terrain.maskAt(0, x, z) +
-      terrain.heightAt(x, z) * 0.02,
-  );
-  const reefTarget = ground(rx, rz);
-  reefTarget[1] += 1.2;
+  // Reef: the hero cluster, from slightly above.
+  const reefTarget: Vec3 = [hero.x, hero.y + 1.4, hero.z];
   const reef = spotLookingAt(
     nav,
     terrain,
     reefTarget,
-    9,
-    2.2,
-    Math.atan2(c[1] - rz, c[0] - rx) + 0.6,
+    hero.radius * 0.5 + 4.5,
+    1.8,
+    Math.atan2(c[1] - hero.z, c[0] - hero.x) + 0.5,
   );
 
   // Kelp: flat sandy patch with kelp mask.
@@ -296,51 +294,54 @@ export function cameraSpots(
     rng.range(0, Math.PI * 2),
   );
 
-  // Wide: from the far side of the basin toward the gap into the deep.
-  const wa = gapA + Math.PI;
-  const wr = nav.o.radiusAt(wa) * 0.8;
-  const wx = c[0] + Math.cos(wa) * wr;
-  const wz = c[1] + Math.sin(wa) * wr;
-  const wy = Math.min(terrain.heightAt(wx, wz) + 7, nav.ceiling() - 1);
-  const wide: CameraSpot = {
-    pos: [wx, Math.max(wy, nav.floorAt(wx, wz)), wz],
-    target: [
-      c[0] + Math.cos(gapA) * 30,
-      terrain.heightAt(c[0], c[1]) + 1,
-      c[1] + Math.sin(gapA) * 30,
-    ],
-  };
+  // Wide: an establishing shot across the hero reef toward the gap into the deep.
+  const away = gapA + Math.PI;
+  const wide = spotLookingAt(
+    nav,
+    terrain,
+    [hero.x + Math.cos(gapA) * 12, hero.y + 1, hero.z + Math.sin(gapA) * 12],
+    30,
+    6,
+    away,
+  );
 
   // Overhead: high above the reef looking down at it.
   const overhead: CameraSpot = {
-    pos: [rx + 6, nav.ceiling() - 0.5, rz + 4],
+    pos: [hero.x + 5, nav.ceiling() - 0.5, hero.z + 3],
     target: reefTarget,
   };
 
   const presets = {reef, kelp, wide, overhead};
 
-  // Tour: loop around the basin, alternating low and high passes over interesting spots.
+  // Tour: visit the reef clusters (and the kelp) in order around the basin,
+  // alternating low and high passes.
+  const stopsAt = [
+    ...clusters.map(k => ({x: k.x, y: k.y, z: k.z, r: k.radius})),
+    {x: kx, y: kelpTarget[1] - 3, z: kz, r: 4},
+  ];
+  stopsAt.sort(
+    (a, b) =>
+      Math.atan2(a.z - c[1], a.x - c[0]) - Math.atan2(b.z - c[1], b.x - c[0]),
+  );
   const tour: TourStop[] = [];
-  const stops = 8;
-  const start = rng.range(0, Math.PI * 2);
-  for (let i = 0; i < stops; i++) {
-    const a = start + (i / stops) * Math.PI * 2;
-    const R = nav.o.radiusAt(a) * rng.range(0.35, 0.7);
-    const x = c[0] + Math.cos(a) * R;
-    const z = c[1] + Math.sin(a) * R;
+  stopsAt.forEach((k, i) => {
     const high = i % 3 === 1;
-    const y = Math.min(
-      nav.floorAt(x, z) + (high ? rng.range(6, 10) : rng.range(1.2, 3)),
-      nav.ceiling() - 0.5,
+    const angle = Math.atan2(c[1] - k.z, c[0] - k.x) + rng.range(-0.8, 0.8);
+    const spot = spotLookingAt(
+      nav,
+      terrain,
+      [k.x, k.y + (high ? 0.5 : 1.5), k.z],
+      k.r + (high ? 9 : 5),
+      high ? 7 : 2,
+      angle,
     );
-    const ahead = a + (Math.PI * 2) / stops;
-    const tR = nav.o.radiusAt(ahead) * rng.range(0.2, 0.6);
-    const tx = c[0] + Math.cos(ahead) * tR;
-    const tz = c[1] + Math.sin(ahead) * tR;
-    tour.push({
-      pos: [x, y, z],
-      target: [tx, terrain.heightAt(tx, tz) + (high ? 0 : 2), tz],
-    });
+    tour.push({pos: spot.pos, target: spot.target});
+  });
+  if (tour.length < 3) {
+    tour.push(
+      {pos: wide.pos, target: wide.target},
+      {pos: reef.pos, target: reef.target},
+    );
   }
   return {presets, tour};
 }
