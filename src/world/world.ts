@@ -44,7 +44,7 @@ const STYLES: WaterStyle[] = [
     scattering: 0.016,
     ambient: [0.26, 0.72, 1.1],
     sunColor: [14, 13.2, 11.8],
-    sunElevation: [1.05, 1.3],
+    sunElevation: [0.8, 1.1],
     exposure: 0.36,
     grade: grade({
       lift: [0, 0.004, 0.012],
@@ -55,11 +55,11 @@ const STYLES: WaterStyle[] = [
   {
     // Emerald lagoon: green-teal water.
     name: 'lagoon',
-    absorption: [0.12, 0.028, 0.03],
+    absorption: [0.11, 0.03, 0.022],
     scattering: 0.02,
-    ambient: [0.24, 0.76, 0.9],
+    ambient: [0.22, 0.66, 1.0],
     sunColor: [13.5, 13, 10.8],
-    sunElevation: [0.95, 1.25],
+    sunElevation: [0.75, 1.05],
     exposure: 0.36,
     grade: grade({lift: [0.004, 0.008, 0.0], gain: [1.06, 1.0, 0.92]}),
   },
@@ -70,7 +70,7 @@ const STYLES: WaterStyle[] = [
     scattering: 0.014,
     ambient: [0.12, 0.42, 1.2],
     sunColor: [13, 13, 12.5],
-    sunElevation: [1.0, 1.3],
+    sunElevation: [0.8, 1.1],
     exposure: 0.44,
     grade: grade({
       lift: [0, 0, 0.016],
@@ -83,10 +83,10 @@ const STYLES: WaterStyle[] = [
     // Kelp coast: murky green-gold, softer light.
     name: 'kelp-forest',
     absorption: [0.14, 0.042, 0.05],
-    scattering: 0.024,
-    ambient: [0.27, 0.66, 0.64],
+    scattering: 0.018,
+    ambient: [0.25, 0.6, 0.7],
     sunColor: [13, 12, 9],
-    sunElevation: [0.85, 1.15],
+    sunElevation: [0.7, 1.0],
     exposure: 0.4,
     grade: grade({
       lift: [0.008, 0.008, 0.0],

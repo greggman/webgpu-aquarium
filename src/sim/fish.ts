@@ -468,8 +468,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   if (ctx.kelpForests.length) {
     list.push({
       name: 'kelpfish',
-      count: Math.round(rng.int(18, 30) * k),
-      length: [0.2, 0.3],
+      count: Math.round(rng.int(30, 45) * k),
+      length: [0.24, 0.34],
       bodyType: 0,
       body: body(
         0.3,
@@ -485,24 +485,18 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         0.8,
         2.2,
       ),
-      colors: rng.bool(0.5)
-        ? {
-            top: [1.0, 0.45, 0.08],
-            belly: [1.0, 0.55, 0.15],
-            accent: [1.0, 0.6, 0.2],
-            fin: [1.0, 0.5, 0.1],
-          }
-        : {
-            top: [0.35, 0.3, 0.22],
-            belly: [0.75, 0.65, 0.5],
-            accent: [0.55, 0.4, 0.25],
-            fin: [0.5, 0.42, 0.3],
-          },
+      // Bright orange, like Garibaldi: readable against the green-gold kelp.
+      colors: {
+        top: [1.0, 0.42, 0.06],
+        belly: [1.0, 0.55, 0.14],
+        accent: [1.0, 0.62, 0.2],
+        fin: [1.0, 0.5, 0.1],
+      },
       pattern: Pattern.Countershade,
       patternFreq: 1,
       iridescence: 0.2,
-      finTranslucency: 0.5,
-      band: [0.8, 9],
+      finTranslucency: 0.6,
+      band: [0.8, 7],
       speed: 0.5,
       maxSpeed: 1.6,
       flock: [0.15, 0.3, 1.5, 2.5],
@@ -1166,9 +1160,15 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     c = mix(c, c * vec3f(0.55, 0.6, 0.65), back * 0.5);
     s.albedo = c * (0.9 + 0.12 * mottle) * mix(1.0, 0.8, scaleEdge) * mix(1.0, 0.7, lateral);
     s.emissive = irid * rim * sp.colAccent.w * 0.05 * max(frame.sunColor.g, 1.0) * 0.2;
-    s.roughness = mix(0.4, 0.22, sp.colAccent.w);
-    s.f0 = mix(0.04, 0.12, sp.colAccent.w);
-    s.normal = bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04);
+    s.roughness = mix(0.42, 0.18, sp.colAccent.w);
+    s.f0 = mix(0.04, 0.14, sp.colAccent.w);
+    // Each scale is tilted a little differently, so highlights flash across
+    // the body as the fish turns (strongest on silvery species).
+    let cellId = floor(scaleUv);
+    let h1 = fract(sin(dot(cellId, vec2f(12.9898, 78.233))) * 43758.5453);
+    let h2 = fract(h1 * 17.13 + 0.37);
+    let tilt = vec3f(h1 - 0.5, h2 - 0.5, (h1 + h2) * 0.5 - 0.5) * (0.25 + 0.6 * sp.colAccent.w);
+    s.normal = normalize(bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04) + tilt * 0.5);
     // Eyes.
     if (!isRay) {
       let eyeZ = 0.5 - 0.1;

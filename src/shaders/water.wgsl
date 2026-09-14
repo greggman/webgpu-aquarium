@@ -17,7 +17,7 @@ fn sunAtDepth(y: f32) -> vec3f {
   // Light paths are attenuated less than view paths (forward scattering keeps
   // sunlight travelling down), and red is relaxed most so shallow reefs keep
   // their warm colours as in the reference games.
-  let k = frame.absorption * vec3f(0.42, 0.6, 0.6) + vec3f(frame.scattering * 0.3);
+  let k = frame.absorption * vec3f(0.3, 0.55, 0.6) + vec3f(frame.scattering * 0.3);
   return frame.sunColor * exp(-k * path);
 }
 
@@ -95,6 +95,10 @@ fn skyRadiance(d: vec3f) -> vec3f {
   let horizon = frame.ambientColor * vec3f(1.6, 1.5, 1.35) * 2.2;
   let zenith = frame.ambientColor * vec3f(0.8, 1.0, 1.25) * 1.8;
   var sky = mix(horizon, zenith, pow(clamp(d.y, 0.0, 1.0), 0.6));
+  // Soft drifting clouds, seen distorted through the waves.
+  let cloudUv = d.xz / max(d.y, 0.15) * 1.3 + vec2f(frame.time * 0.004, 0.0);
+  let clouds = smoothstep(0.05, 0.55, fbm2(cloudUv, 4) + 0.15);
+  sky = mix(sky, vec3f(dot(sky, vec3f(0.33)) * 1.5), clouds * 0.55);
   sky += frame.sunColor * (pow(mu, 1500.0) * 22.0 + pow(mu, 60.0) * 1.6 + pow(mu, 6.0) * 0.3);
   return sky;
 }
@@ -107,22 +111,26 @@ fn surfaceFromBelow(dir: vec3f) -> vec3f {
   let w0 = sampleWaves(hit, frame.time);
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let w1 = sampleWaves(rot * hit * 0.37 + vec2f(3.1, 1.7), frame.time * 0.6);
-  // Distant surface looks flatter (normals average out).
-  let fade = 1.0 / (1.0 + t * 0.04);
-  let g = (w0.grad * 2.2 + (transpose(rot) * w1.grad) * 1.4) * fade;
+  // Distant surface looks flatter (normals average out) and the fine ripples
+  // wash out first, which keeps the edge of Snell's window soft.
+  let fade = 1.0 / (1.0 + t * 0.07);
+  let g = (w0.grad * 1.6 * fade + (transpose(rot) * w1.grad) * 1.2) * mix(0.6, 1.0, fade);
   let n = normalize(vec3f(-g.x, -1.0, -g.y)); // facing down, toward the viewer
 
   let cosI = clamp(dot(-dir, n), 0.0, 1.0);
-  let refr = refract(dir, n, 1.333);
-  let reflected = inscatterColor(frame.surfaceY - 6.0, reflect(dir, n)) * 0.9;
-  if (dot(refr, refr) < 1e-6) {
-    // Total internal reflection outside Snell's window.
-    return reflected;
-  }
-  // Fresnel for water -> air, which reaches 1 at the critical angle.
-  let cosT = sqrt(max(1.0 - 1.333 * 1.333 * (1.0 - cosI * cosI), 0.0));
+  let r = reflect(dir, n);
+  // Outside the window the surface mirrors the dim water and reef below:
+  // darker, with slow mottling so it isn't a flat sheet.
+  let mottle = fbm2(hit * 0.08 + r.xz * 2.0, 3);
+  let reflected = inscatterColor(frame.surfaceY - 8.0, r) * (0.65 + 0.35 * mottle);
+  // Blend across the critical angle instead of switching abruptly.
+  let sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
+  let window = smoothstep(1.0, 0.82, sinT2);
+  let cosT = sqrt(max(1.0 - sinT2, 1e-4));
   let rs = (1.333 * cosI - cosT) / (1.333 * cosI + cosT);
   let rp = (cosI - 1.333 * cosT) / (cosI + 1.333 * cosT);
   let F = clamp(0.5 * (rs * rs + rp * rp), 0.0, 1.0);
-  return mix(skyRadiance(normalize(refr)), reflected, F);
+  let refr = normalize(refract(dir, n, 1.333) + vec3f(0.0, 1e-3, 0.0));
+  let through = mix(skyRadiance(refr), reflected, F);
+  return mix(reflected, through, window);
 }

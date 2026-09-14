@@ -89,10 +89,12 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;
   let c2 = textureSampleLevel(tCaustics, sLinearRepeat, rot * uv * 0.73 + 0.31, lod).rgb;
-  let c = sqrt(c1 * c2) * 1.1;
+  // Soft-compress the focal lines so they sparkle without blowing out.
+  let raw = sqrt(c1 * c2) * 1.1;
+  let c = raw / (1.0 + max(raw - vec3f(1.0), vec3f(0.0)) * 0.45);
   let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.025);
   // Only surfaces facing the sun catch the pattern; steep faces would smear it.
-  let facing = smoothstep(0.3, 0.85, dot(normal, frame.sunDir));
+  let facing = smoothstep(0.45, 0.92, dot(normal, frame.sunDir));
   return mix(vec3f(1.0), c, fade * facing);
 }
 
@@ -125,12 +127,18 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   let diffuseNoL = max((NoLraw + wrap) / ((1.0 + wrap) * (1.0 + wrap)), 0.0);
   var color = (kd * s.albedo / PI * diffuseNoL + spec * NoL) * sun;
 
-  // Light passing through thin tissue toward the viewer.
-  let backlit = pow(max(dot(-V, L), 0.0), 3.0) * 0.7 + max(-NoLraw, 0.0) * 0.3;
-  color += s.albedo * s.translucency * backlit * sun * 0.6;
+  // Light passing through thin tissue (kelp blades, fins, jelly, fans): light
+  // striking the far side transmits, strongly when looking toward the sun, and
+  // comes out saturated because it travelled through the pigment.
+  let amb = ambientAtDepth(p.y);
+  let transColor = s.albedo * (s.albedo * 1.6 + vec3f(0.15));
+  let backFace = max(-NoLraw, 0.0);
+  let towardSun = pow(max(dot(-V, L), 0.0), 4.0);
+  color += transColor * s.translucency * sun * (backFace * 0.55 + towardSun * 2.0);
+  // The bright water surface above also shines through undersides.
+  color += transColor * s.translucency * amb * max(-N.y, 0.0) * 0.8;
 
   // Ambient: bright blue from above, dim bounce from below.
-  let amb = ambientAtDepth(p.y);
   let bounce = sunAtDepth(p.y) * vec3f(0.32, 0.30, 0.24) * 0.12;
   let hemi = mix(bounce, amb, N.y * 0.5 + 0.5);
   color += kd * s.albedo * hemi * s.ao;

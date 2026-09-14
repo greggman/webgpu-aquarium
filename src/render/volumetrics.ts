@@ -107,7 +107,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let p = frame.camPos + dir * t;
     let dt = max(t - prevT, 0.0) + dist / f32(n * n);
     prevT = t;
-    let light = sunAtDepth(p.y) * shadowTap(p) * beam(p);
+    // Distant shafts fade out smoothly (sparse far samples would band).
+    let far = smoothstep(42.0, 14.0, t);
+    let light = sunAtDepth(p.y) * shadowTap(p) * beam(p) * far;
     accum += light * exp(-ext * t) * dt;
   }
   // Cap the forward peak so looking toward the sun doesn't wash out the frame.

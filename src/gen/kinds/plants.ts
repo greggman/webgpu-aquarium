@@ -30,7 +30,8 @@ fn ribbon(pat: Patch, uv: vec2f, part: f32) -> SurfacePoint {
   let v = uv.y;
   let taper = select(1.0 - pow(v, 4.0), sin(v * 3.14159) * 0.8 + 0.2 * (1.0 - v), part > 1.5);
   let across = (uv.x - 0.5) * width * taper;
-  let ruffle = sin(v * 40.0 + uv.x * 3.0) * pat.p2.x * abs(uv.x - 0.5) * 2.0 * v;
+  // Gentle ruffles along the blade edge (low frequency: a high one aliases into a sawtooth).
+  let ruffle = sin(v * 13.0 + uv.x * 2.0 + pat.p0.w * 3.0) * pat.p2.x * pow(abs(uv.x - 0.5) * 2.0, 1.5) * v;
   let bendAmt = pat.p1.z * v * v * len;
   var p = pat.p0.xyz + fwd * (bendAmt + pat.p1.w * v * len) + side * across;
   // Kelp blades hang out from the stipe; grass blades rise from the ground.
@@ -110,10 +111,12 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     default: {
       // Blades: darker at the base, golden and translucent toward the tips,
       // with faint longitudinal veins and ragged dead tips.
-      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.9 + 0.15 * veins);
+      let vein = smoothstep(0.85, 1.0, veins);
+      var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.95 - 0.25 * vein);
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
       s.albedo = c;
-      s.translucency = 0.85;
+      // Veins block some of the light passing through, so they show when backlit.
+      s.translucency = 0.95 - vein * 0.35;
       s.roughness = 0.45;
       s.f0 = 0.03;
     }
@@ -306,8 +309,8 @@ function kelpPlant(
             ...outward,
           ],
           Part.KelpBlade,
-          hi ? 3 : 2,
-          hi ? 12 : 6,
+          hi ? 4 : 2,
+          hi ? 22 : 10,
         ),
       );
       if (rng.bool(0.6)) {
@@ -363,14 +366,16 @@ export async function createPlants(
   const variants: Variant[] = [];
   const grassVariants: number[] = [];
   const kelpVariants: number[] = [];
+  const kelpHeights: number[] = [];
   for (let i = 0; i < 6; i++) {
     grassVariants.push(variants.length);
     variants.push(grassClump(rng, hi));
   }
-  const ceiling = ctx.nav.ceiling();
   for (let i = 0; i < 5; i++) {
     kelpVariants.push(variants.length);
-    variants.push(kelpPlant(rng, aux, rng.range(7, 13), hi));
+    const kelpHeight = rng.range(9, 14);
+    kelpHeights.push(kelpHeight);
+    variants.push(kelpPlant(rng, aux, kelpHeight, hi));
   }
   const mesh = await buildMesh(
     renderer.device,
@@ -439,32 +444,48 @@ export async function createPlants(
       f === 0
         ? best
         : [best[0] + rng.range(-25, 25), best[1] + rng.range(-25, 25)];
-    const plants = scatter(
+    // Clumps of holdfasts rather than an even grid, so the forest has dense
+    // stands and darker gaps.
+    const clumps = scatter(
       rng,
       {
-        count: ctx.count(hi ? 70 : 40),
-        minDist: 2.4,
+        count: ctx.count(hi ? 34 : 20),
+        minDist: 3.2,
         center: fc,
-        radius: rng.range(9, 14),
+        radius: rng.range(10, 15),
         density: (x, z) => (ctx.terrain.maskAt(0, x, z) < 0.6 ? 1 : 0.2),
       },
       ctx.occupied,
     );
-    for (const [x, z] of plants) {
-      const y = ctx.groundY(x, z);
-      const room = ceiling - y;
-      const g = rng.range(0.85, 1.1);
-      instances.push({
-        pos: [x, y - 0.05, z],
-        scale: Math.min(
-          1.25,
-          Math.max(0.5, (room / 11) * rng.range(0.8, 1.15)),
-        ),
-        rot: quatUpYaw([0, 1, 0], rng.range(0, Math.PI * 2)),
-        color: [0.5 * g, 0.38 * g, 0.12 * g, 0],
-        params: [rng.range(0, 100), 0.012, 0, 0],
-        variant: rng.pick(kelpVariants),
-      });
+    const surface = ctx.desc.surfaceY;
+    for (const [cx, cz] of clumps) {
+      const n = rng.int(1, 3);
+      for (let k = 0; k < n; k++) {
+        const x = cx + rng.range(-1.2, 1.2);
+        const z = cz + rng.range(-1.2, 1.2);
+        const y = ctx.groundY(x, z);
+        const vi = rng.int(0, kelpVariants.length - 1);
+        // Tall enough that the canopy spreads just under the surface.
+        const scale = Math.min(
+          1.8,
+          Math.max(
+            0.5,
+            ((surface - 0.8 - y) / kelpHeights[vi]) * rng.range(0.85, 1.05),
+          ),
+        );
+        const g = rng.range(0.85, 1.1);
+        instances.push({
+          pos: [x, y - 0.05, z],
+          scale,
+          rot: quatUpYaw(
+            [rng.range(-0.08, 0.08), 1, rng.range(-0.08, 0.08)],
+            rng.range(0, Math.PI * 2),
+          ),
+          color: [0.52 * g, 0.38 * g, 0.12 * g, 0],
+          params: [rng.range(0, 100), 0.014, 0, 0],
+          variant: kelpVariants[vi],
+        });
+      }
     }
     ctx.kelpForests.push({x: fc[0], z: fc[1], radius: 12});
   }
