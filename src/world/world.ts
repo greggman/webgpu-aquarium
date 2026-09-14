@@ -101,9 +101,9 @@ const STYLES: WaterStyle[] = [
   {
     // Golden hour: low warm sun, violet-blue depths.
     name: 'golden-hour',
-    absorption: [0.12, 0.04, 0.028],
-    scattering: 0.02,
-    ambient: [0.2, 0.42, 0.85],
+    absorption: [0.13, 0.045, 0.03],
+    scattering: 0.016,
+    ambient: [0.16, 0.42, 0.9],
     sunColor: [16, 11.5, 6.5],
     sunElevation: [0.45, 0.7],
     exposure: 0.5,
@@ -244,6 +244,20 @@ function bestSpot(
   return best;
 }
 
+/** True if the terrain doesn't block the view from `a` to (just above) `b`. */
+function lineOfSight(terrain: TerrainData, a: Vec3, b: Vec3): boolean {
+  for (let i = 1; i < 24; i++) {
+    const t = i / 24;
+    const x = a[0] + (b[0] - a[0]) * t;
+    const y = a[1] + (b[1] + 0.5 - a[1]) * t;
+    const z = a[2] + (b[2] - a[2]) * t;
+    if (terrain.heightAt(x, z) > y - 0.3) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Places a camera `dist` metres from a target, `height` above the ground, inside the volume. */
 function spotLookingAt(
   nav: NavVolume,
@@ -252,6 +266,7 @@ function spotLookingAt(
   dist: number,
   height: number,
   preferredAngle: number,
+  clear: (x: number, z: number) => boolean = () => true,
 ): CameraSpot {
   let fallback: CameraSpot | null = null;
   for (let k = 0; k < 16; k++) {
@@ -265,7 +280,12 @@ function spotLookingAt(
     const pos: Vec3 = [x, Math.max(y, nav.floorAt(x, z) + 0.2), z];
     const spot = {pos, target};
     fallback ??= spot;
-    if (nav.contains(pos) && nav.edgeFactor(x, z) < 0.3) {
+    if (
+      nav.contains(pos) &&
+      nav.edgeFactor(x, z) < 0.3 &&
+      clear(x, z) &&
+      lineOfSight(terrain, pos, target)
+    ) {
       return spot;
     }
   }
@@ -290,6 +310,13 @@ export function cameraSpots(
     radius: 5,
   };
 
+  // Keeps a camera out of kelp stands: blades right in front of the lens
+  // hide the subject. Canopies stream downcurrent (+x) from their holdfasts.
+  const kelpClear = (x: number, z: number) =>
+    kelpForests.every(f =>
+      f.stems.every(([sx, sz]) => Math.hypot(sx + 2.5 - x, sz - z) > 5.5),
+    );
+
   // Reef: the hero cluster, from slightly above.
   // Low and looking slightly up toward the open water of the gap, so the reef
   // silhouettes against the blue instead of sitting on flat sand.
@@ -301,6 +328,7 @@ export function cameraSpots(
     hero.radius + 3.5,
     1.1,
     gapA + Math.PI + 0.35,
+    kelpClear,
   );
 
   // Kelp: from just outside the forest edge, on the side away from the sun,
@@ -389,25 +417,68 @@ export function cameraSpots(
     26,
     2.2,
     away,
+    kelpClear,
   );
 
   // Overhead: high above the reef looking down at it.
+  // Offset to the side farthest from any kelp, so no canopy blade sits in
+  // front of the lens.
+  let ohA = 0.54;
+  let ohBest = -Infinity;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const x = hero.x + Math.cos(a) * 5.8;
+    const z = hero.z + Math.sin(a) * 5.8;
+    let gap = 100;
+    for (const f of kelpForests) {
+      for (const [sx, sz] of f.stems) {
+        gap = Math.min(gap, Math.hypot(sx - x, sz - z));
+      }
+    }
+    if (gap > ohBest) {
+      ohBest = gap;
+      ohA = a;
+    }
+  }
   const overhead: CameraSpot = {
-    pos: [hero.x + 5, nav.ceiling() - 0.5, hero.z + 3],
+    pos: [
+      hero.x + Math.cos(ohA) * 5.8,
+      nav.ceiling() - 0.5,
+      hero.z + Math.sin(ohA) * 5.8,
+    ],
     target: reefTarget,
   };
 
-  // Surface: low beside the hero reef, looking up toward the sun through the
-  // shafts at Snell's window.
+  // Surface: low at the foot of the hero reef, looking up past the bommie
+  // toward the sun, so coral silhouettes against Snell's window and the shafts.
   const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
-  const upX = hero.x - Math.cos(sunFlat) * (hero.radius + 2);
-  const upZ = hero.z - Math.sin(sunFlat) * (hero.radius + 2);
-  // High enough that seagrass blades don't flicker across the bright window.
-  const upY = Math.min(nav.floorAt(upX, upZ) + 1.8, nav.ceiling() - 2);
-  const surface: CameraSpot = {
-    pos: [upX, upY, upZ],
-    target: [upX + Math.cos(sunFlat) * 5, upY + 6, upZ + Math.sin(sunFlat) * 5],
-  };
+  let surface: CameraSpot | undefined;
+  for (let k = 0; k < 10 && !surface; k++) {
+    const a = sunFlat + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.35;
+    const r = hero.radius * 0.55 + 3;
+    const x = hero.x + Math.cos(a) * r;
+    const z = hero.z + Math.sin(a) * r;
+    const y = Math.min(nav.floorAt(x, z) + 1.3, nav.ceiling() - 2);
+    if (!nav.contains([x, y, z]) || !kelpClear(x, z)) {
+      continue;
+    }
+    const dx = (hero.x - x) / r;
+    const dz = (hero.z - z) / r;
+    surface = {pos: [x, y, z], target: [x + dx * 6, y + 4.2, z + dz * 6]};
+  }
+  if (!surface) {
+    const upX = hero.x - Math.cos(sunFlat) * (hero.radius + 2);
+    const upZ = hero.z - Math.sin(sunFlat) * (hero.radius + 2);
+    const upY = Math.min(nav.floorAt(upX, upZ) + 1.8, nav.ceiling() - 2);
+    surface = {
+      pos: [upX, upY, upZ],
+      target: [
+        upX + Math.cos(sunFlat) * 5,
+        upY + 6,
+        upZ + Math.sin(sunFlat) * 5,
+      ],
+    };
+  }
 
   const presets = {reef, kelp, wide, overhead, surface};
 

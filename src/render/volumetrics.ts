@@ -67,10 +67,13 @@ fn beam(p: vec3f) -> f32 {
   // Slow drifting gate from the tileable detail noise (cheap: one sample).
   let drift = vec2f(frame.time * 0.15, frame.time * 0.07);
   let broad = textureSampleLevel(tDetail, sLinearRepeat, (entry + drift) / 90.0, 2.0).r;
-  let gate = smoothstep(0.35, 0.6, broad);
+  let gate = smoothstep(0.42, 0.68, broad);
   // Brightest just under the surface, fading as the beams spread with depth.
   let taper = 0.35 + 0.65 * exp(-depth * 0.06);
-  return pow(rel, 4.0) * gate * 1.5 * taper;
+  // A low sun drives long slanted shafts through the whole view: thin them out
+  // so they don't become an evenly striped curtain.
+  let lowSun = mix(0.55, 1.0, smoothstep(0.4, 0.85, frame.sunDir.y));
+  return pow(rel, 4.0) * gate * 1.5 * taper * lowSun;
 }
 
 @compute @workgroup_size(8, 8)

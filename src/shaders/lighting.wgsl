@@ -94,7 +94,9 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   let c2 = textureSampleLevel(tCaustics, sLinearRepeat, rot * uv * 0.73 + 0.31, lod).rgb;
   // Soft-compress the focal lines so they sparkle without blowing out.
   let raw = sqrt(c1 * c2) * 1.1;
-  let c = raw / (1.0 + max(raw - vec3f(1.0), vec3f(0.0)) * 0.45);
+  // Peaks roll off hard: close to the camera the focal lines are sharp and
+  // would otherwise blow out into white blotches on bright sand.
+  let c = raw / (1.0 + max(raw - vec3f(0.9), vec3f(0.0)) * 0.9);
   // Distance and slope both mute the pattern: far floors would otherwise read
   // as a tiled web, and slopes as bright white netting.
   let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.025) *

@@ -39,7 +39,7 @@ const SpeciesStruct = defineStruct('Species', {
   colFin: 'vec4f',
   /** wander, home pull, eye height, eye size */
   extra: 'vec4f',
-  /** curiosity (0 shy .. 1 approaches the camera), fear radius, unused, unused */
+  /** curiosity (0 shy .. 1 approaches the camera), fear radius, roam radius, roam angular speed */
   behavior: 'vec4f',
 });
 
@@ -113,6 +113,8 @@ interface SpeciesDef {
   eye: number;
   /** 0 = shy; higher values hang around in front of the camera. */
   curiosity?: number;
+  /** Radius (m) of a slow loop the school's home travels, stretching it into a ribbon. */
+  roam?: number;
 }
 
 const hsv = (h: number, s: number, v: number): number[] => {
@@ -159,7 +161,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   const baitHue = rng.range(0.52, 0.62);
   list.push({
     name: 'bait',
-    count: Math.round(rng.int(220, 320) * k),
+    count: Math.round(rng.int(480, 650) * k),
     length: [0.2, 0.28],
     bodyType: 0,
     body: body(
@@ -195,7 +197,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     wander: 0.3,
     homePull: 0.15,
     home: 'open',
-    homeRadius: 7,
+    homeRadius: 5,
+    roam: 9,
     eye: 0.035,
   });
 
@@ -899,14 +902,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   var acc = vec3f(0.0);
+  let roam = sp.behavior.z;
   if (n > 0.0) {
     acc += (ali / n - f.vel) * sp.flock.y;
-    acc += (coh / n - f.pos) * sp.flock.x;
+    var toCenter = coh / n - f.pos;
+    if (roam > 0.0) {
+      // Roaming schools cohere sideways but barely along their heading, so
+      // they string out into streaming ribbons instead of balls.
+      let heading = normalize(f.vel + vec3f(1e-5, 0.0, 0.0));
+      let along = dot(toCenter, heading);
+      toCenter -= heading * along * 0.85;
+    }
+    acc += toCenter * sp.flock.x;
   }
   acc += sep * sp.flock.z * 4.0;
 
-  // Stay near home.
-  let toHome = f.home.xyz - f.pos;
+  // Stay near home (which, for roaming schools, travels a slow wobbly loop).
+  let roamA = sim.time * sp.behavior.w;
+  let roamOff = vec3f(cos(roamA), 0.12 * sin(roamA * 2.0), sin(roamA) * 0.7) * roam;
+  let toHome = f.home.xyz + roamOff - f.pos;
   let hd = length(toHome);
   if (hd > f.home.w) {
     acc += toHome / hd * (hd - f.home.w) * sp.extra.y;
@@ -1145,6 +1159,12 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let sp = species[u32(inst.anim.w)];
   let part = u32(i.uv.w + 0.5);
   let V = normalize(frame.camPos - i.world);
+  // Fish right in front of the lens dissolve instead of filling the frame
+  // with a blurry blob.
+  let camDist = length(frame.camPos - i.world);
+  if (ign(i.pos.xy, frame.frameIndex * 5u + i.instance) > smoothstep(0.35, 1.1, camDist)) {
+    discard;
+  }
   var s = defaultSurface();
   s.normal = n;
   s.ao = i.ao;
@@ -1281,8 +1301,8 @@ export async function createFish(
         s.eye,
         s.curiosity ?? 0,
         s.curiosity ? 0.9 : 1.5 + len * 3,
-        0,
-        0,
+        s.roam ?? 0,
+        s.roam ? 0.9 / s.roam : 0,
       ],
       i * SPECIES_FLOATS,
     );

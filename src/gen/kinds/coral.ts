@@ -208,12 +208,14 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let rim = smoothstep(0.8, 1.0, i.uv.y);
       // Table corals are muted browns and tans with a paler growing rim.
       let muted = mix(tint, vec3f(0.5, 0.45, 0.36), 0.45);
-      // Concentric growth bands and radial rows of polyps across the plate.
-      let rings = 0.5 + 0.5 * sin(i.uv.y * 38.0 + fine.r * 3.0);
-      let radial = 0.5 + 0.5 * sin(i.uv.x * 6.2831853 * 90.0 + fine.g * 4.0);
+      // A plate is a mat of fused radial branchlets: streaks that fan out from
+      // the centre at roughly constant spacing (more of them further out),
+      // broken up by noise, with corallite bumps and irregular dark blotches.
+      let fan = i.uv.x * 6.2831853 * mix(12.0, 70.0, i.uv.y) + fine.g * 5.0 + broad.r * 3.0;
+      let streak = smoothstep(0.2, 0.9, 0.5 + 0.5 * sin(fan)) * smoothstep(0.05, 0.3, i.uv.y);
       let blotch = smoothstep(0.35, 0.7, broad.r);
-      var c = muted * select(0.65, 1.0, top) * (0.7 + 0.45 * fine.g);
-      c *= mix(0.78, 1.0, rings) * mix(0.85, 1.0, radial) * mix(1.0, 0.7, blotch);
+      var c = muted * select(0.62, 1.0, top) * (0.75 + 0.4 * fine.r);
+      c *= mix(0.82, 1.0, streak) * mix(0.85, 1.0, cup) * mix(1.0, 0.75, blotch);
       c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
       s.albedo = c;
       s.roughness = 0.8;

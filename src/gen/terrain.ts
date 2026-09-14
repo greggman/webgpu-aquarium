@@ -555,7 +555,8 @@ fn fs(i: VOut) -> FOut {
   let sandDetail = textureSample(tDetail, sLinearRepeat, p.xz * 0.09);
 
   // Blend weight with a noisy edge so sand drifts over rock naturally.
-  let rockW = smoothstep(0.35, 0.65, rockAmt + (tri.g - 0.5) * 0.5 + (broad.r - 0.5) * 0.3);
+  // (Smooth fbm for the edge noise: the cell channel gives giraffe patterns.)
+  let rockW = smoothstep(0.35, 0.65, rockAmt + (tri.r - 0.5) * 0.5 + (broad.r - 0.5) * 0.3);
 
   // Sand: ripple normals (strength fades on slopes), warm variation.
   // Ripples vary in strength across the floor so they don't read as a pattern.
@@ -601,16 +602,16 @@ fn fs(i: VOut) -> FOut {
   let sponge = vec3f(0.34, 0.17, 0.36);
   var growth = mix(algae, coralline, smoothstep(0.42, 0.58, hueSel));
   growth = mix(growth, sponge, smoothstep(0.62, 0.72, hueSel) * 0.8);
-  growth *= 0.85 + 0.3 * tri.g;
+  growth *= 0.85 + 0.3 * triFine.r;
   let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.4, 0.6, tri.r * 0.75 + triFine.r * 0.25 + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
   rockCol = mix(rockCol, growth, growthAmt);
 
   // Reef zones: a carpet of coral rubble, not felt. Lumpy broken fragments
   // (pale, bleached pieces among darker turf-covered ones) with bare gaps.
   let rubbleField = triplanar(p, n, 0.42);
-  let lump = smoothstep(0.35, 0.7, rubbleField.r * 0.7 + tri.g * 0.3);
+  let lump = smoothstep(0.35, 0.7, rubbleField.r * 0.7 + tri.r * 0.3);
   let fragment = smoothstep(0.66, 0.76, triplanar(p, n, 0.9).r) * smoothstep(0.4, 0.9, n.y);
-  let turfCol = mix(vec3f(0.2, 0.19, 0.1), vec3f(0.3, 0.25, 0.13), rubbleField.g);
+  let turfCol = mix(vec3f(0.2, 0.19, 0.1), vec3f(0.3, 0.25, 0.13), triFine.r);
   var reefCol = mix(rockCol * 0.8, turfCol, lump * 0.8);
   reefCol = mix(reefCol, vec3f(0.66, 0.62, 0.54) * (0.8 + 0.3 * rubbleField.b), fragment * 0.7);
   rockCol = mix(rockCol, reefCol, reefAmt);
