@@ -114,3 +114,29 @@ Biggest gaps (ranked):
 
 What works: backlit kelp around the sun in the seed 1 surface shot (HFW-adjacent), softer Snell's window with
 clouds, seed 4 warm slanted shafts, seed 2 deep-blue mood, dappled kelp shadows, gentle DOF, stability.
+
+## Review 5 — commit de48b63 — FAIL (avg 5.8)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 6 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 5 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 6 |
+| 9 | Technical artifacts | 5 |
+
+Biggest gaps (ranked):
+1. Kelp still bamboo-like (alternating leaf pairs), no visible canopy; kelp camera inside blades.
+2. Fish still toys: flat cards/discs/beans from some angles; need volume, countershading, sheen, see-through fins.
+3. Reef lacks structure: needs rock faces above camera height with undercuts and overhangs.
+4. Materials: rock needs layered wet encrusted detail; coral polyp texture and tip scattering.
+5. Seed 3 khaki/olive grade; milky haze smears in overhead shots.
+6. Aliasing on thin blades; moiré on ridge carpet.
+7. Caustics read as a white crack web on slopes.
+
+What works: long continuous shafts (seed 4 warm, seed 2 blue) close to HFW; sunbursts through the surface;
+velvety sponges; schools, bait ball, fish in kelp; soft sand shadows; gentle DOF; stability; distinct palettes.

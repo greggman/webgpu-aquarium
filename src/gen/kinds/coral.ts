@@ -526,16 +526,18 @@ function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
 }
 
 function spongeVariant(rng: Rng, hi: boolean): VariantInfo {
-  const tubes = rng.bool(0.25) ? 1 : rng.int(3, 7);
+  const tubes = rng.bool(0.1) ? 1 : rng.int(4, 9);
   const patches: Patch[] = [];
   let height = 0;
   for (let t = 0; t < tubes; t++) {
     const barrel = tubes === 1;
-    const h = barrel ? rng.range(0.5, 0.9) : rng.range(0.4, 1.1);
-    const r0 = barrel ? rng.range(0.25, 0.4) : rng.range(0.06, 0.11);
-    const r1 = barrel ? r0 * rng.range(1.2, 1.5) : r0 * rng.range(1.0, 1.3);
+    // Tube sponges are slender (height several times the width) and splay
+    // outward from a shared base, unlike a cup or vase.
+    const h = barrel ? rng.range(0.45, 0.8) : rng.range(0.35, 1.0);
+    const r0 = barrel ? rng.range(0.22, 0.34) : rng.range(0.035, 0.07);
+    const r1 = barrel ? r0 * rng.range(1.15, 1.35) : r0 * rng.range(0.9, 1.15);
     const a = rng.range(0, Math.PI * 2);
-    const off = tubes === 1 ? 0 : rng.range(0.05, 0.2);
+    const off = tubes === 1 ? 0 : rng.range(0.04, 0.16);
     height = Math.max(height, h);
     patches.push({
       segU: hi ? 40 : 20,
@@ -544,16 +546,16 @@ function spongeVariant(rng: Rng, hi: boolean): VariantInfo {
         r0,
         r1,
         h,
-        barrel ? 0.06 : 0.025,
+        barrel ? 0.05 : 0.014,
         rng.range(10, 18),
-        barrel ? 0.03 : 0.012,
+        barrel ? 0.03 : 0.008,
         rng.range(-30, 30),
-        rng.range(0, 0.06),
+        rng.range(0, 0.04),
         rng.range(-30, 30),
         rng.range(-30, 30),
         rng.range(-30, 30),
-        rng.range(-0.15, 0.15),
-        rng.range(-0.15, 0.15),
+        barrel ? rng.range(-0.1, 0.1) : Math.cos(a) * rng.range(0.1, 0.35),
+        barrel ? rng.range(-0.1, 0.1) : Math.sin(a) * rng.range(0.1, 0.35),
         Math.cos(a) * off,
         Math.sin(a) * off,
         CoralKind.Sponge,

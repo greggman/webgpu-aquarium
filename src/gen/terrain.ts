@@ -544,7 +544,8 @@ fn fs(i: VOut) -> FOut {
   let sandN = normalize(vec3f(n.x - sandGrad.x, n.y, n.z - sandGrad.y));
   // Rock normal: perturb along noise-derived tangent directions.
   // Rock relief: layered height from the detail textures, as a true bump map.
-  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 + tri.b * 0.3;
+  // (The detail texture's blue channel is sand ripples: keep it off rock.)
+  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 + triFine.r * 0.3;
   let rockN = bumpFromHeight(n, p, rockHeight, 0.35);
   n = normalize(mix(sandN, rockN, rockW));
 
@@ -555,7 +556,7 @@ fn fs(i: VOut) -> FOut {
   // Rock: dark stone, crevices darker still.
   // Layered stone tones from smooth noise (no cell pattern, which tiles into a honeycomb).
   var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.7 + 0.4 * triFine.r);
-  rockCol *= mix(0.6, 1.0, smoothstep(0.3, 0.7, tri.b + triFine.a * 0.3));
+  rockCol *= mix(0.6, 1.0, smoothstep(0.3, 0.7, broad.r * 0.7 + triFine.a * 0.3));
   // Encrusting growth: green algae, pink/orange coralline algae, purple sponge.
   let hueSel = triplanar(p, n, 0.045).r;
   let algae = vec3f(0.16, 0.26, 0.08);

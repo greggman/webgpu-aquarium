@@ -59,7 +59,9 @@ async function main() {
     quality.shadowSize,
     quality.tierIndex >= 2 ? 45 : 35,
   );
-  renderer.shadowMap = shadow.texture;
+  renderer.shadowMap = (params.get('disable') ?? '').includes('shadows')
+    ? null
+    : shadow.texture;
   const detail = createDetailTexture(device, desc.rng.fork('detail').nextU32());
   const terrain = await generateTerrain(device, desc.terrain);
   renderer.setTextures({
