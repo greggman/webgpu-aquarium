@@ -148,7 +148,7 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
   switch (u32(pat.p3.z)) {
     case ${Part.Column}u: { return anemoneColumn(pat, uv); }
     case ${Part.Tentacle}u: {
-      var o = chainTube(u32(pat.p0.x), u32(pat.p0.y), uv, 0.2);
+      var o = chainTube(u32(pat.p0.x), u32(pat.p0.y), uv, 0.12);
       o.uv = vec4f(uv.x, uv.y, pat.p0.z, ${Part.Tentacle});
       o.ao = mix(0.5, 1.0, uv.y);
       return o;
@@ -327,16 +327,23 @@ function anemone(rng: Rng, aux: AuxBuilder, hi: boolean): Variant {
     const dir = [Math.cos(a), 0, -Math.sin(a)];
     const l = len * rng.range(0.8, 1.2) * (1 - ring * 0.12);
     const out = rng.range(0.4, 0.9);
+    // Tentacles curl: a sideways wander and a droop that grows toward the tip.
+    const curlA = rng.range(-1, 1);
+    const droop = rng.range(0.1, 0.45);
+    const side = [-dir[2], 0, dir[0]];
+    const thick = rng.range(0.013, 0.02) * (hi ? 1 : 1.25);
     const pts: [number, number, number, number][] = [];
-    for (let k = 0; k <= 5; k++) {
-      const t = k / 5;
+    for (let k = 0; k <= 6; k++) {
+      const t = k / 6;
       const rad = rr + l * out * t;
-      const y = H + 0.01 + l * (1 - out * 0.6) * t - l * 0.2 * t * t * out;
+      const y = H + 0.01 + l * (1 - out * 0.5) * t - l * droop * t * t * out;
+      const curl = Math.sin(t * 2.2) * curlA * l * 0.25;
       pts.push([
-        dir[0] * rad,
+        dir[0] * rad + side[0] * curl,
         y,
-        dir[2] * rad,
-        0.011 * (1 - t * 0.6) * (hi ? 1 : 1.3),
+        dir[2] * rad + side[2] * curl,
+        // Fat and fleshy, only slightly tapered, with a bulb at the tip.
+        thick * (1 - t * 0.35 + Math.max(0, t - 0.8) * 1.2),
       ]);
     }
     const c = aux.addChain(pts);

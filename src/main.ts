@@ -228,6 +228,8 @@ async function main() {
   };
   window.__aquarium.presets = Object.keys(spots.presets);
   window.__aquarium.nav = nav;
+  window.__aquarium.clusters = gen.clusters;
+  window.__aquarium.anemones = gen.anemones;
 
   const view = mat4.create();
   const proj = mat4.create();

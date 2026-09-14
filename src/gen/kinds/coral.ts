@@ -617,7 +617,19 @@ export async function createCoral(
       ],
       variant,
     });
-    return variants[variant];
+    // Big coral heads are solid to the camera and to fish.
+    const v = variants[variant];
+    const solid =
+      kind === CoralKind.Brain ||
+      kind === CoralKind.Table ||
+      kind === CoralKind.Sponge;
+    if (solid && scale * v.radius > 0.5) {
+      ctx.obstacles.push({
+        center: [x, y + v.height * scale * 0.5, z],
+        radius: v.radius * scale * 0.7,
+      });
+    }
+    return v;
   };
 
   for (const c of ctx.clusters) {
