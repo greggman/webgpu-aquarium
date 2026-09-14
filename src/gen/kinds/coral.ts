@@ -73,7 +73,7 @@ fn tableSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let wave = sin(theta * lobes + fbm2(vec2f(theta * 2.0, 1.0), 2) * 2.0) * pat.p1.z * edge;
   let dome = pat.p2.x * (1.0 - uv.y * uv.y) + pat.p2.y * uv.y;
   let thick = pat.p1.w * (1.0 - pow(uv.y, 10.0));
-  let rr = r * (1.0 + 0.08 * sin(theta * 3.0 + 1.7) * edge);
+  let rr = r * (1.0 + 0.04 * sin(theta * 3.0 + 1.7) * edge + 0.03 * fbm2(vec2f(theta * 4.0, 3.0), 2) * edge);
   let rough = fbm3(vec3f(cos(theta) * rr, 0.0, sin(theta) * rr) * 3.0, 3) * 0.04;
   var y = pat.p0.z + dome + wave + rough;
   var s = 1.0;
@@ -82,9 +82,9 @@ fn tableSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   } else {
     s = -1.0;
   }
-  let pos = vec3f(cos(theta) * rr, y, s * sin(theta) * rr);
+  let pos = vec3f(cos(theta) * rr + pat.p0.x, y, s * sin(theta) * rr + pat.p0.y);
   var o = sp(pos, vec4f(uv, f32(part), 0.0));
-  o.ao = select(0.45, mix(0.7, 1.0, uv.y), part == 0u);
+  o.ao = select(mix(0.55, 0.8, uv.y), mix(0.7, 1.0, uv.y), part == 0u);
   o.mat = f32(${CoralKind.Table});
   return o;
 }
@@ -201,8 +201,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     case ${CoralKind.Table}u: {
       let top = i.uv.z < 0.5;
       let rim = smoothstep(0.8, 1.0, i.uv.y);
-      var c = tint * select(0.45, 1.0, top) * (0.8 + 0.35 * fine.g);
-      c = mix(c, accent * 0.9, rim * 0.6);
+      // Table corals are muted browns and tans with a paler growing rim.
+      let muted = mix(tint, vec3f(0.5, 0.45, 0.36), 0.45);
+      var c = muted * select(0.65, 1.0, top) * (0.75 + 0.4 * fine.g);
+      c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.5);
       s.albedo = c;
       s.translucency = 0.2;
     }
@@ -432,71 +434,78 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
 }
 
 function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
-  const R = rng.range(0.7, 1.3);
-  const stalkH = rng.range(0.25, 0.5);
-  const stalk = aux.addChain([
-    [0, -0.1, 0, 0.12],
-    [0.02, stalkH * 0.5, 0.01, 0.09],
-    [0, stalkH, 0, 0.14],
-  ]);
-  const plate = (part: number): Patch => ({
-    segU: hi ? 64 : 32,
-    segV: hi ? 16 : 8,
-    params: [
-      0,
-      0,
-      stalkH,
-      0,
-      R,
-      rng.int(5, 9),
-      rng.range(0.03, 0.08),
-      0.025,
-      rng.range(0.03, 0.1),
-      rng.range(-0.05, 0.08),
-      0,
-      part,
-      0,
-      0,
-      0,
-      CoralKind.Table,
-    ],
-  });
-  const lobes = rng.int(5, 9);
-  const top = plate(0);
-  const bottom = plate(1);
-  bottom.params = [...top.params];
-  bottom.params[11] = 1;
-  top.params[5] = bottom.params[5] = lobes;
+  // Tiered plates on a short stalk: each tier smaller and offset, like
+  // layered Acropora tables, with crinkled rather than star-shaped edges.
+  const tiers = rng.int(1, 3);
+  const baseR = rng.range(0.6, 1.1);
+  const stalkH = rng.range(0.2, 0.45);
+  const patches: Patch[] = [];
+  let top = 0;
+  for (let t = 0; t < tiers; t++) {
+    const R = baseR * (1 - t * 0.28);
+    const h = stalkH + t * rng.range(0.14, 0.24);
+    top = h;
+    const ox = t ? rng.range(-0.15, 0.15) : 0;
+    const oz = t ? rng.range(-0.15, 0.15) : 0;
+    const stalk = aux.addChain([
+      [ox * 0.3, t ? h - 0.2 : -0.1, oz * 0.3, t ? 0.05 : 0.11],
+      [ox * 0.7 + 0.02, h * 0.5 + (t ? h * 0.5 - 0.1 : 0), oz * 0.7, 0.07],
+      [ox, h, oz, 0.1],
+    ]);
+    const lobes = rng.int(6, 11);
+    const plate = (part: number): Patch => ({
+      segU: hi ? 72 : 36,
+      segV: hi ? 16 : 8,
+      params: [
+        ox,
+        oz,
+        h,
+        0,
+        R,
+        lobes,
+        rng.range(0.012, 0.03),
+        0.035,
+        rng.range(0.02, 0.07),
+        rng.range(-0.04, 0.05),
+        0,
+        part,
+        0,
+        0,
+        0,
+        CoralKind.Table,
+      ],
+    });
+    const topPlate = plate(0);
+    const bottomPlate = {...topPlate, params: [...topPlate.params]};
+    bottomPlate.params[11] = 1;
+    patches.push(topPlate, bottomPlate, {
+      segU: 8,
+      segV: 6,
+      params: [
+        stalk.offset,
+        stalk.count,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        CoralKind.Table,
+      ],
+    });
+  }
   return {
-    patches: [
-      top,
-      bottom,
-      {
-        segU: 8,
-        segV: 6,
-        params: [
-          stalk.offset,
-          stalk.count,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          2,
-          0,
-          0,
-          0,
-          CoralKind.Table,
-        ],
-      },
-    ],
-    radius: R * 1.1,
+    patches,
+    radius: baseR * 1.1,
     kind: CoralKind.Table,
-    height: stalkH + 0.1,
+    height: top + 0.1,
   };
 }
 
@@ -641,15 +650,15 @@ export async function createCoral(
     };
     // Area-proportional counts so big clusters are as lush as small ones.
     const area = (c.radius * c.radius) / 25;
-    for (let i = 0; i < Math.round(rng.int(2, 4) * density * area); i++) {
-      const [x, z] = inCluster(0.85);
-      place(CoralKind.Brain, x, z, rng.range(0.7, 1.8));
+    for (let i = 0; i < Math.round(rng.int(4, 7) * density * area); i++) {
+      const [x, z] = inCluster(0.9);
+      place(CoralKind.Brain, x, z, rng.range(0.8, 2.2));
     }
-    for (let i = 0; i < ctx.count(rng.int(18, 28) * density * area); i++) {
+    for (let i = 0; i < ctx.count(rng.int(9, 15) * density * area); i++) {
       const [x, z] = inCluster(1);
       place(CoralKind.Branching, x, z, rng.range(0.55, 1.35));
     }
-    for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
+    for (let i = 0; i < Math.round(rng.int(2, 4) * density * area); i++) {
       const [x, z] = inCluster(0.9);
       place(CoralKind.Table, x, z, rng.range(0.8, 1.6), 0.1);
     }
@@ -662,6 +671,31 @@ export async function createCoral(
       place(CoralKind.Whip, x, z, rng.range(0.45, 1.0), 0.1);
     }
     ctx.occupied.add(c.x, c.z, c.radius * 0.8);
+  }
+
+  // Encrust the tops of big rocks with small corals and sponges so the rock
+  // reads as reef framework rather than bare stone.
+  for (const o of [...ctx.obstacles]) {
+    if (o.radius < 1.1) {
+      continue;
+    }
+    const n = ctx.count(Math.round(o.radius * rng.range(2, 4)));
+    for (let i = 0; i < n; i++) {
+      const a = rng.range(0, Math.PI * 2);
+      const r = Math.sqrt(rng.float()) * o.radius * 0.65;
+      const x = o.center[0] + Math.cos(a) * r;
+      const z = o.center[2] + Math.sin(a) * r;
+      const kind = rng.weighted(
+        [
+          CoralKind.Brain,
+          CoralKind.Branching,
+          CoralKind.Sponge,
+          CoralKind.Whip,
+        ],
+        [3, 3, 2, 2],
+      );
+      place(kind, x, z, rng.range(0.3, 0.7), 0.6);
+    }
   }
 
   // A scattering of lone coral heads and sponges across reef-mask ground.

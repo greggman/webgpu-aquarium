@@ -39,6 +39,8 @@ const SpeciesStruct = defineStruct('Species', {
   colFin: 'vec4f',
   /** wander, home pull, eye height, eye size */
   extra: 'vec4f',
+  /** curiosity (0 shy .. 1 approaches the camera), fear radius, unused, unused */
+  behavior: 'vec4f',
 });
 
 const FishStruct = defineStruct('Fish', {
@@ -67,10 +69,8 @@ const SimStruct = defineStruct('Sim', {
   obstacleCount: 'u32',
   camPos: 'vec3f',
   ceiling: 'f32',
+  camDir: 'vec3f',
   worldSize: 'f32',
-  pad0: 'f32',
-  pad1: 'f32',
-  pad2: 'f32',
 });
 
 export const Pattern = {
@@ -82,7 +82,7 @@ export const Pattern = {
   Clown: 5,
 } as const;
 
-type Home = 'open' | 'reef' | 'anemone' | 'basin';
+type Home = 'open' | 'reef' | 'anemone' | 'basin' | 'kelp';
 
 interface SpeciesDef {
   name: string;
@@ -111,6 +111,8 @@ interface SpeciesDef {
   home: Home;
   homeRadius: number;
   eye: number;
+  /** 0 = shy; higher values hang around in front of the camera. */
+  curiosity?: number;
 }
 
 const hsv = (h: number, s: number, v: number): number[] => {
@@ -414,6 +416,104 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         eye: 0.03,
       });
     }
+  }
+
+  // Curious hero fish: a few big, colourful fish that come to look at the
+  // diver, so there is always readable life within a few metres.
+  const heroHue = rng.float();
+  list.push({
+    name: 'curious',
+    count: Math.max(2, Math.round(rng.int(3, 5) * Math.min(1, k * 1.5))),
+    length: [0.38, 0.55],
+    bodyType: 0,
+    body: body(
+      0.4,
+      0.1,
+      0.7,
+      0.16,
+      0.34,
+      0.25,
+      0.14,
+      0.1,
+      0.12,
+      0.2,
+      0.85,
+      2.1,
+    ),
+    colors: {
+      top: hsv(heroHue, 0.8, 0.75),
+      belly: hsv(heroHue + 0.1, 0.55, 0.95),
+      accent: hsv(heroHue + 0.45, 0.85, 1.0),
+      fin: hsv(heroHue + 0.5, 0.8, 0.9),
+    },
+    pattern: rng.pick([Pattern.Bands, Pattern.Gradient, Pattern.Stripe]),
+    patternFreq: rng.range(3, 6),
+    iridescence: 0.5,
+    finTranslucency: 0.55,
+    band: [0.8, 5],
+    speed: 0.45,
+    maxSpeed: 1.6,
+    flock: [0.05, 0.2, 2.5, 3],
+    turn: 1.2,
+    tailBeat: 1.1,
+    wander: 0.3,
+    homePull: 0.03,
+    home: 'reef',
+    homeRadius: 14,
+    eye: 0.025,
+    curiosity: 1,
+  });
+
+  // Fish that live among the kelp.
+  if (ctx.kelpForests.length) {
+    list.push({
+      name: 'kelpfish',
+      count: Math.round(rng.int(18, 30) * k),
+      length: [0.2, 0.3],
+      bodyType: 0,
+      body: body(
+        0.3,
+        0.1,
+        0.8,
+        0.16,
+        0.26,
+        0.15,
+        0.1,
+        0.07,
+        0.1,
+        0.25,
+        0.8,
+        2.2,
+      ),
+      colors: rng.bool(0.5)
+        ? {
+            top: [1.0, 0.45, 0.08],
+            belly: [1.0, 0.55, 0.15],
+            accent: [1.0, 0.6, 0.2],
+            fin: [1.0, 0.5, 0.1],
+          }
+        : {
+            top: [0.35, 0.3, 0.22],
+            belly: [0.75, 0.65, 0.5],
+            accent: [0.55, 0.4, 0.25],
+            fin: [0.5, 0.42, 0.3],
+          },
+      pattern: Pattern.Countershade,
+      patternFreq: 1,
+      iridescence: 0.2,
+      finTranslucency: 0.5,
+      band: [0.8, 9],
+      speed: 0.5,
+      maxSpeed: 1.6,
+      flock: [0.15, 0.3, 1.5, 2.5],
+      turn: 1.5,
+      tailBeat: 1.2,
+      wander: 0.7,
+      homePull: 0.2,
+      home: 'kelp',
+      homeRadius: 9,
+      eye: 0.03,
+    });
   }
 
   // Large solitary cruisers.
@@ -825,12 +925,22 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
 
-  // Shy of the camera.
+  // Shy of the camera, unless curious: curious fish drift in to look at the
+  // diver, holding a few metres in front of the lens.
   let dc = f.pos - sim.camPos;
   let cd = length(dc) + 1e-4;
-  let fear = 1.5 + len * 3.0;
+  let fear = sp.behavior.y;
   if (cd < fear) {
     acc += dc / cd * (fear - cd) * 5.0;
+  }
+  let curious = sp.behavior.x;
+  if (curious > 0.0 && cd < 18.0) {
+    let id = f32(i);
+    let side = sin(sim.time * 0.2 + id * 1.3) * 1.2;
+    let right = normalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
+    let spot = sim.camPos + sim.camDir * (2.2 + fract(id * 0.37) * 1.4) + right * side;
+    let toSpot = spot - f.pos;
+    acc += toSpot * curious * 1.4 * smoothstep(22.0, 6.0, cd);
   }
 
   // Wander.
@@ -1080,7 +1190,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
 `;
 
 export type FishSystem = RenderSystem & {
-  setCamera(p: [number, number, number]): void;
+  setCamera(p: readonly number[], dir: readonly number[]): void;
 };
 
 export async function createFish(
@@ -1101,7 +1211,8 @@ export async function createFish(
   );
 
   // Species table.
-  const speciesData = new Float32Array(speciesList.length * 32);
+  const SPECIES_FLOATS = SpeciesStruct.size / 4;
+  const speciesData = new Float32Array(speciesList.length * SPECIES_FLOATS);
   speciesList.forEach((s, i) => {
     const len = (s.length[0] + s.length[1]) / 2;
     speciesData.set(
@@ -1126,8 +1237,12 @@ export async function createFish(
         s.homePull,
         s.body[0] * 0.28,
         s.eye,
+        s.curiosity ?? 0,
+        s.curiosity ? 0.9 : 1.5 + len * 3,
+        0,
+        0,
       ],
-      i * 32,
+      i * SPECIES_FLOATS,
     );
   });
 
@@ -1166,6 +1281,9 @@ export async function createFish(
         home = [a[0], a[1] + 0.1, a[2], s.homeRadius];
       } else if (s.home === 'open') {
         home = [...openHome, s.homeRadius];
+      } else if (s.home === 'kelp' && ctx.kelpForests.length) {
+        const kf = ctx.kelpForests[n % ctx.kelpForests.length];
+        home = [kf.x, ctx.terrain.heightAt(kf.x, kf.z) + 3, kf.z, s.homeRadius];
       } else {
         home = [center[0], basinY + 2, center[1], s.homeRadius];
       }
@@ -1328,7 +1446,8 @@ export async function createFish(
   });
 
   let flip = 0;
-  let camPos: [number, number, number] = [0, 0, 0];
+  let camPos: readonly number[] = [0, 0, 0];
+  let camDir: readonly number[] = [0, 0, -1];
   const draw = (pass: GPURenderPassEncoder, p: GPURenderPipeline) => {
     pass.setPipeline(p);
     pass.setBindGroup(1, renderGroup);
@@ -1340,45 +1459,46 @@ export async function createFish(
     });
   };
 
-  const system: RenderSystem & {setCamera(p: [number, number, number]): void} =
-    {
-      name: 'fish',
-      setCamera(p) {
-        camPos = p;
-      },
-      update(fc: FrameContext) {
-        // Sub-step large time steps for stability. Each step needs its own
-        // uniform contents, so large steps are split across submits.
-        const steps = Math.min(4, Math.max(1, Math.ceil(fc.dt / (1 / 20))));
-        for (let s = 0; s < steps; s++) {
-          simF[0] = fc.dt / steps;
-          simF[1] = fc.time - fc.dt + (fc.dt * (s + 1)) / steps;
-          simU[2] = total;
-          simU[3] = obstacleList.length;
-          simF.set(camPos, 4);
-          simF[7] = ctx.nav.ceiling();
-          simF[8] = ctx.desc.terrain.worldSize;
-          const last = s === steps - 1;
-          const encoder = last
-            ? fc.encoder
-            : device.createCommandEncoder({label: 'fish:substep-encoder'});
-          device.queue.writeBuffer(simBuf, 0, simData);
-          const pass = encoder.beginComputePass({label: 'fish:sim-pass'});
-          pass.setPipeline(simPipeline);
-          pass.setBindGroup(0, simGroups[flip]);
-          pass.dispatchWorkgroups(Math.ceil(total / 64));
-          pass.end();
-          if (!last) {
-            device.queue.submit([
-              encoder.finish({label: 'fish:substep-commands'}),
-            ]);
-          }
-          flip = 1 - flip;
+  const system: FishSystem = {
+    name: 'fish',
+    setCamera(p, dir) {
+      camPos = p;
+      camDir = dir;
+    },
+    update(fc: FrameContext) {
+      // Sub-step large time steps for stability. Each step needs its own
+      // uniform contents, so large steps are split across submits.
+      const steps = Math.min(4, Math.max(1, Math.ceil(fc.dt / (1 / 20))));
+      for (let s = 0; s < steps; s++) {
+        simF[0] = fc.dt / steps;
+        simF[1] = fc.time - fc.dt + (fc.dt * (s + 1)) / steps;
+        simU[2] = total;
+        simU[3] = obstacleList.length;
+        simF.set(camPos, 4);
+        simF[7] = ctx.nav.ceiling();
+        simF.set(camDir, 8);
+        simF[11] = ctx.desc.terrain.worldSize;
+        const last = s === steps - 1;
+        const encoder = last
+          ? fc.encoder
+          : device.createCommandEncoder({label: 'fish:substep-encoder'});
+        device.queue.writeBuffer(simBuf, 0, simData);
+        const pass = encoder.beginComputePass({label: 'fish:sim-pass'});
+        pass.setPipeline(simPipeline);
+        pass.setBindGroup(0, simGroups[flip]);
+        pass.dispatchWorkgroups(Math.ceil(total / 64));
+        pass.end();
+        if (!last) {
+          device.queue.submit([
+            encoder.finish({label: 'fish:substep-commands'}),
+          ]);
         }
-      },
-      drawOpaque: pass => draw(pass, pipeline),
-      drawShadow: pass => draw(pass, shadowPipeline),
-    };
+        flip = 1 - flip;
+      }
+    },
+    drawOpaque: pass => draw(pass, pipeline),
+    drawShadow: pass => draw(pass, shadowPipeline),
+  };
   console.log(
     `[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`,
   );

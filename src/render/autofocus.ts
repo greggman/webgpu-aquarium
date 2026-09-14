@@ -7,7 +7,7 @@ import {createShader} from '../gpu/device.ts';
 import {fullscreenVS} from '../shaders/index.ts';
 
 const W = 64;
-const H = 16;
+const H = 48;
 const NEAR = 0.05;
 
 const shader = /* wgsl */ `
@@ -110,7 +110,7 @@ export class AutoFocus {
       // Favour nearer things in the region, as a photographer would.
       this.measured = Math.min(
         60,
-        distances[Math.floor(distances.length * 0.3)],
+        distances[Math.floor(distances.length * 0.2)],
       );
       this.pending = false;
     });

@@ -67,7 +67,9 @@ fn beam(p: vec3f) -> f32 {
   let drift = vec2f(frame.time * 0.15, frame.time * 0.07);
   let broad = textureSampleLevel(tDetail, sLinearRepeat, (entry + drift) / 90.0, 2.0).r;
   let gate = smoothstep(0.35, 0.6, broad);
-  return pow(rel, 4.0) * gate * 1.5;
+  // Brightest just under the surface, fading as the beams spread with depth.
+  let taper = 0.35 + 0.65 * exp(-depth * 0.06);
+  return pow(rel, 4.0) * gate * 1.5 * taper;
 }
 
 @compute @workgroup_size(8, 8)
@@ -111,7 +113,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // Cap the forward peak so looking toward the sun doesn't wash out the frame.
   // A floor keeps shafts readable when looking away from the sun, as games do.
   let phase = 0.06 + min(waterPhase(dot(dir, frame.sunDir)), 0.3) * 0.6;
-  let current = accum * frame.scattering * phase * V.strength;
+  let raw = accum * frame.scattering * phase * V.strength;
+  // Soft clamp: bright shafts roll off instead of blowing the frame out.
+  let current = raw / (1.0 + dot(raw, vec3f(0.2126, 0.7152, 0.0722)) * 0.6);
 
   // Temporal accumulation with reprojection of a representative point.
   let rep = frame.camPos + dir * min(dist, 12.0);
@@ -142,16 +146,18 @@ fn fs(i: FSOut) -> @location(0) vec4f {
   let base = i.uv * volSize - 0.5;
   let f = fract(base);
   let origin = (floor(base) + 0.5) * texel;
-  // Bilinear weights, reweighted by how well each coarse sample's depth matches.
+  // Tent-filtered 3x3 gather over the coarse texels (this also smooths the
+  // raymarch's residual banding), reweighted by how well each depth matches.
   var sum = vec3f(0.0);
   var wsum = 0.0;
-  for (var y = 0; y < 2; y++) {
-    for (var x = 0; x < 2; x++) {
+  for (var y = -1; y <= 2; y++) {
+    for (var x = -1; x <= 2; x++) {
       let uv = origin + vec2f(f32(x), f32(y)) * texel;
       let s = textureSampleLevel(tVol, samp, uv, 0.0);
-      let bw = select(1.0 - f.x, f.x, x == 1) * select(1.0 - f.y, f.y, y == 1);
+      // Tent of radius 1.5 texels around this pixel's position between texels.
+      let tent = max(1.5 - abs(f32(x) - f.x), 0.0) * max(1.5 - abs(f32(y) - f.y), 0.0);
       let dw = 1.0 / (1e-3 + abs(log(s.a / viewDist)) * 8.0);
-      let w = bw * dw + 1e-5;
+      let w = tent * dw + 1e-5;
       sum += s.rgb * w;
       wsum += w;
     }

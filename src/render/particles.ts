@@ -70,7 +70,7 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   o.quad = corner;
   let edgeFade = smoothstep(box * 0.5, box * 0.3, dist) * smoothstep(0.15, 0.6, dist);
   let light = sunAtDepth(p.y) * (0.4 + waterPhase(dot(normalize(rel), frame.sunDir)) * 3.0) + ambientAtDepth(p.y);
-  o.color = light * (0.25 + 0.5 * h.z);
+  o.color = light * (0.07 + 0.16 * h.z);
   o.alpha = edgeFade * exp(-dist * 0.08) * min(1.0, (0.006 + h.x * 0.008) / size) * 0.5;
   o.kind = 0u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
@@ -132,7 +132,7 @@ export async function createParticles(
 ): Promise<RenderSystem> {
   const device = renderer.device;
   const rng = ctx.rng('particles');
-  const snowCount = Math.round(4000 * ctx.quality.density);
+  const snowCount = Math.round(12000 * ctx.quality.density);
 
   // Bubble emitters: vents among rocks, the odd anemone bed, and cluster edges.
   const emitters: number[] = [];

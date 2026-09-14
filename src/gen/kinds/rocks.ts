@@ -17,31 +17,36 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let shape = pat.p0.xyz;
   let lumpy = pat.p0.w;
   let seedOff = pat.p1.xyz;
-  var p = dir * shape;
+  let strataFreq = pat.p1.w;
 
-  // Large lumps and medium detail.
+  // Domain-warped lumps: big organic masses rather than a smooth ellipsoid.
   let q = dir * 1.1 + seedOff;
-  var disp = fbm3(q, 3) * lumpy + fbm3(q * 3.7 + 5.0, 3) * 0.08;
-  // Horizontal strata.
-  disp += (abs(fract(p.y * pat.p1.w + fbm3(q * 2.0, 2) * 0.4) - 0.5) - 0.25) * 0.05;
-  p *= 1.0 + disp;
+  let warp = vec3f(fbm3(q * 0.9 + 3.1, 2), fbm3(q * 0.9 + 7.7, 2), fbm3(q * 0.9 + 1.3, 2));
+  var disp = fbm3(q + warp * 0.8, 4) * lumpy;
+  var p = dir * shape * (1.0 + disp);
 
-  // Chisel with a few random planes for faceted, broken-stone faces.
-  for (var i = 0u; i < 6u; i++) {
-    let h = vec3f(pcg3d(vec3u(i, pat.variant, 91u)) % vec3u(1000u)) / 500.0 - 1.0;
-    let nrm = normalize(h + vec3f(0.0, 0.2, 0.0));
-    let d = dot(p, nrm) - length(shape) * (0.42 + 0.1 * f32(i % 3u));
-    if (d > 0.0) {
-      p -= nrm * d * 0.6;
-    }
-  }
+  // Eroded strata: horizontal ledges that bulge out and undercut, giving
+  // overhangs and crevices between layers.
+  let layer = p.y * strataFreq + fbm3(q * 1.7, 2) * 0.6;
+  let f = fract(layer);
+  let ledge = smoothstep(0.0, 0.25, f) * (1.0 - smoothstep(0.55, 1.0, f));
+  let side = normalize(vec3f(p.x, 0.0, p.z) + vec3f(1e-4));
+  let horizontal = 1.0 - abs(dir.y);
+  p += side * (ledge - 0.45) * 0.09 * length(shape) * horizontal;
+
+  // Porous surface: pits and pockets.
+  let pits = worley3(q * 6.0 + warp);
+  let pocket = smoothstep(0.25, 0.0, pits);
+  p -= dir * pocket * 0.045 * length(shape);
+  p += dir * fbm3(q * 9.0, 2) * 0.012 * length(shape);
+
   // Flatten the underside so rocks sit on the sand.
   let bottom = -shape.y * 0.45;
   p.y = max(p.y, bottom + (p.y - bottom) * 0.15);
 
-  var o = sp(p, vec4f(uv, 0.0, 0.0));
-  // Crevices and undersides are occluded.
-  o.ao = clamp(0.55 + disp * 1.5 + dir.y * 0.25, 0.25, 1.0);
+  var o = sp(p, vec4f(uv, pocket, ledge));
+  // Pockets, undercuts and undersides are occluded.
+  o.ao = clamp(0.7 + disp * 1.2 + dir.y * 0.2 - pocket * 0.5 - (1.0 - ledge) * 0.15 * horizontal, 0.2, 1.0);
   return o;
 }
 `;
@@ -55,44 +60,41 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let lp = i.local * inst.posScale.w + inst.color.a * 17.0;
-  let big = triplanarDetail(lp, nIn, 0.18);
-  let mid = triplanarDetail(lp, nIn, 0.7);
-  let fine = triplanarDetail(lp, nIn, 2.6);
-  let cells = big.g;
-  // Cracks only in places (noise-masked) and thinner, so they don't tile into a mesh.
-  let crackMask = smoothstep(0.45, 0.7, mid.r + (big.b - 0.5) * 0.4);
-  let cracks = (1.0 - smoothstep(0.02, 0.12, cells)) * crackMask;
-  let pits = smoothstep(0.62, 0.8, fine.a);
+  let big = triplanarDetail(lp, nIn, 0.16);
+  let mid = triplanarDetail(lp, nIn, 0.65);
+  let fine = triplanarDetail(lp, nIn, 2.8);
+  let pocket = i.uv.z;
 
-  // Crisp detail normal from a layered height field.
-  let height = big.r * 0.8 + mid.g * 0.35 + fine.a * 0.12 - cracks * 0.5 - pits * 0.06;
-  let n = bumpFromHeight(nIn, i.world, height, 0.18);
+  // Rough, granular relief (no cell/crack pattern).
+  let height = big.r * 0.7 + mid.r * 0.35 + fine.a * 0.25 - pocket * 0.6;
+  let n = bumpFromHeight(nIn, i.world, height, 0.22);
 
-  // Stone: layered greys and browns with mineral banding.
-  let band = 0.5 + 0.5 * sin(lp.y * 5.0 + big.r * 4.0);
-  var albedo = mix(vec3f(0.2, 0.18, 0.16), vec3f(0.42, 0.38, 0.32), big.r * 0.7 + band * 0.3);
-  albedo *= (0.75 + 0.35 * mid.r) * inst.color.rgb;
-  albedo *= mix(1.0, 0.3, cracks);
+  // Stone: muted, layered greys and browns.
+  let band = 0.5 + 0.5 * sin(lp.y * 4.0 + big.r * 5.0);
+  var albedo = mix(vec3f(0.19, 0.17, 0.15), vec3f(0.36, 0.32, 0.27), big.r * 0.6 + band * 0.25 + mid.a * 0.15);
+  albedo *= (0.8 + 0.3 * fine.r) * inst.color.rgb;
+  albedo *= mix(1.0, 0.35, pocket);
 
-  // Encrusting life on faces that catch the light: fine-grained, patchy, and
-  // varied rather than a flat green coat.
-  let hueSel = triplanarDetail(lp, nIn, 0.09).r;
-  let algae = vec3f(0.18, 0.22, 0.09) * (0.7 + 0.6 * fine.r);
-  let coralline = mix(vec3f(0.72, 0.3, 0.32), vec3f(0.82, 0.55, 0.6), fine.g);
-  let sponge = vec3f(0.55, 0.32, 0.12);
-  var growth = mix(algae, coralline, smoothstep(0.5, 0.58, hueSel));
-  growth = mix(growth, sponge, smoothstep(0.66, 0.7, hueSel) * 0.9);
-  let up = smoothstep(0.25, 0.85, nIn.y);
-  let patchy = smoothstep(0.42, 0.62, mid.r + big.r * 0.35 + (fine.r - 0.5) * 0.3);
-  let amount = clamp(up * patchy * inst.params.x * (1.0 - cracks), 0.0, 0.85);
+  // Encrusting life on the upper faces: fine algal turf, speckles of pink
+  // coralline crust and tiny pale polyps/barnacles.
+  let up = smoothstep(0.1, 0.8, nIn.y) * inst.params.x;
+  let turf = smoothstep(0.4, 0.62, mid.g * 0.5 + big.r * 0.5 + (fine.r - 0.5) * 0.35) * up;
+  let algae = mix(vec3f(0.16, 0.2, 0.08), vec3f(0.3, 0.28, 0.12), fine.g);
+  let crust = smoothstep(0.72, 0.8, triplanarDetail(lp, nIn, 0.33).a) * up;
+  let coralline = mix(vec3f(0.62, 0.34, 0.36), vec3f(0.72, 0.5, 0.46), fine.b);
+  let specks = smoothstep(0.84, 0.9, fine.a) * up;
+  var c = mix(albedo, algae, turf * 0.85);
+  c = mix(c, coralline, crust * 0.8);
+  c = mix(c, vec3f(0.75, 0.72, 0.64), specks * 0.6);
 
   var s = defaultSurface();
-  s.albedo = mix(albedo, growth, amount);
+  s.albedo = c;
   s.normal = n;
-  // Wet stone is fairly glossy; growth is matte.
-  s.roughness = mix(mix(0.38, 0.62, mid.a), 0.85, amount);
-  s.ao = i.aoMat.x * mix(1.0, 0.35, cracks);
-  s.f0 = 0.04;
+  // Mostly rough; a thin wet sheen only on bare, sunlit ridges.
+  let ridge = smoothstep(0.55, 0.8, height) * (1.0 - turf) * (1.0 - crust);
+  s.roughness = mix(0.82, 0.42, ridge);
+  s.ao = i.aoMat.x;
+  s.f0 = 0.035;
   return s;
 }
 `;
@@ -111,8 +113,8 @@ export async function createRocks(
     variants.push({
       patches: [
         {
-          segU: hi ? 64 : 32,
-          segV: hi ? 40 : 20,
+          segU: hi ? 96 : 40,
+          segV: hi ? 64 : 26,
           params: [
             ...shape,
             rng.range(0.25, 0.55),

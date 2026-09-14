@@ -251,13 +251,13 @@ function kelpPlant(
     const baseA = rng.range(0, Math.PI * 2);
     const spread = rng.range(0.05, 0.25);
     const bendA = rng.range(0, Math.PI * 2);
-    const bend = rng.range(0.3, 1.2);
-    const wave = rng.range(0.6, 1.6);
+    const bend = rng.range(0.8, 2.4);
+    const wave = rng.range(0.8, 2.2);
     const phase = rng.range(0, Math.PI * 2);
     for (let i = 0; i <= segs; i++) {
       const t = i / segs;
       const drift = spread * t + bend * t * t;
-      const s = Math.sin(t * Math.PI * wave + phase) * 0.25 * t;
+      const s = Math.sin(t * Math.PI * wave + phase) * 0.45 * t;
       points.push([
         Math.cos(baseA) * 0.06 +
           Math.cos(bendA) * drift +
@@ -274,7 +274,7 @@ function kelpPlant(
       P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
     );
 
-    const bladeCount = Math.round(h * (hi ? 2.8 : 1.6));
+    const bladeCount = Math.round(h * (hi ? 3.2 : 1.8));
     for (let b = 0; b < bladeCount; b++) {
       const t = 0.1 + (b / bladeCount) * 0.9 + rng.range(-0.02, 0.02);
       const idx = Math.min(
@@ -284,13 +284,13 @@ function kelpPlant(
       const base = points[idx];
       const a = b * 2.39996 + rng.range(-0.5, 0.5);
       // Near the top the blades form a floating canopy: longer, spreading flat.
-      const canopy = Math.max(0, (t - 0.8) / 0.2);
+      const canopy = Math.max(0, (t - 0.72) / 0.28);
       const outward = [
         Math.cos(a),
-        rng.range(0.5, 1.3) * (1 - canopy * 0.8),
+        rng.range(0.35, 1.0) * (1 - canopy * 0.9),
         Math.sin(a),
       ];
-      const len = rng.range(0.6, 1.2) * (1 + canopy * 1.4);
+      const len = rng.range(0.7, 1.3) * (1 + canopy * 2.2);
       patches.push(
         P(
           [
@@ -299,10 +299,10 @@ function kelpPlant(
             base[2] + Math.sin(a) * 0.04,
             a,
             len,
-            rng.range(0.08, 0.16) * (1 + canopy * 0.4),
+            rng.range(0.17, 0.3) * (1 + canopy * 0.3),
             0,
             0,
-            rng.range(0.01, 0.035),
+            rng.range(0.03, 0.07),
             ...outward,
           ],
           Part.KelpBlade,

@@ -365,7 +365,7 @@ async function main() {
     g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);
     g.set('waves', waves);
 
-    fish.setCamera(pose.pos);
+    fish.setCamera(pose.pos, forward);
     const cpuStart = performance.now();
     renderer.render(clock.time, dt);
     if (focusSampled) {

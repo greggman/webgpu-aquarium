@@ -289,14 +289,16 @@ export function cameraSpots(
   };
 
   // Reef: the hero cluster, from slightly above.
-  const reefTarget: Vec3 = [hero.x, hero.y + 0.8, hero.z];
+  // Low and looking slightly up toward the open water of the gap, so the reef
+  // silhouettes against the blue instead of sitting on flat sand.
+  const reefTarget: Vec3 = [hero.x, hero.y + 1.5, hero.z];
   const reef = spotLookingAt(
     nav,
     terrain,
     reefTarget,
     hero.radius + 3.5,
-    2.4,
-    Math.atan2(c[1] - hero.z, c[0] - hero.x) + 0.5,
+    1.1,
+    gapA + Math.PI + 0.35,
   );
 
   // Kelp: flat sandy patch with kelp mask.
@@ -323,9 +325,9 @@ export function cameraSpots(
   const wide = spotLookingAt(
     nav,
     terrain,
-    [hero.x + Math.cos(gapA) * 12, hero.y + 1, hero.z + Math.sin(gapA) * 12],
-    30,
-    6,
+    [hero.x + Math.cos(gapA) * 10, hero.y + 2.5, hero.z + Math.sin(gapA) * 10],
+    26,
+    2.2,
     away,
   );
 
