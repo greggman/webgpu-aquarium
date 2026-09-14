@@ -196,9 +196,12 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       c *= 0.82 + 0.3 * polyps.r;
       // Polyp cups are darker pits.
       c *= mix(0.6, 1.0, smoothstep(0.05, 0.35, i.uv.w)) * mix(0.8, 1.0, cup);
-      s.albedo = c;
-      s.roughness = mix(0.8, 0.55, tip);
-      s.translucency = mix(0.2, 0.6, tip);
+      // Colour varies branch to branch, and the base is shaded by the colony.
+      let branchVar = 0.8 + 0.4 * fract(sin(dot(floor(i.uv.zz * 7.0) + inst.params.x, vec2f(12.9, 78.2))) * 43758.5);
+      c *= branchVar * mix(0.55, 1.0, smoothstep(0.0, 0.35, along + gen * 0.3));
+      s.albedo = mix(c, vec3f(dot(c, vec3f(0.3, 0.5, 0.2))), 0.18);
+      s.roughness = mix(0.85, 0.6, tip);
+      s.translucency = mix(0.05, 0.55, tip * tip);
       s.emissive = accent * tip * inst.params.z * 0.25;
     }
     case ${CoralKind.Brain}u: {
@@ -245,10 +248,13 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       s.translucency = 0.08;
     }
     default: {
+      // Sea whips: muted, horny axis with a fuzz of polyps; darker at the base.
       let along = i.uv.y;
-      s.albedo = mix(tint * 0.6, accent, smoothstep(0.5, 1.0, along) * 0.6);
-      s.translucency = 0.45;
-      s.roughness = 0.55;
+      let muted = mix(tint, vec3f(dot(tint, vec3f(0.33))), 0.45) * 0.8;
+      s.albedo = muted * mix(0.45, 1.0, smoothstep(0.0, 0.5, along)) * (0.75 + 0.35 * polyps.r) *
+        mix(1.0, 1.15, smoothstep(0.7, 1.0, along));
+      s.translucency = 0.25;
+      s.roughness = 0.85;
     }
   }
   return s;
@@ -465,7 +471,8 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
 function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
   // Tiered plates on a short stalk: each tier smaller and offset, like
   // layered Acropora tables, with crinkled rather than star-shaped edges.
-  const tiers = rng.int(1, 3);
+  // Mostly single plates; an occasional second, well-offset tier.
+  const tiers = rng.bool(0.25) ? 2 : 1;
   const baseR = rng.range(0.6, 1.1);
   const stalkH = rng.range(0.2, 0.45);
   const patches: Patch[] = [];
@@ -474,8 +481,8 @@ function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
     const R = baseR * (1 - t * 0.28);
     const h = stalkH + t * rng.range(0.14, 0.24);
     top = h;
-    const ox = t ? rng.range(-0.15, 0.15) : 0;
-    const oz = t ? rng.range(-0.15, 0.15) : 0;
+    const ox = t ? rng.range(-0.35, 0.35) : 0;
+    const oz = t ? rng.range(-0.35, 0.35) : 0;
     const stalk = aux.addChain([
       [ox * 0.3, t ? h - 0.2 : -0.1, oz * 0.3, t ? 0.05 : 0.11],
       [ox * 0.7 + 0.02, h * 0.5 + (t ? h * 0.5 - 0.1 : 0), oz * 0.7, 0.07],
@@ -726,7 +733,7 @@ export async function createCoral(
       const [x, z] = inCluster(1.1);
       place(CoralKind.Sponge, x, z, rng.range(0.7, 1.6), 0.1);
     }
-    for (let i = 0; i < ctx.count(rng.int(5, 10) * density * area); i++) {
+    for (let i = 0; i < ctx.count(rng.int(2, 5) * density * area); i++) {
       const [x, z] = inCluster(1.2);
       place(CoralKind.Whip, x, z, rng.range(0.45, 1.0), 0.1);
     }
@@ -779,7 +786,7 @@ export async function createCoral(
         CoralKind.Whip,
         CoralKind.Table,
       ],
-      [2, 3, 2, 2, 1],
+      [2, 3, 2, 1, 1],
     );
     // Mixed scales (many small, a few large) so the carpet never tiles.
     const scale = 0.3 + Math.pow(rng.float(), 2.2) * 1.2;

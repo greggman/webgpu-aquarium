@@ -76,7 +76,7 @@ fn beam(p: vec3f) -> f32 {
   let taper = 0.35 + 0.65 * exp(-depth * 0.06);
   // A low sun drives long slanted shafts through the whole view: thin them out
   // so they don't become an evenly striped curtain.
-  let lowSun = mix(0.55, 1.0, smoothstep(0.4, 0.85, frame.sunDir.y));
+  let lowSun = mix(0.45, 1.0, smoothstep(0.7, 0.92, frame.sunDir.y));
   // Roll off the brightest focal lines so no single shaft becomes a laser.
   let peak = pow(rel, 4.0);
   return peak / (1.0 + peak * 0.03) * gate * mix(0.45, 2.1, bundle) * taper * lowSun * 1.6;
@@ -120,19 +120,23 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     // Distant shafts fade out smoothly (sparse far samples would band).
     // ...and the first metres are thinned so a shaft the camera sits in
     // doesn't lay a milky veil over the whole foreground.
-    let far = smoothstep(42.0, 14.0, t) * mix(0.25, 1.0, smoothstep(0.5, 5.0, t));
+    let far = smoothstep(32.0, 10.0, t) * mix(0.25, 1.0, smoothstep(0.5, 5.0, t));
     let light = sunAtDepth(p.y) * shadowTap(p) * beam(p) * far;
     accum += light * exp(-ext * t) * dt;
   }
   // Cap the forward peak so looking toward the sun doesn't wash out the frame.
   // A floor keeps shafts readable when looking away from the sun, as games do.
   let phase = 0.06 + min(waterPhase(dot(dir, frame.sunDir)), 0.3) * 0.6;
-  let raw = accum * frame.scattering * phase * V.strength;
+  // Shafts take on the water's hue (light scattered on its way down), so a
+  // warm sun gives golden-teal beams rather than grey-yellow smog.
+  let waterHue = frame.ambientColor / max(dot(frame.ambientColor, vec3f(0.2126, 0.7152, 0.0722)), 1e-3);
+  let tint = mix(vec3f(1.0), waterHue, 0.45);
+  let raw = accum * tint * frame.scattering * phase * V.strength;
   // Soft clamp: bright shafts roll off instead of blowing the frame out.
   // Seen from above, shafts are edge-on columns that only add a milky smear
   // over the seabed; fade them when looking down.
   let lookDown = mix(0.2, 1.0, smoothstep(-0.85, -0.1, dir.y));
-  let current = raw * lookDown / (1.0 + dot(raw, vec3f(0.2126, 0.7152, 0.0722)) * 0.6);
+  let current = raw * lookDown / (1.0 + dot(raw, vec3f(0.2126, 0.7152, 0.0722)) * 1.2);
 
   // Temporal accumulation with reprojection of a representative point.
   let rep = frame.camPos + dir * min(dist, 12.0);

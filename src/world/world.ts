@@ -508,7 +508,7 @@ export function cameraSpots(
   const wide = spotLookingAt(
     nav,
     terrain,
-    [hero.x + Math.cos(gapA) * 10, hero.y + 2.5, hero.z + Math.sin(gapA) * 10],
+    [hero.x + Math.cos(gapA) * 10, hero.y + 1.2, hero.z + Math.sin(gapA) * 10],
     26,
     3.6,
     away,

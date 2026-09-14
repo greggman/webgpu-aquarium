@@ -139,8 +139,11 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
       s.albedo = c;
       s.translucency = 0.9 + 0.08 * mottle;
-      s.roughness = 0.45;
-      s.f0 = 0.03;
+      // Slick but not mirror-like: sharp highlights read as white slivers.
+      s.roughness = 0.72;
+      s.f0 = 0.02;
+      // Lower blades sit in the canopy's shade.
+      s.ao *= mix(0.55, 1.0, smoothstep(-14.0, -3.0, i.world.y));
       // Seen from below, a thin blade glows with the bright water above it:
       // light filtered through the tissue comes out saturated yellow-green.
       if (part == ${Part.KelpBlade}u) {
@@ -281,9 +284,11 @@ function kelpPlant(
   // Giant kelp: a holdfast sends up several stipes that all climb to the
   // surface, leaning and curving as they rise, with long golden blades that
   // stream downcurrent and a floating canopy mat at the top.
-  const stipes = rng.int(3, 5);
+  const stipes = rng.int(2, 5);
   for (let st = 0; st < stipes; st++) {
-    const h = height * rng.range(0.88, 1.0);
+    // Young stipes stop short of the surface, so stands have layered heights.
+    const h =
+      height * (rng.bool(0.3) ? rng.range(0.45, 0.75) : rng.range(0.88, 1.0));
     const segs = Math.max(8, Math.round(h * 2.2));
     const points: [number, number, number, number][] = [];
     const baseA = rng.range(0, Math.PI * 2);
@@ -338,7 +343,7 @@ function kelpPlant(
         Math.sin(a),
       ];
       // Long narrow ribbons (not leaves): giant kelp blades trail far downstream.
-      const len = rng.range(2.2, 3.4) * (1 + canopy * 0.6);
+      const len = rng.range(1.4, 3.8) * (1 + canopy * 0.6);
       patches.push(
         P(
           [

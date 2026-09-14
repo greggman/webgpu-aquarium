@@ -1194,7 +1194,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let irid = palette(dot(n, V) * 1.3 + i.uv.y, vec3f(0.5), vec3f(0.5), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
     // Backs are darker and less saturated than the pattern suggests, as on real fish.
     let back = smoothstep(0.3, 0.9, sin(i.uv.x * 6.2831853));
-    c = mix(c, c * vec3f(0.4, 0.46, 0.52), back * 0.75);
+    c = mix(c, c * vec3f(0.3, 0.36, 0.42), back * 0.85);
     // Pale belly.
     let belly = smoothstep(-0.2, -0.85, sin(i.uv.x * 6.2831853));
     c = mix(c, mix(c, vec3f(0.85, 0.85, 0.8), 0.55), belly);
@@ -1202,10 +1202,13 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     // Guanine platelets: a colour-shifting sheen that follows the viewing
     // angle, strongest on flanks lit from above.
     let flank = smoothstep(-0.3, 0.6, n.y + 0.3);
-    s.emissive = irid * (rim * 0.6 + 0.15) * sp.colAccent.w * flank * 0.02 * sunAtDepth(i.world.y);
+    s.emissive = irid * (rim * 0.6 + 0.1) * sp.colAccent.w * flank * 0.008 * sunAtDepth(i.world.y);
     // Satin, not lacquer: broad soft highlights with scale sparkle on top.
     s.roughness = mix(0.55, 0.22, sp.colAccent.w);
-    s.f0 = mix(0.04, 0.14, sp.colAccent.w);
+    // Silvery flanks mirror the water; the dark back stays matte, so a school
+    // seen from above reads as dark bodies rather than glassy grey shapes.
+    s.f0 = mix(0.04, 0.09, sp.colAccent.w) * mix(1.0, 0.4, back);
+    s.roughness = mix(s.roughness, 0.6, back);
     // Each scale is tilted a little differently, so highlights flash across
     // the body as the fish turns (strongest on silvery species).
     let cellId = floor(scaleUv);
@@ -1223,13 +1226,17 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
       s.albedo *= 1.0 - mouth * 0.7;
       let eyeZ = 0.5 - 0.1;
       let d = length(vec2f(i.local.z - eyeZ, i.local.y - sp.extra.z));
-      let eye = smoothstep(sp.extra.w, sp.extra.w * 0.8, d);
-      let pupil = smoothstep(sp.extra.w * 0.6, sp.extra.w * 0.45, d);
+      // Only on the flanks: the (z, y) disc would otherwise band over the
+      // top of the head and read as a glowing snout from above.
+      let flankOnly = smoothstep(0.45, 0.75, abs(cos(i.uv.x * 6.2831853)));
+      let eye = smoothstep(sp.extra.w, sp.extra.w * 0.8, d) * flankOnly;
+      let pupil = smoothstep(sp.extra.w * 0.6, sp.extra.w * 0.45, d) * smoothstep(0.45, 0.75, abs(cos(i.uv.x * 6.2831853)));
       // A dark socket ring, a gold iris and a large black pupil with a catch
       // light: the eye is what makes a fish read as an animal.
-      let socket = smoothstep(sp.extra.w * 1.45, sp.extra.w * 1.05, d);
+      let socket = smoothstep(sp.extra.w * 1.45, sp.extra.w * 1.05, d) * flankOnly;
       s.albedo *= 1.0 - socket * 0.45;
-      s.albedo = mix(s.albedo, vec3f(0.8, 0.68, 0.28), eye);
+      // Iris: gold on big fish, silvery on small ones.
+      s.albedo = mix(s.albedo, mix(vec3f(0.45, 0.47, 0.5), vec3f(0.8, 0.68, 0.28), smoothstep(0.25, 0.45, sp.motion.y)), eye);
       s.albedo = mix(s.albedo, vec3f(0.005), pupil);
       s.roughness = mix(s.roughness, 0.05, eye);
     }
@@ -1311,7 +1318,7 @@ export async function createFish(
         s.wander,
         s.homePull,
         s.body[0] * 0.72 * 0.28,
-        s.eye * 1.35,
+        s.eye * 1.15,
         s.curiosity ?? 0,
         s.curiosity ? 0.9 : 1.5 + len * 3,
         s.roam ?? 0,
