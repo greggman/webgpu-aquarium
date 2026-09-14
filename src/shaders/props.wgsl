@@ -19,10 +19,10 @@ fn bumpNormal(n: vec3f, pert: vec3f) -> vec3f {
  * any generated surface without tangents. Must be called in uniform control flow.
  */
 fn bumpFromHeight(n: vec3f, pos: vec3f, height: f32, strength: f32) -> vec3f {
-  let sx = dpdx(pos);
-  let sy = dpdy(pos);
-  let hx = dpdx(height) * strength;
-  let hy = dpdy(height) * strength;
+  let sx = dpdxFine(pos);
+  let sy = dpdyFine(pos);
+  let hx = dpdxFine(height) * strength;
+  let hy = dpdyFine(height) * strength;
   let r1 = cross(sy, n);
   let r2 = cross(n, sx);
   let det = dot(sx, r1);

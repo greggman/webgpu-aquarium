@@ -510,6 +510,29 @@ fn triplanar(p: vec3f, n: vec3f, scale: f32) -> vec4f {
   return x * w.x + y * w.y + z * w.z;
 }
 
+/** Rock (and reef rubble) relief height, in detail-texture units. */
+fn rockRelief(q: vec3f, n: vec3f, reef: f32) -> f32 {
+  return triplanar(q, n, 0.13).r * 1.2 + triplanar(q, n, 0.55).r * 0.3 +
+    triplanar(q, n, 0.42).r * 0.9 * reef;
+}
+
+/**
+ * Bump from world-space finite differences of the relief. Screen-space
+ * derivatives are constant over 2x2 pixel quads, which turns fine relief into
+ * a checkerboard; explicit taps a pixel-footprint apart stay smooth.
+ */
+fn rockBump(n: vec3f, p: vec3f, reef: f32, strength: f32, footprint: f32) -> vec3f {
+  let a = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.7);
+  let t1 = normalize(cross(n, a));
+  let t2 = cross(n, t1);
+  let e = footprint;
+  let h0 = rockRelief(p, n, reef);
+  let h1 = rockRelief(p + t1 * e, n, reef);
+  let h2 = rockRelief(p + t2 * e, n, reef);
+  let g = (t1 * (h1 - h0) + t2 * (h2 - h0)) / e;
+  return normalize(n - g * strength);
+}
+
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
@@ -558,8 +581,8 @@ fn fs(i: VOut) -> FOut {
   // Rock relief: layered height from the detail textures, as a true bump map.
   // (The detail texture's blue channel is sand ripples: keep it off rock.)
   // (Fine grain stays out of the bump: at a distance it becomes pixel noise.)
-  let rockHeight = tri.r * 1.2 + triFine.r * 0.3 + triFine.a * 0.08 * smoothstep(12.0, 3.0, camDist);
-  let rockN = bumpFromHeight(n, p, rockHeight, 0.35);
+  let reefAmt = smoothstep(0.3, 0.7, m.g) * rockW;
+  let rockN = rockBump(n, p, reefAmt, 0.3, clamp(camDist * 0.002, 0.015, 0.4));
   n = normalize(mix(sandN, rockN, rockW));
 
   // Sand: warm, with darker patches of debris and fine speckle.
@@ -584,7 +607,6 @@ fn fs(i: VOut) -> FOut {
 
   // Reef zones: a carpet of coral rubble, not felt. Lumpy broken fragments
   // (pale, bleached pieces among darker turf-covered ones) with bare gaps.
-  let reefAmt = smoothstep(0.3, 0.7, m.g) * rockW;
   let rubbleField = triplanar(p, n, 0.42);
   let lump = smoothstep(0.35, 0.7, rubbleField.r * 0.7 + tri.g * 0.3);
   let fragment = smoothstep(0.66, 0.76, triplanar(p, n, 0.9).r) * smoothstep(0.4, 0.9, n.y);
@@ -592,7 +614,6 @@ fn fs(i: VOut) -> FOut {
   var reefCol = mix(rockCol * 0.8, turfCol, lump * 0.8);
   reefCol = mix(reefCol, vec3f(0.66, 0.62, 0.54) * (0.8 + 0.3 * rubbleField.b), fragment * 0.7);
   rockCol = mix(rockCol, reefCol, reefAmt);
-  n = normalize(mix(n, bumpFromHeight(n, p, lump * 1.2 + fragment * 0.4, 0.3), reefAmt * 0.85));
 
   var s = defaultSurface();
   s.albedo = mix(sandCol, rockCol, rockW);
