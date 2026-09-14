@@ -141,6 +141,15 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       s.translucency = 0.9 + 0.08 * mottle;
       s.roughness = 0.45;
       s.f0 = 0.03;
+      // Seen from below, a thin blade glows with the bright water above it:
+      // light filtered through the tissue comes out saturated yellow-green.
+      if (part == ${Part.KelpBlade}u) {
+        let V = normalize(frame.camPos - i.world);
+        let under = smoothstep(0.0, 0.7, -V.y);
+        let glowCol = tint * vec3f(1.1, 1.25, 0.45) + vec3f(0.02, 0.05, 0.0);
+        s.emissive = glowCol * sunAtDepth(i.world.y) * 0.022 * under * (0.8 + 0.4 * mottle) *
+          smoothstep(0.05, 0.4, along);
+      }
     }
   }
   return s;

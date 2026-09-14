@@ -395,23 +395,38 @@ export function cameraSpots(
     }
     fx /= forest.stems.length;
     fz /= forest.stems.length;
+    // The real extent of the holdfasts (forests can sprawl past their nominal radius).
+    let extent = 0;
+    for (const [sx, sz] of forest.stems) {
+      extent = Math.max(extent, Math.hypot(sx - fx, sz - fz));
+    }
     let best: [number, number, number] | undefined;
     let bestScore = -Infinity;
     for (let i = 0; i < 48; i++) {
       const a = sunFlat + Math.PI + rng.range(-1.2, 1.2);
-      const r = rng.range(forest.radius * 0.6, forest.radius + 6);
+      const r = rng.range(extent * 0.7, extent + 10);
       const x = fx + Math.cos(a) * r;
       const z = fz + Math.sin(a) * r;
-      const y = Math.min(nav.floorAt(x, z) + 2.2, nav.ceiling() - 1);
+      const y = Math.min(nav.floorAt(x, z) + 3, nav.ceiling() - 1);
       if (!nav.contains([x, y, z])) {
         continue;
       }
+      // Blades stream downcurrent (+x) of their holdfasts: measure clearance
+      // to the whole streak, not just the stem.
       let gap = Infinity;
-      for (const [sx, sz] of forest.stems) {
-        gap = Math.min(gap, Math.hypot(sx - x, sz - z));
+      for (const f of kelpForests) {
+        for (const [sx, sz] of f.stems) {
+          const along = Math.min(Math.max(x - sx, 0), 4);
+          gap = Math.min(gap, Math.hypot(sx + along - x, sz - z));
+        }
       }
       // Clear of trunks, close enough that the forest fills the frame.
-      const score = Math.min(gap, 3) - Math.abs(r - forest.radius * 0.9) * 0.15;
+      // Clear of blades (they reach ~4 m from a stipe), yet near enough that
+      // the forest fills the frame.
+      const score =
+        Math.min(gap, 6) -
+        Math.abs(gap - 6) * 0.3 -
+        Math.max(0, r - extent) * 0.08;
       if (score > bestScore) {
         bestScore = score;
         best = [x, y, z];
@@ -424,7 +439,7 @@ export function cameraSpots(
       const d = Math.hypot(dx, dz) || 1;
       kelp = {
         pos: [x, y, z],
-        target: [x + (dx / d) * 6, y + 4.5, z + (dz / d) * 6],
+        target: [x + (dx / d) * 8, y + 3.5, z + (dz / d) * 8],
       };
     } else {
       kelp = spotLookingAt(
