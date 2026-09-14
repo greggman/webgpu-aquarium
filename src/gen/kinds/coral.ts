@@ -60,7 +60,8 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   // Slight flare and sink at the base.
   p.y -= (1.0 - rim) * 0.1 * pat.p0.y;
   var o = sp(p, vec4f(uv, ridge, 0.0));
-  o.ao = mix(0.35, 1.0, ridge) * mix(0.5, 1.0, rim);
+  // Baked AO follows the silhouette only (per-ridge AO bands read as stripes).
+  o.ao = mix(0.85, 1.0, ridge) * mix(0.5, 1.0, rim);
   o.mat = f32(${CoralKind.Brain});
   return o;
 }
@@ -118,8 +119,8 @@ fn spongeSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let theta = uv.x * TAU;
   let ring = vec3f(cos(theta), 0.0, sin(theta));
   // Irregular organic outline: lobed cross-section and a wavy, uneven rim.
-  let lobes = 1.0 + fbm3(ring * 1.3 + pat.p2.xyz, 3) * 0.55 + 0.12 * sin(theta * 3.0 + pat.p2.x);
-  let rimWave = 1.0 + 0.18 * fbm3(ring * 2.0 + pat.p2.zyx, 2) + 0.08 * sin(theta * 5.0 + pat.p2.y);
+  let lobes = 1.0 + fbm3(ring * 1.3 + pat.p2.xyz, 3) * 0.35 + 0.08 * sin(theta * 3.0 + pat.p2.x);
+  let rimWave = 1.0 + 0.08 * fbm3(ring * 2.0 + pat.p2.zyx, 2) + 0.03 * sin(theta * 5.0 + pat.p2.y);
   let prof = spongeProfile(uv.y, pat.p0.x * lobes, pat.p0.y * lobes, pat.p0.z * rimWave, pat.p0.w, pat.p1.w);
   var p = lathePoint(prof.x, prof.y, uv.x);
   // Deep pores and knobbly ridges.
@@ -191,7 +192,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // Massive heads: the meander ridges themselves also drive the bump, so the
   // relief reads at pixel scale (not just as colour).
   // (Faded with distance: finer than a few pixels the ridges alias into stripes.)
-  let brainNear = smoothstep(9.0, 2.5, length(frame.camPos - i.world));
+  let brainNear = smoothstep(6.0, 2.0, length(frame.camPos - i.world));
   let brainRidge = select(0.0, i.uv.z * 1.5 * brainNear, kind == ${CoralKind.Brain}u);
   let bumped = bumpFromHeight(nIn, i.world, height + brainRidge * 1.2, select(0.12, 0.02, thin));
   var s = defaultSurface();
@@ -257,7 +258,8 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       c = mix(c, mix(muted, vec3f(0.9, 0.86, 0.75), 0.5), rim * 0.35);
       s.albedo = c;
       s.roughness = 0.85;
-      s.translucency = 0.05;
+      // The thin growing rim lets light through.
+      s.translucency = mix(0.05, 0.5, rim);
     }
     case ${CoralKind.Sponge}u: {
       let inside = i.uv.z;
@@ -600,7 +602,8 @@ function spongeVariant(rng: Rng, hi: boolean): VariantInfo {
         r0,
         r1,
         h,
-        barrel ? 0.05 : 0.014,
+        // Thick, rounded lip.
+        barrel ? 0.11 : 0.02,
         rng.range(10, 18),
         barrel ? 0.03 : 0.008,
         rng.range(-30, 30),
@@ -674,6 +677,11 @@ export async function createCoral(
 
   // Pick this reef's palette.
   const palette = rng.shuffle([...CORAL_COLORS]).slice(0, rng.int(5, 7));
+  // Always at least one warm colour, so no reef is all violet on blue.
+  const warm = CORAL_COLORS.slice(2, 4);
+  if (!palette.some(c => warm.includes(c))) {
+    palette.push(rng.pick(warm), rng.pick(warm));
+  }
   const color = (): [number, number, number, number] => {
     const c = rng.pick(palette);
     const v = rng.range(0.85, 1.1);
@@ -693,6 +701,9 @@ export async function createCoral(
     const variant = rng.pick(list);
     const n = ctx.terrain.normalAt(x, z);
     const vi = variants[variant];
+    // Plates grow slightly tilted off their base.
+    const tiltX = kind === CoralKind.Table ? rng.range(-0.15, 0.15) : 0;
+    const tiltZ = kind === CoralKind.Table ? rng.range(-0.15, 0.15) : 0;
     // Massive heads grow up out of the substrate: bury their base (and seat
     // them along the slope) so no dark underside or floating rim shows.
     const massive = kind === CoralKind.Brain || kind === CoralKind.Sponge;
@@ -716,9 +727,9 @@ export async function createCoral(
       scale,
       rot: quatUpYaw(
         [
-          n[0] * lean + rng.range(-0.1, 0.1),
+          n[0] * lean + rng.range(-0.1, 0.1) + tiltX,
           1,
-          n[2] * lean + rng.range(-0.1, 0.1),
+          n[2] * lean + rng.range(-0.1, 0.1) + tiltZ,
         ],
         rng.range(0, Math.PI * 2),
       ),
@@ -771,8 +782,7 @@ export async function createCoral(
     }
     for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      // Plates tilt toward the light and away from the slope.
-      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.45);
+      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.1);
     }
     for (let i = 0; i < ctx.count(rng.int(3, 6) * density * area); i++) {
       const [x, z] = inCluster(1.1);
@@ -812,7 +822,9 @@ export async function createCoral(
     const n = ctx.count(Math.round(o.radius * rng.range(2, 4)));
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
-      const r = Math.sqrt(rng.float()) * o.radius * (isStackTop ? 0.35 : 0.65);
+      // Kept to the crown: toward the edge the sphere model overestimates the
+      // rock and coral would hang off it.
+      const r = Math.sqrt(rng.float()) * o.radius * (isStackTop ? 0.35 : 0.5);
       const x = o.center[0] + Math.cos(a) * r;
       const z = o.center[2] + Math.sin(a) * r;
       const kind = rng.weighted(

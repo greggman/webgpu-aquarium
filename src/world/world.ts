@@ -425,7 +425,7 @@ export function cameraSpots(
         const dx = x - pos[0];
         const dz = z - pos[2];
         const along = (dx * hx + dz * hz) / hl;
-        if (along < -0.5 || along > 5 || (top < pos[1] - 1.2 && along > 1.5)) {
+        if (along < -0.5 || along > 8 || (top < pos[1] - 1.2 && along > 1.5)) {
           return true;
         }
         const across = Math.abs(dx * hz - dz * hx) / hl;
@@ -498,11 +498,29 @@ export function cameraSpots(
       // the forest fills the frame; prefer the side away from the sun so the
       // forest is backlit.
       const away = Math.cos(a - (sunFlat + Math.PI));
+      // A corridor, not a wall: few stands in the middle of the view nearby,
+      // with stands framing the sides further in.
+      const vx = fx - x;
+      const vz = fz - z;
+      const vl = Math.hypot(vx, vz) || 1;
+      let wall = 0;
+      let frame = 0;
+      for (const [sx, sz] of forest.stems) {
+        const along = ((sx - x) * vx + (sz - z) * vz) / vl;
+        const across = Math.abs((sx - x) * vz - (sz - z) * vx) / vl;
+        if (along > 0 && along < 9 && across < along * 0.35) {
+          wall++;
+        } else if (along > 0 && along < 14 && across < along * 0.9) {
+          frame++;
+        }
+      }
       const score =
         Math.min(gap, 7) -
         Math.abs(gap - 7) * 0.25 -
         Math.max(0, r - extent) * 0.06 +
-        away * 0.8;
+        away * 0.8 -
+        wall * 0.6 +
+        Math.min(frame, 6) * 0.2;
       if (score > bestScore) {
         bestScore = score;
         best = [x, y, z];
