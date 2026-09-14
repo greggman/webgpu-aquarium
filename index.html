@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>WebGPU Aquarium</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #02101a;
+        color: #d8eef5;
+        font:
+          13px/1.4 system-ui,
+          -apple-system,
+          sans-serif;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #screen {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        left: max(12px, env(safe-area-inset-left));
+        bottom: max(10px, env(safe-area-inset-bottom));
+        opacity: 0.75;
+        pointer-events: none;
+        text-shadow: 0 1px 2px #000;
+        white-space: pre;
+      }
+      #hud.hidden {
+        opacity: 0;
+        transition: opacity 1.5s;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        letter-spacing: 0.1em;
+        pointer-events: none;
+        transition: opacity 1s;
+      }
+      #errors {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        max-height: 50%;
+        overflow: auto;
+        margin: 0;
+        padding: 8px 12px;
+        background: rgba(120, 0, 0, 0.85);
+        color: #fff;
+        font: 12px/1.4 ui-monospace, Menlo, monospace;
+        white-space: pre-wrap;
+        z-index: 10;
+      }
+      .stick {
+        position: fixed;
+        width: 110px;
+        height: 110px;
+        margin: -55px 0 0 -55px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        pointer-events: none;
+      }
+      .stick > div {
+        position: absolute;
+        left: 35px;
+        top: 35px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen"></canvas>
+    <div id="loading">generating ocean…</div>
+    <div id="hud"></div>
+    <pre id="errors" hidden></pre>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

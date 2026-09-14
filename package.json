@@ -1,0 +1,36 @@
+{
+  "name": "webgpu-aquarium",
+  "version": "0.1.0",
+  "description": "A procedurally generated WebGPU underwater world",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Gregg Tavares",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "serve": "node scripts/serve.mjs",
+    "start": "node scripts/build.mjs --watch --serve",
+    "lint": "gts lint",
+    "fix": "gts fix",
+    "typecheck": "tsc --noEmit",
+    "unit": "node --test \"test/unit/**/*.test.ts\"",
+    "test": "npm run build && npm run unit && node test/smoke.mjs",
+    "shots": "node test/screenshots.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "esbuild": "0.28.2",
+    "express": "5.2.1",
+    "gts": "7.0.0",
+    "puppeteer": "25.11.0",
+    "typescript": "6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "puppeteer@25.11.0": true
+  }
+}
