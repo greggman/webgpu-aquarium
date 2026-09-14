@@ -375,3 +375,12 @@ Recorded as the build progressed, so the plan stays an honest description of the
 - **Extra camera preset** `surface` looks up through Snell's window.
 - **Play-area layout rejection** (regenerating bad layouts) was not needed: reef clusters are
   chosen by score inside the play area and cameras are placed by searching valid spots.
+- **Level of detail**: kelp, coral and rocks carry low-detail stand-in variants chosen per
+  instance on the CPU by distance (and always in the shadow pass); tiny coral and rubble
+  don't cast shadows.
+- **No `discard` in dense opaque props**: a dithered near-lens dissolve on coral and kelp
+  defeated hidden-surface removal on Apple GPUs (frames went over budget in dense views).
+  Fish bodies draw with discard compiled out; only fins and fan lattices are alpha-tested,
+  and those systems draw last. `test/perf.mjs` sweeps seeds × cameras at 1080p.
+- **Camera presets** are scored rather than fixed: line of sight, foreground clearance
+  (terrain, rocks, ridge crests), kelp blade streaks and tall props near the lens.
