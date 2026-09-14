@@ -314,3 +314,26 @@ Biggest gaps (ranked):
 5. School fish grey/see-through with glowing snouts; uniform size/spacing.
 
 What works: seed4-reef best frame, seed2 deep-blue, surface shots, seed4 kelp backlight, 3/4 overhead, temporal stability.
+
+## Review 13 — FAIL (avg 6.8)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 7 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 7 |
+| 7 | Composition, grade & mood | 7 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 7 |
+
+Biggest gaps (ranked):
+1. Branching coral pale smooth tubes with rim glow; table corals need thick lips and shaded undersides.
+2. Kelp still a regimented wall in some seeds; faceted blade tips; no light-through.
+3. School fish ghosted near camera (DOF); need crisp silver flashes and size variety.
+4. Blobby rock pillars and dotted brain coral.
+5. Empty surface frames and subjectless wide shot (seed4).
+
+What works: seed4-wide veil fixed, muted sea whips, no glowing snouts, seed2 deep-blue grade, seed4-reef warm shafts, caustics, stability.
