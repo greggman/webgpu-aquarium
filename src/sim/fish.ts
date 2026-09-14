@@ -671,16 +671,27 @@ fn bodyProfile(pat: Patch, v: f32, amount: f32) -> f32 {
     return amount * pow(sin(v / peak * 1.5707963), pat.p0.z);
   }
   let t = smoothstep(peak, 1.0, v);
-  return amount * mix(1.0, pat.p0.w, pow(t, 0.8));
+  // Narrow tail stem (caudal peduncle) before the tail fin.
+  return amount * mix(1.0, min(pat.p0.w, 0.13), pow(t, 0.75));
+}
+
+/** Body half-height: streamlined, several times longer than tall. */
+fn bodyH(pat: Patch, v: f32) -> f32 {
+  return bodyProfile(pat, v, pat.p0.x * 0.72);
+}
+
+/** Body half-width: a little fuller than the species profile, never a card. */
+fn bodyW(pat: Patch, v: f32) -> f32 {
+  return bodyProfile(pat, v, max(pat.p0.y * 1.15, pat.p0.x * 0.72 * 0.28));
 }
 
 fn fishBody(pat: Patch, uv: vec2f) -> SurfacePoint {
   let v = uv.y;
   let th = uv.x * TAU;
-  let h = bodyProfile(pat, v, pat.p0.x);
+  let h = bodyH(pat, v);
   // Real fish carry more volume than a flat profile suggests; a thicker body
   // keeps them from reading as cards or discs when seen at an angle.
-  let w = bodyProfile(pat, v, max(pat.p0.y * 1.5, pat.p0.x * 0.32));
+  let w = bodyW(pat, v);
   let e = 2.0 / pat.p2.w;
   let c = cos(th);
   let s = sin(th);
@@ -694,7 +705,7 @@ fn fishBody(pat: Patch, uv: vec2f) -> SurfacePoint {
 
 fn fishTail(pat: Patch, uv: vec2f) -> SurfacePoint {
   let yy = uv.x * 2.0 - 1.0;
-  let ped = pat.p0.x * pat.p0.w;
+  let ped = bodyH(pat, 1.0);
   let span = mix(ped, pat.p1.x, pow(uv.y, 0.7));
   let fork = pat.p1.y * (1.0 - abs(yy));
   let len = 0.2 * (1.0 - fork * uv.y * 0.8) + 0.02 * abs(yy);
@@ -715,7 +726,7 @@ fn fishFin(pat: Patch, uv: vec2f, bottom: bool) -> SurfacePoint {
     height = pat.p1.z;
     shape = pow(sin(uv.x * 3.14159), 0.6) * (1.0 - uv.x * 0.35);
   }
-  let base = bodyProfile(pat, bv, pat.p0.x) * 0.9;
+  let base = bodyH(pat, bv) * 0.9;
   let dirY = select(1.0, -1.0, bottom);
   let y = dirY * (base + uv.y * height * shape);
   let p = vec3f(0.0, y, bodyZ(bv) - uv.y * shape * height * 0.4);
@@ -725,7 +736,7 @@ fn fishFin(pat: Patch, uv: vec2f, bottom: bool) -> SurfacePoint {
 
 fn fishPectoral(pat: Patch, uv: vec2f, side: f32) -> SurfacePoint {
   let bv = 0.26;
-  let root = vec3f(side * bodyProfile(pat, bv, max(pat.p0.y * 1.5, pat.p0.x * 0.32)) * 0.85, -bodyProfile(pat, bv, pat.p0.x) * 0.3, bodyZ(bv));
+  let root = vec3f(side * bodyW(pat, bv) * 0.85, -bodyH(pat, bv) * 0.3, bodyZ(bv));
   let size = pat.p2.x;
   let chord = size * (1.0 - uv.y * 0.55);
   let p = root + vec3f(side * uv.y * size * 0.7, -uv.y * size * 0.25, -uv.x * chord - uv.y * size * 0.45);
@@ -1168,7 +1179,8 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     c = mix(c, mix(c, vec3f(0.85, 0.85, 0.8), 0.55), belly);
     s.albedo = c * (0.9 + 0.12 * mottle) * mix(1.0, 0.8, scaleEdge) * mix(1.0, 0.7, lateral);
     s.emissive = irid * rim * sp.colAccent.w * 0.05 * max(frame.sunColor.g, 1.0) * 0.2;
-    s.roughness = mix(0.42, 0.18, sp.colAccent.w);
+    // Satin, not lacquer: broad soft highlights with scale sparkle on top.
+    s.roughness = mix(0.55, 0.32, sp.colAccent.w);
     s.f0 = mix(0.04, 0.14, sp.colAccent.w);
     // Each scale is tilted a little differently, so highlights flash across
     // the body as the fish turns (strongest on silvery species).
@@ -1265,7 +1277,7 @@ export async function createFish(
         s.finTranslucency,
         s.wander,
         s.homePull,
-        s.body[0] * 0.28,
+        s.body[0] * 0.72 * 0.28,
         s.eye,
         s.curiosity ?? 0,
         s.curiosity ? 0.9 : 1.5 + len * 3,

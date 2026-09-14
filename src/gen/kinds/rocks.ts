@@ -75,16 +75,22 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   albedo *= (0.8 + 0.3 * fine.r) * inst.color.rgb;
   albedo *= mix(1.0, 0.35, pocket);
 
-  // Encrusting life on the upper faces: fine algal turf, speckles of pink
-  // coralline crust and tiny pale polyps/barnacles.
+  // Encrusting life follows the rock's shape: algal turf settles on ledge
+  // tops and in the lips of pockets, pink coralline crust creeps out of
+  // sheltered crevices and undercuts, tiny pale polyps/barnacles speckle rims.
   let up = smoothstep(0.1, 0.8, nIn.y) * inst.params.x;
-  let turf = smoothstep(0.52, 0.7, mid.g * 0.5 + big.r * 0.5 + (fine.r - 0.5) * 0.35) * up;
-  let algae = mix(vec3f(0.2, 0.2, 0.1), vec3f(0.32, 0.26, 0.14), fine.g);
-  let crust = smoothstep(0.72, 0.8, triplanarDetail(lp, nIn, 0.33).a) * up;
-  let coralline = mix(vec3f(0.62, 0.34, 0.36), vec3f(0.72, 0.5, 0.46), fine.b);
-  let specks = smoothstep(0.84, 0.9, fine.a) * up;
+  let occl = 1.0 - i.aoMat.x;
+  let ledgeTop = i.uv.w * smoothstep(-0.2, 0.5, nIn.y);
+  let rim = smoothstep(0.02, 0.2, pocket) * (1.0 - smoothstep(0.35, 0.8, pocket));
+  let turfField = mid.g * 0.45 + big.r * 0.3 + ledgeTop * 0.35 + rim * 0.3 + (fine.r - 0.5) * 0.3;
+  let turf = smoothstep(0.5, 0.68, turfField) * up;
+  let algae = mix(vec3f(0.19, 0.2, 0.1), vec3f(0.33, 0.27, 0.15), fine.g);
+  let crustField = triplanarDetail(lp, nIn, 0.33).a * 0.7 + occl * 0.6 + rim * 0.2;
+  let crust = smoothstep(0.68, 0.8, crustField) * inst.params.x * (1.0 - turf);
+  let coralline = mix(vec3f(0.6, 0.32, 0.36), vec3f(0.74, 0.5, 0.47), fine.b);
+  let specks = smoothstep(0.84, 0.9, fine.a) * max(up, rim) * (1.0 - pocket);
   var c = mix(albedo, algae, turf * 0.85);
-  c = mix(c, coralline, crust * 0.8);
+  c = mix(c, coralline, crust * 0.75);
   c = mix(c, vec3f(0.75, 0.72, 0.64), specks * 0.6);
 
   var s = defaultSurface();
@@ -172,31 +178,37 @@ export async function createRocks(
     }
   };
 
-  // Bommies: at the most important reef clusters, a tall outcrop of stacked
-  // boulders rises above head height. Upper stones are offset outward so the
-  // mass has overhangs and dark undercuts, and coral later encrusts its top.
+  // Bommies: at the most important reef clusters, a tall column of stacked
+  // boulders rises above head height. It tapers upward like an eroded pinnacle
+  // (broad footing, narrowing tiers) with the stones jittered sideways so the
+  // flanks get ledges and dark undercuts; coral later encrusts its top.
   for (const c of ctx.clusters.slice(0, 3)) {
     const cx = c.x + rng.range(-1, 1);
     const cz = c.z + rng.range(-1, 1);
-    const tiers = c.rank === 0 ? 3 : 2;
-    let spread = rng.range(1.6, 2.4);
+    const tiers = c.rank === 0 ? 4 : 3;
+    let spread = rng.range(1.8, 2.4);
+    // The column leans slightly, as if undercut by the current on one side.
+    const leanA = rng.range(0, Math.PI * 2);
+    const lean = rng.range(0.15, 0.4);
     for (let tier = 0; tier < tiers; tier++) {
-      const stones = tier === 0 ? rng.int(3, 4) : rng.int(2, 3);
+      const stones = tier === 0 ? rng.int(4, 5) : tier === tiers - 1 ? 1 : 2;
+      const ox = cx + Math.cos(leanA) * lean * tier;
+      const oz = cz + Math.sin(leanA) * lean * tier;
       for (let s = 0; s < stones; s++) {
         const a = rng.range(0, Math.PI * 2);
-        const r = rng.range(0.2, 1) * spread;
-        const scale = rng.range(1.6, 2.6) * (1 - tier * 0.15);
+        const r =
+          (stones === 1 ? rng.range(0, 0.3) : rng.range(0.35, 1)) * spread;
+        const scale = rng.range(1.7, 2.4) * (1 - tier * 0.17);
         place(
-          cx + Math.cos(a) * r,
-          cz + Math.sin(a) * r,
+          ox + Math.cos(a) * r,
+          oz + Math.sin(a) * r,
           scale,
-          tier === 0 ? 0.3 : 0.55,
+          tier === 0 ? 0.3 : 0.5,
           1,
           tier > 0,
         );
       }
-      // Next tier overhangs a little further out on one side.
-      spread *= rng.range(0.7, 1.05);
+      spread *= rng.range(0.5, 0.65);
     }
   }
 

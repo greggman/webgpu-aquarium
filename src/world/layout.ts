@@ -17,6 +17,14 @@ export interface ReefCluster {
   rank: number;
 }
 
+export interface KelpForest {
+  x: number;
+  z: number;
+  radius: number;
+  /** Holdfast positions. */
+  stems: [number, number][];
+}
+
 export interface GenContext {
   desc: WorldDesc;
   terrain: TerrainData;
@@ -28,7 +36,7 @@ export interface GenContext {
   /** Solid obstacles the camera must avoid. */
   obstacles: NavSphere[];
   /** Kelp forest locations (filled in by the plant generator). */
-  kelpForests: {x: number; z: number; radius: number}[];
+  kelpForests: KelpForest[];
   /** Anemone positions (filled in by the critter generator), homes for clownfish. */
   anemones: [number, number, number][];
   /** A generator stream unique to `name`. */

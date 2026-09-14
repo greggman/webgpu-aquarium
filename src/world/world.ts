@@ -11,6 +11,7 @@ import {
   type TerrainSettings,
 } from '../gen/terrain.ts';
 import type {GradeSettings} from '../render/post/present.ts';
+import type {KelpForest} from './layout.ts';
 
 export interface WaterStyle {
   name: string;
@@ -276,7 +277,7 @@ export function cameraSpots(
   terrain: TerrainData,
   nav: NavVolume,
   clusters: {x: number; y: number; z: number; radius: number}[],
-  kelpForests: {x: number; z: number; radius: number}[] = [],
+  kelpForests: KelpForest[] = [],
 ): {presets: Record<string, CameraSpot>; tour: TourStop[]} {
   const rng = new Rng(desc.seed ^ 0xca3e7a);
   const c = desc.terrain.center;
@@ -302,28 +303,57 @@ export function cameraSpots(
     gapA + Math.PI + 0.35,
   );
 
-  // Kelp: flat sandy patch with kelp mask.
-  const [kx, kz] = kelpForests.length
-    ? [kelpForests[0].x, kelpForests[0].z]
-    : bestSpot(
-        rng,
-        nav,
-        (x, z) => terrain.maskAt(2, x, z) - terrain.maskAt(0, x, z) * 0.5,
-      );
-  // From just outside the forest edge, looking in and up toward the canopy,
-  // so the lens isn't buried in a blade.
-  const kelpTarget = ground(kx, kz);
-  // Aim well up the stipes so the canopy and the light above it are in frame.
-  kelpTarget[1] += 9;
-  const forestR = kelpForests[0]?.radius ?? 8;
-  const kelp = spotLookingAt(
-    nav,
-    terrain,
-    kelpTarget,
-    forestR + 4,
-    2.0,
-    Math.atan2(c[1] - kz, c[0] - kx),
-  );
+  // Kelp: from a clearing among the trunks, looking up through the forest at
+  // the canopy mat and the light breaking through it.
+  let kelp: CameraSpot;
+  const forest = kelpForests[0];
+  if (forest && forest.stems.length) {
+    let best: [number, number] = [forest.x, forest.z];
+    let bestGap = -1;
+    for (let i = 0; i < 400; i++) {
+      const a = rng.range(0, Math.PI * 2);
+      const r = Math.sqrt(rng.float()) * forest.radius * 0.8;
+      const x = forest.x + Math.cos(a) * r;
+      const z = forest.z + Math.sin(a) * r;
+      let gap = Infinity;
+      for (const [sx, sz] of forest.stems) {
+        gap = Math.min(gap, Math.hypot(sx - x, sz - z));
+      }
+      if (gap > bestGap && nav.contains([x, nav.floorAt(x, z) + 0.3, z])) {
+        bestGap = gap;
+        best = [x, z];
+      }
+    }
+    const y = Math.min(nav.floorAt(best[0], best[1]) + 0.6, nav.ceiling() - 1);
+    // Look up (about 55 degrees), leaning toward the sun so the canopy is backlit.
+    const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
+    kelp = {
+      pos: [best[0], y, best[1]],
+      target: [
+        best[0] + Math.cos(sunFlat) * 3.5,
+        y + 5,
+        best[1] + Math.sin(sunFlat) * 3.5,
+      ],
+    };
+  } else {
+    const [kx, kz] = bestSpot(
+      rng,
+      nav,
+      (x, z) => terrain.maskAt(2, x, z) - terrain.maskAt(0, x, z) * 0.5,
+    );
+    const kelpTarget = ground(kx, kz);
+    kelpTarget[1] += 3;
+    kelp = spotLookingAt(
+      nav,
+      terrain,
+      kelpTarget,
+      11,
+      1.8,
+      rng.range(0, Math.PI * 2),
+    );
+  }
+  const [kx, kz] = [kelp.pos[0], kelp.pos[2]];
+  const kelpTarget = kelp.target;
 
   // Wide: an establishing shot across the hero reef toward the gap into the deep.
   const away = gapA + Math.PI;
@@ -347,7 +377,8 @@ export function cameraSpots(
   const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
   const upX = hero.x - Math.cos(sunFlat) * (hero.radius + 2);
   const upZ = hero.z - Math.sin(sunFlat) * (hero.radius + 2);
-  const upY = Math.min(nav.floorAt(upX, upZ) + 0.6, nav.ceiling() - 2);
+  // High enough that seagrass blades don't flicker across the bright window.
+  const upY = Math.min(nav.floorAt(upX, upZ) + 1.8, nav.ceiling() - 2);
   const surface: CameraSpot = {
     pos: [upX, upY, upZ],
     target: [upX + Math.cos(sunFlat) * 5, upY + 6, upZ + Math.sin(sunFlat) * 5],

@@ -176,7 +176,8 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   }
   let lit = applyWater(col + glow * 0.4, i.world);
   let dist = length(i.world - frame.camPos);
-  let a = clamp(alpha, 0.0, 0.9) * exp(-dist * 0.03);
+  // Fade out right in front of the lens instead of clipping through it.
+  let a = clamp(alpha, 0.0, 0.9) * exp(-dist * 0.03) * smoothstep(0.35, 1.2, dist);
   return vec4f(lit * a, a);
 }
 `;
@@ -364,6 +365,23 @@ export async function createJellyfish(
         j.pos[0] += j.vel[0] * dt;
         j.pos[1] += j.vel[1] * dt;
         j.pos[2] += j.vel[2] * dt;
+        // Drift gently away from the camera so it doesn't swim into them.
+        const cam = fc.view.camPos;
+        const ax = j.pos[0] - cam[0];
+        const ay = j.pos[1] - cam[1];
+        const az = j.pos[2] - cam[2];
+        const d = Math.hypot(ax, ay, az);
+        const personal = 1.5 + j.scale * 3;
+        if (d < personal && d > 1e-3) {
+          const push = ((personal - d) / personal) * 0.6 * dt;
+          j.vel[0] += (ax / d) * push;
+          j.vel[1] += (ay / d) * push;
+          j.vel[2] += (az / d) * push;
+          j.pos[0] += (ax / d) * (personal - d) * Math.min(1, dt * 0.5);
+          j.pos[2] += (az / d) * (personal - d) * Math.min(1, dt * 0.5);
+        }
+        j.vel[0] *= 1 - Math.min(1, dt * 0.1);
+        j.vel[2] *= 1 - Math.min(1, dt * 0.1);
         const g = ctx.terrain.heightAt(j.pos[0], j.pos[2]);
         if (j.pos[1] > ceiling) {
           j.vel[1] = -0.1;

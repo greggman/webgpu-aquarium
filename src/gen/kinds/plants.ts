@@ -292,13 +292,15 @@ function kelpPlant(
     const bladeCount = Math.round(h * (hi ? 3.6 : 2.0));
     for (let b = 0; b < bladeCount; b++) {
       // Irregular spacing and direction, so blades never read as leaf pairs.
-      const t = rng.range(0.1, 1.0);
+      // The lower third of each stipe is bare trunk.
+      const t = rng.range(0.35, 1.0);
       const idx = Math.min(
         points.length - 1,
         Math.max(0, Math.round(t * segs)),
       );
       const base = points[idx];
-      const a = rng.range(0, Math.PI * 2);
+      // Blades hang off the downcurrent side of the stipe.
+      const a = rng.normal(0, 0.7);
       // Blades in the top fifth lie along the surface as a canopy.
       const canopy = Math.max(0, (t - 0.8) / 0.2);
       const outward = [
@@ -348,7 +350,7 @@ function kelpPlant(
   }
   // Canopy mat: long fronds from the top of the holdfast's stipes spread out
   // flat just under the surface, overlapping into a dark, light-dappling mat.
-  const mat = hi ? rng.int(14, 22) : rng.int(7, 11);
+  const mat = hi ? rng.int(26, 38) : rng.int(12, 18);
   for (let m = 0; m < mat; m++) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(0, 0.6);
@@ -359,7 +361,7 @@ function kelpPlant(
           height * rng.range(0.97, 1.0),
           Math.sin(a) * r,
           a,
-          rng.range(2.5, 4.5),
+          rng.range(3.0, 5.5),
           rng.range(0.16, 0.26),
           rng.range(0.3, 0.6),
           1,
@@ -501,6 +503,7 @@ export async function createPlants(
       ctx.occupied,
     );
     const surface = ctx.desc.surfaceY;
+    const stems: [number, number][] = [];
     for (const [cx, cz] of clumps) {
       const n = rng.int(1, 3);
       for (let k = 0; k < n; k++) {
@@ -529,9 +532,10 @@ export async function createPlants(
           params: [rng.range(0, 100), 0.014, 0, 0],
           variant: kelpVariants[vi],
         });
+        stems.push([x, z]);
       }
     }
-    ctx.kelpForests.push({x: fc[0], z: fc[1], radius: 12});
+    ctx.kelpForests.push({x: fc[0], z: fc[1], radius: 12, stems});
   }
 
   // Sea fans on the edges of reef clusters, facing across the current.

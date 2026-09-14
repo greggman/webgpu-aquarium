@@ -526,8 +526,10 @@ fn fs(i: VOut) -> FOut {
 
   // Sand: ripple normals (strength fades on slopes), warm variation.
   // Ripples vary in strength across the floor so they don't read as a pattern.
+  let camDist = length(p - frame.camPos);
+  // Beyond ~25m ripples would alias into a regular stripe pattern: fade them.
   let rippleStrength = (1.0 - rockW) * smoothstep(0.3, 0.05, 1.0 - n.y) *
-    smoothstep(0.25, 0.7, broad.g + broad.r * 0.4);
+    smoothstep(0.25, 0.7, broad.g + broad.r * 0.4) * mix(1.0, 0.15, smoothstep(15.0, 40.0, camDist));
   let e = 0.22;
   let r0 = textureSample(tDetail, sLinearRepeat, p.xz * 0.07).b;
   let rx = textureSample(tDetail, sLinearRepeat, (p.xz + vec2f(e, 0.0)) * 0.07).b;
@@ -552,7 +554,7 @@ fn fs(i: VOut) -> FOut {
   // Sand: warm, with darker patches of debris and fine speckle.
   let speckle = smoothstep(0.62, 0.75, triFine.a);
   var sandCol = mix(vec3f(0.62, 0.53, 0.40), vec3f(0.86, 0.78, 0.62), smoothstep(0.25, 0.75, broad.r));
-  sandCol *= (0.9 + 0.2 * sandDetail.a) * (0.94 + 0.1 * r0) * (1.0 - speckle * 0.35);
+  sandCol *= (0.9 + 0.2 * sandDetail.a) * mix(0.94 + 0.1 * r0, 0.99, smoothstep(15.0, 40.0, camDist)) * (1.0 - speckle * 0.35);
   // Rock: dark stone, crevices darker still.
   // Layered stone tones from smooth noise (no cell pattern, which tiles into a honeycomb).
   var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.7 + 0.4 * triFine.r);
@@ -567,6 +569,18 @@ fn fs(i: VOut) -> FOut {
   growth *= 0.75 + 0.5 * triFine.r;
   let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.35, 0.65, triFine.r + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
   rockCol = mix(rockCol, growth, growthAmt);
+
+  // Reef zones: a carpet of coral rubble, not felt. Lumpy broken fragments
+  // (pale, bleached pieces among darker turf-covered ones) with bare gaps.
+  let reefAmt = smoothstep(0.4, 0.8, m.g) * rockW;
+  let rubbleField = triplanar(p, n, 1.3);
+  let lump = smoothstep(0.35, 0.75, rubbleField.r) * smoothstep(0.3, 0.6, triFine.g);
+  let fragment = smoothstep(0.7, 0.82, rubbleField.a) * smoothstep(0.4, 0.9, n.y);
+  let turfCol = mix(vec3f(0.2, 0.19, 0.1), vec3f(0.3, 0.25, 0.13), rubbleField.g);
+  var reefCol = mix(rockCol * 0.8, turfCol, lump * 0.8);
+  reefCol = mix(reefCol, vec3f(0.66, 0.62, 0.54) * (0.8 + 0.3 * rubbleField.b), fragment * 0.7);
+  rockCol = mix(rockCol, reefCol, reefAmt);
+  n = normalize(mix(n, bumpFromHeight(n, p, lump * 0.8 + fragment * 0.5, 0.12), reefAmt * 0.8));
 
   var s = defaultSurface();
   s.albedo = mix(sandCol, rockCol, rockW);
