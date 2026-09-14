@@ -362,3 +362,32 @@ Biggest gaps (ranked):
 7. Curious fish soft/ghosted near lens.
 
 What works: surface cameras near reference mood, kelp backlighting, school volumes, sand caustics, no floating coral, distance fog.
+
+## Review 15 — FAIL (avg 6.7)
+
+Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
+Gaps: coral heads without relief; stacked table corals with ring moiré; ghosted coral from the lens dissolve; barcode whip in seed1-reef; kelp walls; blanket mounds; flat close fish; empty seed4-wide.
+
+## Review 16 — FAIL (avg 6.7)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 7 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 7 |
+| 7 | Composition, grade & mood | 7 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 6 |
+
+Biggest gaps (ranked):
+1. Coral reads as clay: needs polyp/pit micro-normals, cavity AO, wet sheen, fine mottling not camouflage blotches.
+2. Coral silhouettes: lily-pad tables with polygon rims, prism finger coral, blob sponges.
+3. Blanket foreground mounds; ripple seam in seed4-reef.
+4. Few fish around the reef cameras' focal coral.
+5. Kelp walls; far kelp LOD turns to hair.
+6. Seed 2 monotone blue.
+
+What works: surface views, sand caustics, depth layering, seed3-reef composition, all review-15 fixes landed, temporal stability, inhabited scenes.
