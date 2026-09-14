@@ -37,12 +37,27 @@ export class AttractTour {
   private u = 0;
   private blend = 0;
   private from: CameraPose | null = null;
-  /** Seconds per segment between stops. */
-  segmentTime: number;
+  /** Travel speed along the path, metres per second (a slow, drifting glide). */
+  speed: number;
+  /** Minimum seconds per segment, so short hops don't whip the view around. */
+  minSegmentTime: number;
+  private segmentLength: number[] = [];
 
-  constructor(stops: TourStop[], segmentTime = 9) {
+  constructor(stops: TourStop[], speed = 0.7, minSegmentTime = 14) {
     this.stops = stops;
-    this.segmentTime = segmentTime;
+    this.speed = speed;
+    this.minSegmentTime = minSegmentTime;
+    // Arc length of each spline segment, measured by sampling.
+    for (let i = 0; i < stops.length; i++) {
+      let len = 0;
+      let prev = this.sample(i).pos;
+      for (let k = 1; k <= 16; k++) {
+        const p = this.sample(i + k / 16).pos;
+        len += vec3.distance(prev, p);
+        prev = p;
+      }
+      this.segmentLength.push(len);
+    }
   }
 
   /** Starts (or restarts) the tour from the nearest stop, blending from `current`. */
@@ -86,7 +101,12 @@ export class AttractTour {
 
   update(dt: number): CameraPose {
     const ease = (x: number) => x * x * (3 - 2 * x);
-    this.u = (this.u + dt / this.segmentTime) % this.stops.length;
+    const seg = Math.floor(this.u) % this.stops.length;
+    const segTime = Math.max(
+      this.minSegmentTime,
+      (this.segmentLength[seg] ?? 0) / this.speed,
+    );
+    this.u = (this.u + dt / segTime) % this.stops.length;
     const p = this.sample(this.u);
     // Bank slightly along the path's curvature.
     const ahead = this.sample((this.u + 0.05) % this.stops.length);
@@ -95,7 +115,7 @@ export class AttractTour {
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
     p.roll = Math.max(-0.12, Math.min(0.12, -dyaw * 0.8));
     if (this.from && this.blend < 1) {
-      this.blend = Math.min(1, this.blend + dt / 3);
+      this.blend = Math.min(1, this.blend + dt / 5);
       const t = ease(this.blend);
       return {
         pos: vec3.lerp(this.from.pos, p.pos, t),
