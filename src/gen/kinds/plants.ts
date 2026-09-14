@@ -339,8 +339,8 @@ function kelpPlant(
             ...outward,
           ],
           Part.KelpBlade,
-          hi ? 6 : 2,
-          hi ? 36 : 9,
+          hi ? 4 : 2,
+          hi ? 22 : 9,
         ),
       );
       // Every blade springs from a gas bladder.
@@ -364,7 +364,7 @@ function kelpPlant(
   }
   // Canopy mat: long fronds from the top of the holdfast's stipes spread out
   // flat just under the surface, overlapping into a dark, light-dappling mat.
-  const mat = hi ? rng.int(26, 38) : rng.int(12, 18);
+  const mat = hi ? rng.int(18, 26) : rng.int(10, 14);
   for (let m = 0; m < mat; m++) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(0, 0.6);

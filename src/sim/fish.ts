@@ -1269,7 +1269,11 @@ export async function createFish(
     device,
     'fish',
     meshWgsl,
-    speciesList.map(s => ({patches: speciesPatches(s, hi), radius: 0.6})),
+    // Bait fish are tiny and numerous: the low-detail mesh is plenty.
+    speciesList.map(s => ({
+      patches: speciesPatches(s, hi && s.name !== 'bait'),
+      radius: 0.6,
+    })),
     rng.nextU32(),
   );
 
