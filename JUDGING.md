@@ -415,3 +415,9 @@ Works: kelp forests top-tier for mobile, surface views, shafts and fog survive t
 Scores: lighting 7, water 7, caustics 6, materials 6, geometry 6, life 6, composition 7, variety 7, artifacts 6.
 Remaining gaps: terrain slope too close in seed1-surface; milky caustic contrast; blobby mounds; flat coral blobs; a large near bubble sprite; square kelp tips.
 Works: surface views, sunlit kelp forests, seed2 deep-blue mood, sand ripples and rock at the higher render scale.
+
+## Review 19 — FAIL (avg 6.7)
+
+Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
+Gaps: brain coral still striped at mid range; kelp cameras show walls; lily-pad plates; empty/blocked focal points; long whip tips and a floating dome at the lens; paper-cup sponges; violet seed 2.
+Works: surface cameras, sand caustics, near brain-coral shading, bait balls and jellies, temporal stability, distance fog.

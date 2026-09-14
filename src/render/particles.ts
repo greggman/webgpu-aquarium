@@ -101,7 +101,8 @@ fn vsBubble(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
   o.quad = corner;
   let dist = length(p - frame.camPos);
   o.color = sunAtDepth(p.y) * 0.8 + ambientAtDepth(p.y) * 1.5;
-  o.alpha = smoothstep(0.0, 0.05, t) * smoothstep(1.0, 0.97, t) * exp(-dist * 0.05);
+  // Bubbles right at the lens would be big out-of-focus rings: fade them.
+  o.alpha = smoothstep(0.0, 0.05, t) * smoothstep(1.0, 0.97, t) * exp(-dist * 0.05) * smoothstep(0.6, 2.0, dist);
   o.kind = 1u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
   return o;
