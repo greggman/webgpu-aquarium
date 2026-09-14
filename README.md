@@ -22,6 +22,7 @@ Other scripts:
 | `npm run unit` | Unit tests (math, struct layout, RNG, play area) |
 | `npm test` | Build, unit tests, and the puppeteer smoke test |
 | `npm run shots` | Screenshots for visual review (`--help` for options) |
+| `node test/perf.mjs` | GPU/CPU frame times at 1080p across `--seeds` and `--cameras` |
 
 ## Controls
 
@@ -51,6 +52,7 @@ that was designed to be seen: a current gently pushes you back near the edges.
 | `paused` | `?paused=1` | Start paused (for deterministic captures) |
 | `profile` | `?profile` | Show frame timing HUD |
 | `hud` | `?hud=0` | Hide the HUD |
+| `disable` | `?disable=volumetrics,ssao` | Drop render systems or effects (profiling) |
 
 ## How it works
 
