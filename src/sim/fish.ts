@@ -295,8 +295,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     } else if (a === 'damsel') {
       list.push({
         name: a,
-        count: Math.round(rng.int(40, 70) * k),
-        length: [0.08, 0.12],
+        count: Math.round(rng.int(70, 110) * k),
+        length: [0.09, 0.14],
         bodyType: 0,
         body: body(
           0.36,

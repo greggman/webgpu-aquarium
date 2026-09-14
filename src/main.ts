@@ -248,6 +248,8 @@ async function main() {
   };
   window.__aquarium.presets = Object.keys(spots.presets);
   window.__aquarium.spots = spots;
+  window.__aquarium.kelp = gen.kelpForests;
+  window.__aquarium.tallProps = gen.tallProps;
   window.__aquarium.camera = camera;
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;

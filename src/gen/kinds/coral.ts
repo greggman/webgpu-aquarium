@@ -224,8 +224,12 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let ridge = i.uv.z;
       // Grooves only slightly darker in albedo; the relief and AO carry the rest.
       let groove = mix(tint * 0.75, accent * 0.6, 0.15);
-      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridge) * (0.9 + 0.2 * polyps.r);
-      s.ao *= mix(0.55, 1.0, ridge);
+      // Stripe contrast fades with distance, where the meanders are too fine
+      // to read as relief and would otherwise alias into zebra print.
+      let near = smoothstep(9.0, 3.0, length(frame.camPos - i.world));
+      let ridgeC = mix(0.6, ridge, near);
+      s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridgeC) * (0.9 + 0.2 * polyps.r);
+      s.ao *= mix(0.72, 1.0, ridgeC);
       // A thin wet sheen on the ridge crests.
       s.roughness = mix(0.8, 0.45, ridge);
       s.translucency = 0.1;
@@ -402,8 +406,9 @@ function branchingVariant(
 function whipVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
   const chains = growTree(rng, {
     radius: 0.025,
-    segmentLength: 0.18,
-    segmentsPerChain: [6, 12],
+    // Knee- to waist-high: taller whips become ropes across the camera.
+    segmentLength: 0.13,
+    segmentsPerChain: [5, 9],
     maxDepth: 2,
     branchChance: 0.18,
     branchAngle: [0.25, 0.5],
@@ -687,6 +692,10 @@ export async function createCoral(
     // them along the slope) so no dark underside or floating rim shows.
     const massive = kind === CoralKind.Brain || kind === CoralKind.Sponge;
     const table = kind === CoralKind.Table;
+    // Plates never perch on pillar crowns (they'd float over the curved top).
+    if (table && ctx.surfaceTop(x, z) - ctx.groundY(x, z) > 0.6) {
+      return vi;
+    }
     if (massive) {
       lean = Math.max(lean, 0.7);
     }
@@ -755,7 +764,7 @@ export async function createCoral(
       const [x, z] = inCluster(1);
       place(CoralKind.Branching, x, z, rng.range(0.55, 1.35));
     }
-    for (let i = 0; i < Math.round(rng.int(2, 4) * density * area); i++) {
+    for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);
       place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.1);
     }
@@ -836,6 +845,15 @@ export async function createCoral(
       ],
       [2, 3, 2, 1, 1],
     );
+    // Plate corals grow on the reef framework, not as lone discs on open sand.
+    const lift = ctx.surfaceTop(x, z) - ctx.groundY(x, z);
+    if (
+      kind === CoralKind.Table &&
+      // Not perched on pillar crowns (they'd float over the curved top).
+      (lift > 0.6 || ((reef < 0.7 || lift < 0.05) && rng.bool(0.8)))
+    ) {
+      continue;
+    }
     // Mixed scales (many small, a few large) so the carpet never tiles.
     const scale = 0.3 + Math.pow(rng.float(), 2.2) * 1.2;
     place(kind, x, z, scale, 0.5, true);

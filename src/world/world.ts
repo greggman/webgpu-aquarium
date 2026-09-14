@@ -73,17 +73,19 @@ const STYLES: WaterStyle[] = [
   {
     // Deep indigo open-ocean blue with high contrast.
     name: 'deep-blue',
-    absorption: [0.17, 0.05, 0.02],
+    absorption: [0.15, 0.048, 0.022],
     scattering: 0.014,
-    ambient: [0.12, 0.42, 1.2],
-    sunColor: [13, 13, 12.5],
+    ambient: [0.14, 0.45, 1.15],
+    // A warm sun keeps colour in the shallow reef against the blue.
+    sunColor: [14.5, 13.2, 11],
     sunElevation: [0.8, 1.1],
     exposure: 0.44,
     grade: grade({
       lift: [0, 0, 0.016],
       gamma: [1, 1, 1.04],
-      gain: [1.08, 1.0, 0.92],
+      gain: [1.12, 1.0, 0.9],
       contrast: 1.25,
+      saturation: 1.15,
     }),
   },
   {
@@ -395,20 +397,41 @@ export function cameraSpots(
   // hide the subject. Canopies stream downcurrent (+x) from their holdfasts.
   // Keeps the middle of the frame free of a whip or branch a few metres
   // ahead, which would only read as out-of-focus clutter over the subject.
+  // Kelp stipes lean downcurrent (+x) as they rise: sample along each one.
+  const stipeProps: [number, number, number, number][] = kelpForests.flatMap(
+    f =>
+      f.stems.flatMap(([x, z]) =>
+        [0, 1, 2, 3].map(
+          k => [x + k, 0, z, 0] as [number, number, number, number],
+        ),
+      ),
+  );
   const lensClear = (pos: Vec3, target: Vec3) => {
     const hx = target[0] - pos[0];
     const hz = target[2] - pos[2];
     const hl = Math.hypot(hx, hz) || 1;
-    return tallProps.every(([x, , z, top]) => {
+    const stipesClear = stipeProps.every(([x, , z]) => {
       const dx = x - pos[0];
       const dz = z - pos[2];
       const along = (dx * hx + dz * hz) / hl;
-      if (along < 0.3 || along > 5 || top < pos[1] - 1.2) {
+      if (along < 0.3 || along > 6) {
         return true;
       }
-      const across = Math.abs(dx * hz - dz * hx) / hl;
-      return across > 0.5 + along * 0.35;
+      return Math.abs(dx * hz - dz * hx) / hl > 0.6 + along * 0.6;
     });
+    return (
+      stipesClear &&
+      tallProps.every(([x, , z, top]) => {
+        const dx = x - pos[0];
+        const dz = z - pos[2];
+        const along = (dx * hx + dz * hz) / hl;
+        if (along < -0.5 || along > 5 || top < pos[1] - 1.2) {
+          return true;
+        }
+        const across = Math.abs(dx * hz - dz * hx) / hl;
+        return across > 0.9 + Math.max(along, 0) * 0.35;
+      })
+    );
   };
   const kelpClear = (x: number, z: number) =>
     kelpForests.every(f =>
@@ -575,26 +598,40 @@ export function cameraSpots(
   let surfaceScore = -Infinity;
   for (let k = 0; k < 24; k++) {
     const a = sunFlat + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27;
-    for (const r of [hero.radius * 0.3 + 2.5, hero.radius * 0.5 + 3]) {
+    for (const [r, lift] of [
+      [hero.radius * 0.3 + 2.5, 1.2],
+      [hero.radius * 0.5 + 3, 1.2],
+      [hero.radius * 0.3 + 2.5, 2.0],
+      [hero.radius * 0.7 + 3.5, 1.6],
+    ]) {
       const x = hero.x + Math.cos(a) * r;
       const z = hero.z + Math.sin(a) * r;
       // Low, near the bommie's base, so it rises above the lens.
       const y = Math.min(
-        Math.max(nav.floorAt(x, z) + 0.4, hero.y + 1.2),
+        Math.max(nav.floorAt(x, z) + 0.4, hero.y + lift),
         nav.ceiling() - 2,
       );
       if (!nav.contains([x, y, z]) || !kelpClear(x, z)) {
         continue;
       }
+      const tgt: Vec3 = [
+        x + ((hero.x - x) / r) * 6,
+        y + 3.2,
+        z + ((hero.z - z) / r) * 6,
+      ];
+      // Low branches right under a lens that looks up still fill the frame.
+      const clearBelow = tallProps.every(([px, , pz, top]) => {
+        return top < y - 1.6 || Math.hypot(px - x, pz - z) > 1.8;
+      });
       const score =
-        -Math.abs(y - hero.y - 1.2) * 1.5 -
+        (lensClear([x, y, z], tgt) ? 3 : 0) +
+        (clearBelow ? 3 : 0) -
+        Math.abs(y - hero.y - 1.2) * 1.2 -
         Math.ceil(k / 2) * 0.15 -
         (r > hero.radius * 0.3 + 2.5 ? 0.3 : 0);
       if (score > surfaceScore) {
         surfaceScore = score;
-        const dx = (hero.x - x) / r;
-        const dz = (hero.z - z) / r;
-        surface = {pos: [x, y, z], target: [x + dx * 6, y + 3.2, z + dz * 6]};
+        surface = {pos: [x, y, z], target: tgt};
       }
     }
   }

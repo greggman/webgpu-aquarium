@@ -617,7 +617,7 @@ fn fs(i: VOut) -> FOut {
   let hueSel = triplanar(p, n, 0.045).r;
   // Short algal turf is olive-brown, not lawn green.
   let algae = vec3f(0.21, 0.21, 0.1);
-  let coralline = vec3f(0.62, 0.26, 0.24);
+  let coralline = vec3f(0.5, 0.33, 0.3);
   let sponge = vec3f(0.34, 0.17, 0.36);
   var growth = mix(algae, coralline, smoothstep(0.42, 0.58, hueSel));
   growth = mix(growth, sponge, smoothstep(0.62, 0.72, hueSel) * 0.8);

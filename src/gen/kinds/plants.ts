@@ -350,7 +350,8 @@ function kelpPlant(
             base[2] + Math.sin(a) * 0.04,
             a,
             len,
-            rng.range(0.16, 0.38),
+            // (Far stand-ins get wider blades: thin ones alias into hair.)
+            rng.range(0.16, 0.38) * (coarse ? 1.6 : 1),
             // How strongly the blade streams downcurrent along its length.
             rng.range(0.45, 0.8) + canopy * 0.2,
             canopy,

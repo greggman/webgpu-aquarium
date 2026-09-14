@@ -169,6 +169,30 @@ export async function createRocks(
       radius: 2.6,
     });
   }
+  // Low-detail stones for pebbles, rubble and distant boulders.
+  const LOW = 3;
+  const lowStart = variants.length;
+  for (let v = 0; v < LOW; v++) {
+    variants.push({
+      patches: [
+        {
+          segU: hi ? 28 : 16,
+          segV: hi ? 16 : 10,
+          params: [
+            rng.range(0.8, 1.3),
+            rng.range(0.5, 0.9),
+            rng.range(0.8, 1.3),
+            rng.range(0.25, 0.45),
+            rng.range(-50, 50),
+            rng.range(-50, 50),
+            rng.range(-50, 50),
+            rng.range(1.5, 3),
+          ],
+        },
+      ],
+      radius: 1.6,
+    });
+  }
   const mesh = await buildMesh(
     renderer.device,
     'rocks',
@@ -202,6 +226,7 @@ export async function createRocks(
     growth: number,
     onTop = false,
     pillar = false,
+    low = false,
   ) => {
     // Stacked rocks sit on whatever is already there (terrain or other rocks).
     const base = onTop ? ctx.surfaceTop(x, z) : ctx.groundY(x, z);
@@ -216,7 +241,9 @@ export async function createRocks(
       params: [growth * rng.range(0.45, 1), 0, 0, 0],
       variant: pillar
         ? VARIANTS + rng.int(0, PILLARS - 1)
-        : rng.int(0, VARIANTS - 1),
+        : low
+          ? lowStart + rng.int(0, LOW - 1)
+          : rng.int(0, VARIANTS - 1),
     });
     if (pillar) {
       ctx.occupied.add(x, z, scale * 0.9);
@@ -344,7 +371,43 @@ export async function createRocks(
       ctx.terrain.maskAt(1, x, z) * 0.3,
   });
   for (const [x, z] of pebbles) {
-    place(x, z, rng.range(0.07, 0.3), 0.3, rng.range(0, 0.6));
+    place(
+      x,
+      z,
+      rng.range(0.07, 0.3),
+      0.3,
+      rng.range(0, 0.6),
+      false,
+      false,
+      true,
+    );
+  }
+
+  // Rubble over the reef mounds and rocky ground: broken stones and old coral
+  // fragments that break up the smooth terrain.
+  const rubble = scatter(rng, {
+    count: ctx.count(hi ? 1400 : 600),
+    minDist: 0.45,
+    center,
+    radius: ctx.desc.terrain.basinRadius + 5,
+    density: (x, z) =>
+      Math.max(ctx.terrain.maskAt(0, x, z), ctx.terrain.maskAt(1, x, z)) > 0.45
+        ? 0.9
+        : 0.02,
+    maxTries: 30000,
+  });
+  for (const [x, z] of rubble) {
+    const sz = 0.06 + Math.pow(rng.float(), 2) * 0.3;
+    place(
+      x,
+      z,
+      sz,
+      rng.range(0.25, 0.5),
+      rng.range(0.3, 1),
+      false,
+      false,
+      true,
+    );
   }
 
   return createPropKind(renderer, {
@@ -353,5 +416,10 @@ export async function createRocks(
     instances,
     wgsl: materialWgsl,
     cullMode: 'back',
+    lod: {
+      low: variants.map((_, v) => (v < VARIANTS ? lowStart + (v % LOW) : -1)),
+      distance: 28,
+    },
+    shadowMinRadius: 0.35,
   });
 }
