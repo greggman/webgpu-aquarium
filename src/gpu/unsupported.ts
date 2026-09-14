@@ -1,31 +1,15 @@
 // A friendly full-screen explanation when WebGPU can't start, with advice for
-// the browser the visitor is actually using.
+// what went wrong.
 
 import type {UnavailableReason} from './device.ts';
 
-type Browser = 'safari-ios' | 'safari' | 'firefox' | 'chromium' | 'other';
-
-function detectBrowser(ua: string): Browser {
-  const iOS =
-    /iPhone|iPad|iPod/.test(ua) ||
-    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  // Every browser on iOS uses Safari's engine.
-  if (iOS) {
-    return 'safari-ios';
-  }
-  if (/Firefox\//.test(ua)) {
-    return 'firefox';
-  }
-  if (/Chrome\/|Chromium\/|Edg\//.test(ua)) {
-    return 'chromium';
-  }
-  if (/Safari\//.test(ua)) {
-    return 'safari';
-  }
-  return 'other';
+/** Linux (not Android) is the one desktop platform where support still varies. */
+function isLinux(ua: string): boolean {
+  return /Linux/.test(ua) && !/Android/.test(ua);
 }
 
-function advice(reason: UnavailableReason, browser: Browser): string[] {
+function advice(reason: UnavailableReason): string[] {
+  const ua = navigator.userAgent;
   switch (reason) {
     case 'insecure-context':
       return [
@@ -36,10 +20,8 @@ function advice(reason: UnavailableReason, browser: Browser): string[] {
     case 'no-device':
       return [
         'Your browser supports WebGPU but could not get access to a suitable GPU.',
-        browser === 'chromium'
-          ? 'Make sure hardware acceleration is turned on (Settings → System) ' +
-            'and check chrome://gpu for WebGPU status; your GPU or driver may be blocklisted.'
-          : 'Make sure hardware acceleration is enabled and your graphics drivers are up to date.',
+        'Make sure hardware acceleration is enabled in your browser settings and ' +
+          'your graphics drivers are up to date.',
         'Closing other GPU-heavy tabs or restarting the browser can also help.',
       ];
     case 'no-context':
@@ -49,34 +31,17 @@ function advice(reason: UnavailableReason, browser: Browser): string[] {
     case 'no-api':
       break;
   }
-  switch (browser) {
-    case 'safari-ios':
-      return [
-        'Update to iOS / iPadOS 26 or later, where WebGPU is on by default.',
-        'On older versions you can try Settings → Apps → Safari → Advanced → ' +
-          'Feature Flags → WebGPU.',
-      ];
-    case 'safari':
-      return [
-        'Update to Safari 26 (macOS 26 Tahoe) or later, where WebGPU is on by default.',
-        'Or use a recent Chrome or Edge.',
-      ];
-    case 'firefox':
-      return [
-        'WebGPU is on by default in recent Firefox on Windows and macOS. ' +
-          'Update Firefox, or enable dom.webgpu.enabled in about:config.',
-        'Or use a recent Chrome or Edge.',
-      ];
-    case 'chromium':
-      return [
-        'Update your browser: WebGPU is on by default in Chrome and Edge 113 and later.',
-        'On Linux it may still need enabling at chrome://flags/#enable-unsafe-webgpu.',
-      ];
-    default:
-      return [
-        'Please use a recent version of Chrome, Edge, Safari or Firefox.',
-      ];
+  const lines = [
+    'Current versions of Chrome, Edge, Firefox and Safari all support WebGPU. ' +
+      'Updating your browser should fix this.',
+  ];
+  if (isLinux(ua)) {
+    lines.push(
+      'On Linux, WebGPU support depends on the browser and GPU driver and may ' +
+        'not be available yet.',
+    );
   }
+  return lines;
 }
 
 export function showUnsupported(reason: UnavailableReason) {
@@ -91,7 +56,7 @@ export function showUnsupported(reason: UnavailableReason) {
     'The ocean is generated and rendered on your graphics card with WebGPU, ' +
     'which is not available here.';
   const list = document.createElement('ul');
-  for (const line of advice(reason, detectBrowser(navigator.userAgent))) {
+  for (const line of advice(reason)) {
     const li = document.createElement('li');
     li.textContent = line;
     list.append(li);
