@@ -86,3 +86,31 @@ Biggest gaps (ranked):
 
 What works: seed 4 reef/wide mood, sand caustics, seed 2 blue fade, dappled kelp shadows, gentle DOF,
 branching coral silhouettes, hero fish and schools with tail motion, sunburst in surface shots, stability.
+
+## Review 4 — commit 38b59df — FAIL (avg 5.7)
+
+Evidence: seeds 1–4 × reef/wide/kelp/overhead/surface, high tier, 1080p.
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 6 |
+| 2 | Water medium | 6 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 5 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 6 |
+| 9 | Technical artifacts | 5 |
+
+Biggest gaps (ranked):
+1. Kelp reads as bamboo/willow: needs tall stipes reaching the surface, wide drooping golden blades, a dark canopy, soft veins.
+2. Fish still toy-like: faceted bodies, paper fins, fish passing through each other, schools dissolve to dots.
+3. Spur ridges read as striped prisms; the coral carpet tiles like cobblestones; no undercuts.
+4. Seed 3 green soup, mint near-field sand.
+5. Shaft stubs with caps, overhead haze smear, no canopy occlusion.
+6. Kelp camera inside a blade / facing terrain.
+7. Overhead caustics too contrasty (white web, black ripple bands).
+
+What works: backlit kelp around the sun in the seed 1 surface shot (HFW-adjacent), softer Snell's window with
+clouds, seed 4 warm slanted shafts, seed 2 deep-blue mood, dappled kelp shadows, gentle DOF, stability.

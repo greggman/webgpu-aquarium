@@ -1180,11 +1180,18 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
       s.roughness = mix(s.roughness, 0.05, eye);
     }
   } else {
-    // Fins: translucent membrane with rays.
-    let rays = 0.75 + 0.25 * smoothstep(0.3, 0.9, sin(i.uv.x * 60.0));
-    s.albedo = sp.colFin.rgb * rays * inst.tint.rgb;
-    s.translucency = sp.colFin.w;
-    s.roughness = 0.5;
+    // Fins: a thin membrane stretched between bony rays. The membrane is
+    // genuinely see-through: stochastic (dithered) transparency that TAA
+    // resolves into a soft, partially transparent fin; the rays stay denser.
+    let rayLine = smoothstep(0.6, 0.95, sin(i.uv.x * 48.0) * 0.5 + 0.5);
+    let edgeFade = 1.0 - smoothstep(0.7, 1.0, i.uv.y) * 0.6;
+    let opacity = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
+    if (ign(i.pos.xy, frame.frameIndex * 7u + i.instance) > opacity) {
+      discard;
+    }
+    s.albedo = sp.colFin.rgb * mix(0.8, 1.0, rayLine) * inst.tint.rgb;
+    s.translucency = max(sp.colFin.w, 0.6);
+    s.roughness = 0.45;
     if (part == ${Part.Tail}u && u32(sp.colTop.w + 0.5) == ${Pattern.Clown}u) {
       s.albedo = mix(s.albedo, vec3f(0.02), smoothstep(0.8, 0.95, i.uv.y));
     }
