@@ -391,3 +391,9 @@ Biggest gaps (ranked):
 6. Seed 2 monotone blue.
 
 What works: surface views, sand caustics, depth layering, seed3-reef composition, all review-15 fixes landed, temporal stability, inhabited scenes.
+
+## Review 17 — FAIL (avg 6.7)
+
+Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
+Gaps: brain coral zebra stripes at mid distance; blanket terrain mounds; lily-pad tables on open sand; kelp walls and hairy far kelp; sparse fish at focal points; seed 2 monotone; foreground texture smear, sand stain, kelp cutouts.
+Works: shafts and sun disc, sand caustics, near brain coral relief, rounded branch coral, distance absorption, stability, bait ball and ray.
