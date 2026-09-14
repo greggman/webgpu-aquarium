@@ -22,6 +22,7 @@ export const CritterKind = {
   Starfish: 2,
   Shell: 3,
   Scallop: 4,
+  Seahorse: 5,
 } as const;
 type CritterKind = (typeof CritterKind)[keyof typeof CritterKind];
 
@@ -36,6 +37,8 @@ const Part = {
   Spiral: 6,
   ScallopTop: 7,
   ScallopBottom: 8,
+  Seahorse: 9,
+  SeahorseFin: 10,
 } as const;
 
 const surfaceWgsl = /* wgsl */ `
@@ -161,6 +164,21 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
     case ${Part.StarBottom}u: { return starfish(pat, uv, false); }
     case ${Part.Spiral}u: { return spiralShell(pat, uv); }
     case ${Part.ScallopTop}u: { return scallop(pat, uv, true); }
+    case ${Part.Seahorse}u: {
+      var o = chainTube(u32(pat.p0.x), u32(pat.p0.y), uv, 0.02);
+      // Bony rings along the body.
+      let rings = pow(abs(sin(uv.y * pat.p0.z * 3.14159)), 6.0);
+      o.pos += o.normal * rings * 0.004;
+      o.normal = vec3f(0.0);
+      o.uv = vec4f(uv.x, uv.y, rings, ${Part.Seahorse});
+      o.ao = mix(0.6, 1.0, rings);
+      return o;
+    }
+    case ${Part.SeahorseFin}u: {
+      let p = vec3f(0.0, pat.p0.y + uv.x * 0.05, pat.p0.z - uv.y * 0.035 * sin(uv.x * 3.14159));
+      return sp(p, vec4f(uv, 0.0, ${Part.SeahorseFin}));
+    }
+    case ${Part.ScallopBottom}u: { return scallop(pat, uv, false); }
     default: { return scallop(pat, uv, false); }
   }
 }
@@ -178,6 +196,12 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
     let sway = currentSway(inst.posScale.xyz, along, t, 0.05, inst.params.x);
     let pulse = normalize(vec3f(p.x, 0.0, p.z) + 1e-4) * sin(t * 0.7 + inst.params.x) * along * 0.015;
     return Deformed(p + (wiggle + sway + pulse) / max(inst.posScale.w, 0.2), n);
+  }
+  if (part == ${Part.SeahorseFin}u) {
+    return Deformed(p + vec3f(sin(t * 18.0 + uv.x * 6.0) * uv.y * 0.006, 0.0, 0.0), n);
+  }
+  if (part == ${Part.Seahorse}u || part == ${Part.SeahorseFin}u) {
+    return Deformed(p, n);
   }
   if (part == ${Part.Spine}u) {
     let wob = vec3f(sin(t * 0.8 + uv.z * 31.0), 0.0, cos(t * 0.7 + uv.z * 19.0)) * uv.y * uv.y * 0.012;
@@ -243,6 +267,17 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       s.albedo = mix(c, nacre, inside);
       s.roughness = mix(0.25, 0.15, inside);
       s.f0 = 0.05;
+    }
+    case ${Part.Seahorse}u: {
+      let spots = smoothstep(0.3, 0.1, worley2p(i.uv.xy * vec2f(8.0, 60.0), vec2i(0)).x);
+      s.albedo = mix(tint, tint * 0.4, i.uv.z * 0.6) * (1.0 - spots * 0.35);
+      s.roughness = 0.5;
+      s.translucency = 0.15;
+    }
+    case ${Part.SeahorseFin}u: {
+      s.albedo = tint * 1.1;
+      s.translucency = 0.8;
+      s.roughness = 0.4;
     }
     default: {
       let rib = smoothstep(0.0, 0.02, i.uv.z);
@@ -399,6 +434,48 @@ function shell(rng: Rng, hi: boolean): Variant {
   };
 }
 
+function seahorse(rng: Rng, aux: AuxBuilder, hi: boolean): Variant {
+  const pts: [number, number, number, number][] = [];
+  // Curled tail: a tightening spiral in the y/z plane.
+  const turns = rng.range(1.1, 1.6);
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    const a = (1 - t) * turns * Math.PI * 2;
+    const r = 0.012 + t * 0.035;
+    pts.push([0, 0.04 + Math.sin(a) * r, -0.01 + Math.cos(a) * r - t * 0.02, 0.003 + t * 0.008]);
+  }
+  // Body curving up with a pot belly, then the neck.
+  const body: [number, number, number][] = [
+    [0, 0.09, -0.02],
+    [0, 0.14, 0.01],
+    [0, 0.2, 0.025],
+    [0, 0.26, 0.01],
+    [0, 0.3, -0.01],
+  ];
+  const radii = [0.013, 0.02, 0.022, 0.016, 0.012];
+  body.forEach((p, i) => pts.push([...p, radii[i]]));
+  // Head bends forward into the long snout.
+  pts.push([0, 0.325, 0.005, 0.016], [0, 0.33, 0.035, 0.009], [0, 0.325, 0.07, 0.005], [0, 0.322, 0.085, 0.004]);
+  const chain = aux.addChain(pts);
+  const params = new Array(16).fill(0);
+  params[0] = chain.offset;
+  params[1] = chain.count;
+  params[2] = rng.int(28, 40);
+  params[14] = Part.Seahorse;
+  const fin = new Array(16).fill(0);
+  fin[1] = 0.17;
+  fin[2] = -0.03;
+  fin[14] = Part.SeahorseFin;
+  return {
+    patches: [
+      {segU: hi ? 10 : 6, segV: hi ? 80 : 40, params},
+      {segU: 6, segV: 3, params: fin},
+    ],
+    radius: 0.2,
+    kind: CritterKind.Seahorse,
+  };
+}
+
 export async function createCritters(
   renderer: Renderer,
   ctx: GenContext,
@@ -416,6 +493,7 @@ export async function createCritters(
   for (let i = 0; i < 3; i++) add(urchin(rng, aux, hi));
   for (let i = 0; i < 4; i++) add(star(rng, hi));
   for (let i = 0; i < 6; i++) add(shell(rng, hi));
+  for (let i = 0; i < 2; i++) add(seahorse(rng, aux, hi));
   const mesh = await buildMesh(
     renderer.device,
     'critters',
@@ -534,6 +612,22 @@ export async function createCritters(
       );
     }
   }
+  // Seahorses clinging near reef edges, tail anchored, body upright.
+  const seahorseColors: [number, number, number][] = [
+    [0.95, 0.75, 0.2],
+    [0.9, 0.45, 0.15],
+    [0.55, 0.3, 0.6],
+    [0.6, 0.5, 0.35],
+  ];
+  for (const c of ctx.clusters) {
+    const n = ctx.count(rng.int(0, 3));
+    for (let i = 0; i < n; i++) {
+      const a = rng.range(0, Math.PI * 2);
+      const r = c.radius * rng.range(0.7, 1.2);
+      place(CritterKind.Seahorse, c.x + Math.cos(a) * r, c.z + Math.sin(a) * r, rng.range(0.8, 1.2), seahorseColors, undefined, 0.05);
+    }
+  }
+
   for (let i = 0; i < ctx.count(40); i++) {
     const [x, z] = near(center[0], center[1], R);
     if (ctx.terrain.maskAt(0, x, z) < 0.3) {

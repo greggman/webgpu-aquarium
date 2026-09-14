@@ -23,6 +23,8 @@ import {createCoral} from './gen/kinds/coral.ts';
 import {createCritters} from './gen/kinds/critters.ts';
 import {createPlants} from './gen/kinds/plants.ts';
 import {createFish} from './sim/fish.ts';
+import {createJellyfish} from './sim/jellyfish.ts';
+import {createParticles} from './render/particles.ts';
 
 const params = new URLSearchParams(location.search);
 const numParam = (name: string) =>
@@ -75,7 +77,11 @@ async function main() {
   ]);
   // Fish need the anemones and obstacles placed above.
   const fish = await createFish(renderer, gen);
-  const content = [rocks, coral, critters, ...plants, fish];
+  const [particles, jellyfish] = await Promise.all([
+    createParticles(renderer, gen),
+    createJellyfish(renderer, gen),
+  ]);
+  const content = [rocks, coral, critters, ...plants, fish, jellyfish, particles];
   const spots = cameraSpots(
     desc,
     terrain.cpu,
