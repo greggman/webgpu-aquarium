@@ -64,6 +64,10 @@ fn beam(p: vec3f) -> f32 {
   // Normalise by the average brightness so contrast is independent of the mip.
   let avg = textureSampleLevel(tCaustics, sLinearRepeat, uvc, 9.0).g;
   let rel = c / max(avg, 1e-3);
+  // A much larger, blurrier sample of the same pattern clusters the shafts:
+  // some bundles bright and broad, others thin or missing, never an even comb.
+  let cluster = textureSampleLevel(tCaustics, sLinearRepeat, rot * entry / (frame.caustics.x * 9.0) + 0.17, 5.0).g / max(avg, 1e-3);
+  let bundle = smoothstep(0.5, 1.3, cluster);
   // Slow drifting gate from the tileable detail noise (cheap: one sample).
   let drift = vec2f(frame.time * 0.15, frame.time * 0.07);
   let broad = textureSampleLevel(tDetail, sLinearRepeat, (entry + drift) / 90.0, 2.0).r;
@@ -73,7 +77,7 @@ fn beam(p: vec3f) -> f32 {
   // A low sun drives long slanted shafts through the whole view: thin them out
   // so they don't become an evenly striped curtain.
   let lowSun = mix(0.55, 1.0, smoothstep(0.4, 0.85, frame.sunDir.y));
-  return pow(rel, 4.0) * gate * 1.5 * taper * lowSun;
+  return pow(rel, 4.0) * gate * mix(0.25, 2.2, bundle) * taper * lowSun;
 }
 
 @compute @workgroup_size(8, 8)

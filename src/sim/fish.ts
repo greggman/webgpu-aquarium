@@ -215,7 +215,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         length: [0.28, 0.38],
         bodyType: 0,
         body: body(
-          0.42,
+          0.36,
           0.07,
           0.5,
           0.14,
@@ -257,7 +257,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         length: [0.18, 0.26],
         bodyType: 0,
         body: body(
-          0.6,
+          0.5,
           0.06,
           0.6,
           0.12,
@@ -1229,14 +1229,15 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     // Fins: a thin membrane stretched between bony rays. The membrane is
     // genuinely see-through: stochastic (dithered) transparency that TAA
     // resolves into a soft, partially transparent fin; the rays stay denser.
-    let rayLine = smoothstep(0.6, 0.95, sin(i.uv.x * 48.0) * 0.5 + 0.5);
+    let rayLine = smoothstep(0.7, 0.97, sin(i.uv.x * 48.0) * 0.5 + 0.5);
     let edgeFade = 1.0 - smoothstep(0.7, 1.0, i.uv.y) * 0.6;
     let opacity = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
     if (ign(i.pos.xy, frame.frameIndex * 7u + i.instance) > opacity) {
       discard;
     }
-    s.albedo = sp.colFin.rgb * mix(0.8, 1.0, rayLine) * inst.tint.rgb;
-    s.translucency = max(sp.colFin.w, 0.6);
+    // Fins carry a little of the body colour and glow only softly when backlit.
+    s.albedo = mix(sp.colFin.rgb, sp.colTop.rgb, 0.3) * mix(0.85, 1.0, rayLine) * inst.tint.rgb;
+    s.translucency = max(sp.colFin.w, 0.6) * 0.55;
     s.roughness = 0.45;
     if (part == ${Part.Tail}u && u32(sp.colTop.w + 0.5) == ${Pattern.Clown}u) {
       s.albedo = mix(s.albedo, vec3f(0.02), smoothstep(0.8, 0.95, i.uv.y));
