@@ -510,10 +510,27 @@ fn triplanar(p: vec3f, n: vec3f, scale: f32) -> vec4f {
   return x * w.x + y * w.y + z * w.z;
 }
 
+/**
+ * Triplanar lookup at an explicit, isotropic mip level for relief taps.
+ * Hardware anisotropic filtering smears each tap along the view direction, and
+ * differencing those taps turns the smear into streaks.
+ */
+fn triplanarLod(p: vec3f, n: vec3f, scale: f32, footprint: f32) -> vec4f {
+  var w = pow(abs(n), vec3f(8.0));
+  w /= (w.x + w.y + w.z);
+  // One mip coarser than the tap spacing: texel-scale noise in the relief
+  // only turns into sparkle and streaks once it drives the normal.
+  let lod = log2(max(footprint * scale * 512.0, 1.0)) + 1.0;
+  let x = textureSampleLevel(tDetail, sLinearRepeat, p.zy * scale, lod);
+  let y = textureSampleLevel(tDetail, sLinearRepeat, p.xz * scale, lod);
+  let z = textureSampleLevel(tDetail, sLinearRepeat, p.xy * scale, lod);
+  return x * w.x + y * w.y + z * w.z;
+}
+
 /** Rock (and reef rubble) relief height, in detail-texture units. */
-fn rockRelief(q: vec3f, n: vec3f, reef: f32) -> f32 {
-  return triplanar(q, n, 0.13).r * 1.2 + triplanar(q, n, 0.55).r * 0.3 +
-    triplanar(q, n, 0.42).r * 0.9 * reef;
+fn rockRelief(q: vec3f, n: vec3f, reef: f32, e: f32) -> f32 {
+  return triplanarLod(q, n, 0.13, e).r * 1.2 + triplanarLod(q, n, 0.5, e).r * 0.3 +
+    triplanarLod(q, n, 0.42, e).r * 0.8 * reef;
 }
 
 /**
@@ -526,9 +543,9 @@ fn rockBump(n: vec3f, p: vec3f, reef: f32, strength: f32, footprint: f32) -> vec
   let t1 = normalize(cross(n, a));
   let t2 = cross(n, t1);
   let e = footprint;
-  let h0 = rockRelief(p, n, reef);
-  let h1 = rockRelief(p + t1 * e, n, reef);
-  let h2 = rockRelief(p + t2 * e, n, reef);
+  let h0 = rockRelief(p, n, reef, e);
+  let h1 = rockRelief(p + t1 * e, n, reef, e);
+  let h2 = rockRelief(p + t2 * e, n, reef, e);
   let g = (t1 * (h1 - h0) + t2 * (h2 - h0)) / e;
   return normalize(n - g * strength);
 }
@@ -585,7 +602,7 @@ fn fs(i: VOut) -> FOut {
   let reefAmt = smoothstep(0.3, 0.7, m.g) * rockW;
   // A pixel's footprint stretches at grazing angles; widen the taps to match.
   let grazing = max(abs(dot(n, normalize(frame.camPos - p))), 0.15);
-  let rockN = rockBump(n, p, reefAmt, 0.3, clamp(camDist * 0.002 / grazing, 0.015, 0.6));
+  let rockN = rockBump(n, p, reefAmt, 0.26, clamp(camDist * 0.004 / sqrt(grazing), 0.04, 0.6));
   n = normalize(mix(sandN, rockN, rockW));
 
   // Sand: warm, with darker patches of debris and fine speckle.

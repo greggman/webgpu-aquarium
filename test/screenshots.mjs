@@ -2,7 +2,7 @@
 //
 //   node test/screenshots.mjs [--seeds=1,2,3] [--cameras=reef,kelp,overhead,wide]
 //                             [--tier=high|mobile|both] [--time=20] [--seq=3]
-//                             [--size=1920x1080] [--out=dir]
+//                             [--size=1920x1080] [--out=dir] [--disable=dof,...]
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -45,7 +45,11 @@ try {
         ? {width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true}
         : {width: w, height: h};
     for (const seed of seeds) {
-      const {page} = await openAquarium(ctx, {seed, quality: t, time, camera: cameras[0], paused: '1'}, viewport);
+      const params = {seed, quality: t, time, camera: cameras[0], paused: '1'};
+      if (args.disable) {
+        params.disable = args.disable;
+      }
+      const {page} = await openAquarium(ctx, params, viewport);
       for (const cam of cameras) {
         await page.evaluate(
           (cam, time) => {

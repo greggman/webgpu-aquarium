@@ -56,7 +56,7 @@ export interface Globals {
  *   1 linear/repeat sampler     2 linear/clamp sampler
  *   3 shadow depth texture      4 shadow comparison sampler
  *   5 caustics texture (rgba16float, mipmapped, repeat)
- *   6 detail noise texture (rgba8unorm, mipmapped, repeat)
+ *   6 detail noise texture (rgba16float for smooth bump gradients, mipmapped, repeat)
  *   7 terrain texture (rgba16float: height, normal.x, normal.z, ao)
  *   8 terrain material masks (rgba8unorm)
  */

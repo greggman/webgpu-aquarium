@@ -108,7 +108,7 @@ export class Renderer {
       detail: createSolidTexture(
         d,
         'renderer:placeholder-detail',
-        'rgba8unorm',
+        'rgba16float',
         [0.5, 0.5, 0.5, 0.5],
       ),
       terrain: createSolidTexture(

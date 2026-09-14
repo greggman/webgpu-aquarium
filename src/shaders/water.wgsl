@@ -53,7 +53,11 @@ fn waterTransmittance(dist: f32) -> vec3f {
   // The first couple of metres are kept nearly clear so close subjects stay
   // crisp and saturated; beyond that the full absorption takes over.
   let d = max(dist - 2.5, 0.0) + min(dist, 2.5) * 0.3;
-  return exp(-extinction() * d * frame.misc.z);
+  // Red is absorbed along the view path at its full physical rate even though
+  // the overall fog is thinned for readability: warm colours go blue-grey by
+  // mid-distance, the strongest depth cue underwater.
+  let k = extinction() * frame.misc.z + vec3f(frame.absorption.r * (1.0 - frame.misc.z), 0.0, 0.0);
+  return exp(-k * d);
 }
 
 /** Applies absorption and in-scattering between the camera and a lit surface point. */

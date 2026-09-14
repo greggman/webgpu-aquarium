@@ -66,8 +66,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let pocket = i.uv.z;
 
   // Rough, granular relief (no cell/crack pattern).
-  let height = big.r * 0.7 + mid.r * 0.35 + fine.a * 0.25 - pocket * 0.6;
-  let n = bumpFromHeight(nIn, i.world, height, 0.22);
+  let height = big.r * 0.7 + mid.r * 0.35 + fine.r * 0.12 - pocket * 0.6;
+  // Relief (for the colour below) vs. the bump: the bump skips the fine layer,
+  // whose texel-scale noise would dither the normal at a distance.
+  let n = bumpFromHeight(nIn, i.world, big.r * 0.7 + mid.r * 0.35 - pocket * 0.6, 0.22);
 
   // Stone: muted, layered greys and browns.
   let band = 0.5 + 0.5 * sin(lp.y * 4.0 + big.r * 5.0);

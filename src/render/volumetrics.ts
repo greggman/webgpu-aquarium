@@ -77,7 +77,9 @@ fn beam(p: vec3f) -> f32 {
   // A low sun drives long slanted shafts through the whole view: thin them out
   // so they don't become an evenly striped curtain.
   let lowSun = mix(0.55, 1.0, smoothstep(0.4, 0.85, frame.sunDir.y));
-  return pow(rel, 4.0) * gate * mix(0.25, 2.2, bundle) * taper * lowSun;
+  // Roll off the brightest focal lines so no single shaft becomes a laser.
+  let peak = pow(rel, 4.0);
+  return peak / (1.0 + peak * 0.03) * gate * mix(0.3, 2.6, bundle) * taper * lowSun * 1.6;
 }
 
 @compute @workgroup_size(8, 8)
@@ -116,7 +118,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let dt = max(t - prevT, 0.0) + dist / f32(n * n);
     prevT = t;
     // Distant shafts fade out smoothly (sparse far samples would band).
-    let far = smoothstep(42.0, 14.0, t);
+    // ...and the first metres are thinned so a shaft the camera sits in
+    // doesn't lay a milky veil over the whole foreground.
+    let far = smoothstep(42.0, 14.0, t) * mix(0.25, 1.0, smoothstep(0.5, 5.0, t));
     let light = sunAtDepth(p.y) * shadowTap(p) * beam(p) * far;
     accum += light * exp(-ext * t) * dt;
   }

@@ -13,7 +13,7 @@ const detailShader = /* wgsl */ `
 ${noise}
 struct Params { size: u32, seed: u32 };
 @group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var dst: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var dst: texture_storage_2d<rgba16float, write>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -51,7 +51,7 @@ export function createDetailTexture(
   const texture = device.createTexture({
     label: 'detail:texture',
     size: [size, size],
-    format: 'rgba8unorm',
+    format: 'rgba16float',
     mipLevelCount: mipCount(size),
     usage:
       GPUTextureUsage.TEXTURE_BINDING |

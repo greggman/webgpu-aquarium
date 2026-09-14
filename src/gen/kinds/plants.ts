@@ -103,7 +103,7 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // Blades right in front of the lens dissolve rather than smear the frame.
   let camD = length(frame.camPos - i.world);
-  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.4, 1.8, camD)) {
+  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.3, 1.0, camD)) {
     discard;
   }
   let part = u32(i.uv.w + 0.5);
