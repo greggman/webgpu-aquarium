@@ -127,7 +127,8 @@ const hsv = (h: number, s: number, v: number): number[] => {
 
 /** Invents this seed's species. */
 function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
-  const k = ctx.quality.density;
+  // A lush sea: plenty of fish everywhere (scaled down on smaller tiers).
+  const k = ctx.quality.density * 1.7;
   const list: SpeciesDef[] = [];
   const body = (
     H: number,
@@ -203,16 +204,19 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   });
 
   // Colourful reef fish that loiter around coral clusters.
-  const reefArchetypes = rng
-    .shuffle(['tang', 'butterfly', 'damsel', 'parrot', 'wrasse'])
-    .slice(0, rng.int(3, 4));
+  // Every archetype, plus a couple in a second colour form.
+  const allArchetypes = ['tang', 'butterfly', 'damsel', 'parrot', 'wrasse'];
+  const reefArchetypes = [
+    ...rng.shuffle([...allArchetypes]),
+    ...rng.shuffle([...allArchetypes]).slice(0, 2),
+  ];
   for (const a of reefArchetypes) {
     const hue = rng.float();
     if (a === 'tang') {
       list.push({
         name: a,
-        count: Math.round(rng.int(12, 22) * k),
-        length: [0.28, 0.38],
+        count: Math.round(rng.int(20, 32) * k),
+        length: [0.32, 0.46],
         bodyType: 0,
         body: body(
           0.36,
@@ -253,8 +257,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     } else if (a === 'butterfly') {
       list.push({
         name: a,
-        count: Math.round(rng.int(8, 14) * k),
-        length: [0.18, 0.26],
+        count: Math.round(rng.int(14, 22) * k),
+        length: [0.22, 0.32],
         bodyType: 0,
         body: body(
           0.5,
@@ -296,7 +300,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(70, 110) * k),
-        length: [0.09, 0.14],
+        length: [0.12, 0.18],
         bodyType: 0,
         body: body(
           0.36,
@@ -337,8 +341,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     } else if (a === 'parrot') {
       list.push({
         name: a,
-        count: Math.round(rng.int(4, 8) * k),
-        length: [0.35, 0.55],
+        count: Math.round(rng.int(8, 14) * k),
+        length: [0.4, 0.62],
         bodyType: 0,
         body: body(
           0.3,
@@ -379,8 +383,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     } else {
       list.push({
         name: a,
-        count: Math.round(rng.int(14, 24) * k),
-        length: [0.16, 0.24],
+        count: Math.round(rng.int(22, 34) * k),
+        length: [0.2, 0.3],
         bodyType: 0,
         body: body(
           0.22,
@@ -609,8 +613,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   list.push({
     name: manta ? 'manta' : 'eagle-ray',
     count: manta
-      ? 1
-      : Math.max(1, Math.round(rng.int(2, 3) * Math.min(1, k * 1.5))),
+      ? Math.max(1, Math.round(2 * Math.min(1, k)))
+      : Math.max(2, Math.round(rng.int(4, 7) * Math.min(1, k))),
     length: manta ? [2.4, 3.2] : [1.0, 1.5],
     bodyType: 1,
     body: [manta ? 1.25 : 1.1, 0.06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1365,7 +1369,7 @@ export async function createFish(
             Math.min(
               ctx.clusters.length - 1,
               // A good share gathers at the hero reef, where the cameras look.
-              rng.bool(0.4)
+              rng.bool(0.6)
                 ? 0
                 : Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length),
             )
@@ -1488,6 +1492,7 @@ export async function createFish(
     'fish:body-render-shader',
     renderWgslFor(false),
   );
+  const castsShadow = speciesList.map(s => s.length[1] >= 0.3);
   // Index count of the leading body patch(es) of each species' mesh; the rest
   // are fins.
   const bodyIndexCount = speciesList.map(s => {
@@ -1565,18 +1570,21 @@ export async function createFish(
   const draw = (
     pass: GPURenderPassEncoder,
     p: GPURenderPipeline,
-    part: 'all' | 'body' | 'fins',
+    part: 'all' | 'body' | 'fins' | 'shadow',
   ) => {
     pass.setPipeline(p);
     pass.setBindGroup(1, renderGroup);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
     ranges.forEach((r, s) => {
+      if (part === 'shadow' && !castsShadow[s]) {
+        return;
+      }
       const v = mesh.variants[s];
       const body = bodyIndexCount[s];
       const first = part === 'fins' ? v.firstIndex + body : v.firstIndex;
       const count =
-        part === 'all'
+        part === 'all' || part === 'shadow'
           ? v.indexCount
           : part === 'body'
             ? body
@@ -1628,7 +1636,8 @@ export async function createFish(
       draw(pass, bodyPipeline, 'body');
       draw(pass, pipeline, 'fins');
     },
-    drawShadow: pass => draw(pass, shadowPipeline, 'all'),
+    // Only fish big enough to cast a readable shadow go into the shadow map.
+    drawShadow: pass => draw(pass, shadowPipeline, 'shadow'),
   };
   console.log(
     `[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`,

@@ -233,7 +233,9 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let groove = tint * 0.9;
       // Stripe contrast fades with distance, where the meanders are too fine
       // to read as relief and would otherwise alias into zebra print.
-      let ridgeC = mix(0.6, ridge, brainNear);
+      // Far away a softened version of the meanders remains, so heads don't
+      // turn into plain candy domes.
+      let ridgeC = mix(mix(0.6, ridge, 0.4), ridge, brainNear);
       s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridgeC) * (0.9 + 0.2 * polyps.r);
       s.ao *= mix(0.86, 1.0, ridgeC);
       // A thin wet sheen on the ridge crests.
@@ -886,6 +888,6 @@ export async function createCoral(
     instances,
     wgsl: materialWgsl,
     lod: {low: lod.low, distance: 18},
-    shadowMinRadius: 0.3,
+    shadowMinRadius: 0.5,
   });
 }

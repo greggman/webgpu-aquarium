@@ -1,6 +1,6 @@
 // Small seafloor life: sea anemones, urchins, starfish and shells.
 
-import {buildMesh, type Patch} from '../meshgen.ts';
+import {buildMesh, withCoarseCopies, type Patch} from '../meshgen.ts';
 import {
   createPropKind,
   quatAxisAngle,
@@ -511,11 +511,13 @@ export async function createCritters(
   for (let i = 0; i < 4; i++) add(star(rng, hi));
   for (let i = 0; i < 6; i++) add(shell(rng, hi, i < 2));
   for (let i = 0; i < 2; i++) add(seahorse(rng, aux, hi));
+  // Distance stand-ins: coarse copies of the same shapes.
+  const lod = withCoarseCopies(variants, () => true, 0.35);
   const mesh = await buildMesh(
     renderer.device,
     'critters',
     surfaceWgsl,
-    variants,
+    lod.variants,
     rng.nextU32(),
     aux.build(),
   );
@@ -580,7 +582,7 @@ export async function createCritters(
   };
 
   for (const c of ctx.clusters) {
-    const k = c.rank === 0 ? 2 : 1;
+    const k = c.rank === 0 ? 3 : 2;
     // Anemone beds.
     for (let g = 0; g < k; g++) {
       const [gx, gz] = near(c.x, c.z, c.radius * 0.9);
@@ -595,7 +597,7 @@ export async function createCritters(
       const [x, z] = near(c.x, c.z, c.radius * 1.3);
       place(CritterKind.Urchin, x, z, rng.range(0.8, 1.6), urchinColors);
     }
-    for (let i = 0; i < ctx.count(rng.int(1, 3) * k); i++) {
+    for (let i = 0; i < ctx.count(rng.int(4, 8) * k); i++) {
       const [x, z] = near(c.x, c.z, c.radius * 1.4);
       place(CritterKind.Starfish, x, z, rng.range(0.8, 1.5), starColors);
     }
@@ -604,15 +606,15 @@ export async function createCritters(
   // Shells and starfish scattered over the sand.
   const center = ctx.nav.o.center;
   const R = ctx.desc.terrain.basinRadius;
-  for (let i = 0; i < ctx.count(120); i++) {
+  for (let i = 0; i < ctx.count(260); i++) {
     const [x, z] = near(center[0], center[1], R);
     if (ctx.terrain.maskAt(0, x, z) > 0.5) {
       continue;
     }
     const roll = rng.float();
-    if (roll < 0.25) {
+    if (roll < 0.4) {
       place(CritterKind.Starfish, x, z, rng.range(0.7, 1.3), starColors);
-    } else if (roll < 0.5) {
+    } else if (roll < 0.65) {
       place(CritterKind.Scallop, x, z, rng.range(0.7, 1.3), shellColors);
     } else {
       // Spiral shells lie on their side at a random angle.
@@ -637,7 +639,7 @@ export async function createCritters(
     [0.6, 0.5, 0.35],
   ];
   for (const c of ctx.clusters) {
-    const n = ctx.count(rng.int(0, 3));
+    const n = ctx.count(rng.int(2, 6));
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
       const r = c.radius * rng.range(0.7, 1.2);
@@ -653,7 +655,7 @@ export async function createCritters(
     }
   }
 
-  for (let i = 0; i < ctx.count(40); i++) {
+  for (let i = 0; i < ctx.count(90); i++) {
     const [x, z] = near(center[0], center[1], R);
     if (ctx.terrain.maskAt(0, x, z) < 0.3) {
       continue;
@@ -667,5 +669,8 @@ export async function createCritters(
     instances,
     wgsl: materialWgsl,
     castShadows: true,
+    lod: {low: lod.low, distance: 7},
+    // Shells and small starfish are too small to cast a visible shadow.
+    shadowMinRadius: 0.4,
   });
 }

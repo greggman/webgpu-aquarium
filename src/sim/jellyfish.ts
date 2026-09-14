@@ -199,7 +199,7 @@ export async function createJellyfish(
   const device = renderer.device;
   const rng = ctx.rng('jellyfish');
   const hi = ctx.quality.tierIndex >= 2;
-  const count = Math.max(4, Math.round(rng.int(10, 18) * ctx.quality.density));
+  const count = Math.max(8, Math.round(rng.int(30, 48) * ctx.quality.density));
 
   const variants: {patches: Patch[]; radius: number}[] = [];
   const makeVariant = () => {
