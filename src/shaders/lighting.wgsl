@@ -87,7 +87,7 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   // Blurrier on slopes too, so tilted surfaces get soft moving patches rather
   // than a crisp web of lines.
   let tilt = 1.0 - clamp(normal.y, 0.0, 1.0);
-  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06) + tilt * 2.5, 0.0, 6.0);
+  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06) + tilt * 2.5 - frame.caustics.w, 0.0, 6.0);
   // Two rotated, rescaled samples multiplied together hide the tiling.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;

@@ -377,7 +377,13 @@ async function main() {
     g.set('surfaceY', desc.surfaceY);
     g.set('resolution', [t.width, t.height]);
     g.set('jitter', [jx, jy]);
-    g.set('caustics', [WAVE_TILE, 0.95, 28, 0]);
+    g.set('caustics', [
+      WAVE_TILE,
+      0.95,
+      28,
+      // Mip bias so a smaller caustics texture stays as sharp per metre.
+      Math.log2(512 / quality.causticsSize),
+    ]);
     g.set('terrain', [desc.terrain.worldSize, desc.terrain.size, 0, 0]);
     g.set('shadow', [shadow.texelWorld, shadow.size, 0, 0]);
     g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);

@@ -24,7 +24,7 @@ export const FrameStruct = defineStruct('Frame', {
   surfaceY: 'f32',
   resolution: 'vec2f',
   jitter: 'vec2f',
-  /** x: world scale (m per tile), y: intensity, z: depth where caustics fade, w: unused. */
+  /** x: world scale (m per tile), y: intensity, z: depth where caustics fade, w: mip bias. */
   caustics: 'vec4f',
   /** x: world size (m), y: texels, z: min height, w: max height. */
   terrain: 'vec4f',

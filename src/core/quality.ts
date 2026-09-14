@@ -28,11 +28,11 @@ export interface Quality {
 
 const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
   mobile: {
-    renderScale: 0.7,
+    renderScale: 0.75,
     minRenderScale: 0.5,
-    maxRenderScale: 0.85,
+    maxRenderScale: 0.9,
     maxCanvasPixels: 1600 * 900,
-    terrainGrid: 192,
+    terrainGrid: 256,
     shadowSize: 1024,
     volumetrics: 'low',
     volumetricSteps: 10,
@@ -40,7 +40,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     dof: false,
     taa: true,
     grain: false,
-    density: 0.35,
+    density: 0.45,
     causticsSize: 256,
     targetFrameMs: 1000 / 30,
   },
