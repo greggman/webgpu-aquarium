@@ -421,3 +421,14 @@ Works: surface views, sunlit kelp forests, seed2 deep-blue mood, sand ripples an
 Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
 Gaps: brain coral still striped at mid range; kelp cameras show walls; lily-pad plates; empty/blocked focal points; long whip tips and a floating dome at the lens; paper-cup sponges; violet seed 2.
 Works: surface cameras, sand caustics, near brain-coral shading, bait balls and jellies, temporal stability, distance fog.
+
+## Review 20 — FAIL (avg 6.7)
+
+Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
+Gaps: kelp cameras frame a wall (4/4 seeds); coral and sponge materials plastic (no wet specular or SSS); crushed shadow wells; out-of-focus props at the surface lens and a floating stalked dome; seed 2 palette; faceted near kelp fronds.
+Works: brain-coral stripes fixed, sand caustics and ripples, god rays and surface underside, seed3 kelp canopy, seed4 overhead density, temporal stability.
+
+## Status after review 20
+
+Desktop scores have plateaued at an average of 6.7 over reviews 15–20. Materials, geometry and artifacts sit at 6, so neither the milestone bar (all ≥7) nor the release bar (all ≥7, avg ≥8) is met. The mobile tier passes its bar (review 19).
+The gaps that remain are asset-level: kelp camera framing in dense stands, coral and sponge surface detail (wet specular, subsurface light), shadow fill, and lens-intrusion edge cases on the surface camera.
