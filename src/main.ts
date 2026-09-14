@@ -1,4 +1,10 @@
-import {initGPU, markReady, reportError} from './gpu/device.ts';
+import {
+  initGPU,
+  markReady,
+  reportError,
+  WebGPUUnavailableError,
+} from './gpu/device.ts';
+import {showUnsupported} from './gpu/unsupported.ts';
 import {detectTier, getQuality, DynamicResolution} from './core/quality.ts';
 import {Clock} from './core/clock.ts';
 import * as mat4 from './math/mat4.ts';
@@ -431,4 +437,13 @@ async function main() {
   requestAnimationFrame(frame);
 }
 
-main().catch(e => reportError(`[fatal] ${e?.stack ?? e}`));
+main().catch(e => {
+  if (e instanceof WebGPUUnavailableError) {
+    showUnsupported(e.reason);
+    // Still recorded for tests, but without the red debug overlay.
+    console.warn(e.message);
+    window.__aquarium.errors.push(e.message);
+    return;
+  }
+  reportError(`[fatal] ${e?.stack ?? e}`);
+});

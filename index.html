@@ -70,6 +70,45 @@
         white-space: pre-wrap;
         z-index: 10;
       }
+      #unsupported {
+        position: fixed;
+        inset: 0;
+        overflow: auto;
+        padding: max(24px, env(safe-area-inset-top)) 24px 24px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: left;
+        background: radial-gradient(ellipse at 50% -10%, #1c6f86 0%, #073345 45%, #02101a 100%);
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      #unsupported .card {
+        max-width: 34rem;
+        width: 100%;
+      }
+      #unsupported h1 {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0 0 12px;
+      }
+      #unsupported p,
+      #unsupported li {
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      #unsupported ul {
+        padding-left: 1.2em;
+        margin: 8px 0 16px;
+      }
+      #unsupported li {
+        margin-bottom: 8px;
+      }
+      #unsupported a {
+        color: #8fe3ff;
+      }
       .stick {
         position: fixed;
         width: 110px;

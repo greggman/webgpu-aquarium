@@ -51,15 +51,30 @@ export interface Gpu {
   info: GPUAdapterInfo;
 }
 
+/** Why WebGPU could not start, for a friendly explanation instead of a stack trace. */
+export type UnavailableReason =
+  'insecure-context' | 'no-api' | 'no-adapter' | 'no-device' | 'no-context';
+
+export class WebGPUUnavailableError extends Error {
+  readonly reason: UnavailableReason;
+  constructor(reason: UnavailableReason, detail = '') {
+    super(`WebGPU unavailable (${reason})${detail ? `: ${detail}` : ''}`);
+    this.reason = reason;
+  }
+}
+
 export async function initGPU(canvas: HTMLCanvasElement): Promise<Gpu> {
   if (!navigator.gpu) {
-    throw new Error('WebGPU is not supported in this browser.');
+    // WebGPU is only exposed on https:// (or localhost) pages.
+    throw new WebGPUUnavailableError(
+      window.isSecureContext ? 'no-api' : 'insecure-context',
+    );
   }
-  const adapter = await navigator.gpu.requestAdapter({
-    powerPreference: 'high-performance',
-  });
+  const adapter = await navigator.gpu
+    .requestAdapter({powerPreference: 'high-performance'})
+    .catch(() => null);
   if (!adapter) {
-    throw new Error('No WebGPU adapter available.');
+    throw new WebGPUUnavailableError('no-adapter');
   }
 
   const want: GPUFeatureName[] = [
@@ -71,10 +86,15 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<Gpu> {
 
   // Only ask for defaults; everything is designed to fit the WebGPU default
   // limits so the same code runs on phones.
-  const device = await adapter.requestDevice({
-    label: 'aquarium:device',
-    requiredFeatures,
-  });
+  let device: GPUDevice;
+  try {
+    device = await adapter.requestDevice({
+      label: 'aquarium:device',
+      requiredFeatures,
+    });
+  } catch (e) {
+    throw new WebGPUUnavailableError('no-device', String(e));
+  }
 
   device.addEventListener('uncapturederror', ev => {
     reportError(`[WebGPU] ${(ev as GPUUncapturedErrorEvent).error.message}`);
@@ -87,7 +107,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<Gpu> {
 
   const context = canvas.getContext('webgpu') as GPUCanvasContext | null;
   if (!context) {
-    throw new Error('Could not get a webgpu canvas context.');
+    throw new WebGPUUnavailableError('no-context');
   }
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({device, format, alphaMode: 'opaque'});

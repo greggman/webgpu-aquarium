@@ -52,6 +52,35 @@ try {
     }
     await page.close();
   }
+  // A browser without WebGPU gets a friendly explanation, not a crash.
+  {
+    const page = await ctx.browser.newPage();
+    await page.evaluateOnNewDocument(() => {
+      delete Object.getPrototypeOf(navigator).gpu;
+      for (const name of Object.getOwnPropertyNames(window)) {
+        if (name.startsWith('GPU')) {
+          delete window[name];
+        }
+      }
+    });
+    const pageErrors = [];
+    page.on('pageerror', e => pageErrors.push(e.message));
+    await page.goto(`${ctx.base}index.html`, {waitUntil: 'load'});
+    const shown = await page
+      .waitForSelector('#unsupported h1', {timeout: 10000})
+      .then(() => true)
+      .catch(() => false);
+    const debugOverlay = await page.$eval('#errors', el => !el.hidden);
+    if (!shown || debugOverlay || pageErrors.length) {
+      console.error(
+        `[smoke:no-webgpu] FAIL: message shown=${shown}, debug overlay=${debugOverlay}, page errors=${pageErrors.join('; ')}`,
+      );
+      failed = true;
+    } else {
+      console.log('[smoke:no-webgpu] unsupported message shown');
+    }
+    await page.close();
+  }
 } finally {
   await ctx.close();
 }
