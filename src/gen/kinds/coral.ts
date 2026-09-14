@@ -830,10 +830,17 @@ export async function createCoral(
     place(kind, x, z, scale, 0.5, true);
   }
 
+  // Distant hero corals draw as a low-detail variant of the same kind.
+  const lowOfVariant = variants.map((v, i) => {
+    const lows = lowKind.get(v.kind) ?? [];
+    return lows.includes(i) || !lows.length ? -1 : lows[i % lows.length];
+  });
   return createPropKind(renderer, {
     name: 'coral',
     mesh,
     instances,
     wgsl: materialWgsl,
+    lod: {low: lowOfVariant, distance: 16},
+    shadowMinRadius: 0.3,
   });
 }

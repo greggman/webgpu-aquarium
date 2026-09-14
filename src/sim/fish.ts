@@ -1014,7 +1014,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // ---------------------------------------------------------------------------
 // Rendering
 
-const renderWgsl = /* wgsl */ `
+/**
+ * Fish render shader. Bodies are drawn with `discard` compiled out: a pipeline
+ * that can discard defeats hidden-surface removal on tile-based GPUs, and a
+ * big school overlapping itself then costs several times the frame budget.
+ */
+const renderWgslFor = (allowDiscard: boolean) => {
+  const discard = allowDiscard ? 'discard;' : '';
+  return /* wgsl */ `
 ${surfaceLib}
 ${propsWgsl}
 ${SpeciesStruct.wgsl}
@@ -1165,7 +1172,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   // with a blurry blob.
   let camDist = length(frame.camPos - i.world);
   if (ign(i.pos.xy, frame.frameIndex * 5u + i.instance) > smoothstep(0.35, 1.1, camDist)) {
-    discard;
+    ${discard}
   }
   var s = defaultSurface();
   s.normal = n;
@@ -1249,7 +1256,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let edgeFade = 1.0 - smoothstep(0.7, 1.0, i.uv.y) * 0.6;
     let opacity = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
     if (ign(i.pos.xy, frame.frameIndex * 7u + i.instance) > opacity) {
-      discard;
+      ${discard}
     }
     // Fins carry a little of the body colour and glow only softly when backlit.
     s.albedo = mix(sp.colFin.rgb, sp.colTop.rgb, 0.3) * mix(0.85, 1.0, rayLine) * inst.tint.rgb;
@@ -1267,7 +1274,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   return o;
 }
 `;
-
+};
 export type FishSystem = RenderSystem & {
   setCamera(p: readonly number[], dir: readonly number[]): void;
 };
@@ -1468,7 +1475,23 @@ export async function createFish(
     }),
   );
 
-  const renderModule = createShader(device, 'fish:render-shader', renderWgsl);
+  const renderModule = createShader(
+    device,
+    'fish:render-shader',
+    renderWgslFor(true),
+  );
+  const bodyModule = createShader(
+    device,
+    'fish:body-render-shader',
+    renderWgslFor(false),
+  );
+  // Index count of the leading body patch(es) of each species' mesh; the rest
+  // are fins.
+  const bodyIndexCount = speciesList.map(s => {
+    const patches = speciesPatches(s, hi && s.name !== 'bait');
+    const body = s.bodyType === 1 ? patches : patches.slice(0, 1);
+    return body.reduce((n, p) => n + p.segU * p.segV * 6, 0);
+  });
   const localLayout = device.createBindGroupLayout({
     label: 'fish:local-bgl',
     entries: [
@@ -1488,13 +1511,13 @@ export async function createFish(
     label: 'fish:pipeline-layout',
     bindGroupLayouts: [renderer.globals.layout, localLayout],
   });
-  const [pipeline, shadowPipeline] = await Promise.all([
+  const colorPipeline = (label: string, module: GPUShaderModule) =>
     device.createRenderPipelineAsync({
-      label: 'fish:pipeline',
+      label,
       layout,
-      vertex: {module: renderModule, entryPoint: 'vs', buffers: [vertexLayout]},
+      vertex: {module, entryPoint: 'vs', buffers: [vertexLayout]},
       fragment: {
-        module: renderModule,
+        module,
         entryPoint: 'fs',
         targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}],
       },
@@ -1504,7 +1527,10 @@ export async function createFish(
         depthWriteEnabled: true,
         depthCompare: 'greater',
       },
-    }),
+    });
+  const [pipeline, bodyPipeline, shadowPipeline] = await Promise.all([
+    colorPipeline('fish:fin-pipeline', renderModule),
+    colorPipeline('fish:body-pipeline', bodyModule),
     device.createRenderPipelineAsync({
       label: 'fish:shadow-pipeline',
       layout,
@@ -1533,14 +1559,28 @@ export async function createFish(
   let flip = 0;
   let camPos: readonly number[] = [0, 0, 0];
   let camDir: readonly number[] = [0, 0, -1];
-  const draw = (pass: GPURenderPassEncoder, p: GPURenderPipeline) => {
+  const draw = (
+    pass: GPURenderPassEncoder,
+    p: GPURenderPipeline,
+    part: 'all' | 'body' | 'fins',
+  ) => {
     pass.setPipeline(p);
     pass.setBindGroup(1, renderGroup);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
     ranges.forEach((r, s) => {
       const v = mesh.variants[s];
-      pass.drawIndexed(v.indexCount, r.count, v.firstIndex, 0, r.first);
+      const body = bodyIndexCount[s];
+      const first = part === 'fins' ? v.firstIndex + body : v.firstIndex;
+      const count =
+        part === 'all'
+          ? v.indexCount
+          : part === 'body'
+            ? body
+            : v.indexCount - body;
+      if (count > 0 && r.count > 0) {
+        pass.drawIndexed(count, r.count, first, 0, r.first);
+      }
     });
   };
 
@@ -1581,8 +1621,11 @@ export async function createFish(
         flip = 1 - flip;
       }
     },
-    drawOpaque: pass => draw(pass, pipeline),
-    drawShadow: pass => draw(pass, shadowPipeline),
+    drawOpaque: pass => {
+      draw(pass, bodyPipeline, 'body');
+      draw(pass, pipeline, 'fins');
+    },
+    drawShadow: pass => draw(pass, shadowPipeline, 'all'),
   };
   console.log(
     `[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`,

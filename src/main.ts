@@ -31,6 +31,8 @@ import {createJellyfish} from './sim/jellyfish.ts';
 import {createParticles} from './render/particles.ts';
 
 const params = new URLSearchParams(location.search);
+/** Systems whose opaque shaders use discard. */
+const ALPHA_TESTED = new Set(['fans', 'fish']);
 const numParam = (name: string) =>
   params.has(name) ? Number(params.get(name)) : null;
 
@@ -133,8 +135,12 @@ async function main() {
       drawOpaque: p => terrainRenderer.draw(p),
       drawShadow: p => terrainRenderer.drawShadow(p),
     },
-    ...content,
+    // Alpha-tested kinds (fish fins, fan lattices) draw last: a pipeline that
+    // can discard makes tile-based GPUs shade every fragment drawn before it
+    // in the pass, defeating hidden-surface removal for the dense opaque props.
+    ...content.filter(s => !ALPHA_TESTED.has(s.name)),
     background,
+    ...content.filter(s => ALPHA_TESTED.has(s.name)),
     await createSsao(renderer),
     volumetrics,
   );

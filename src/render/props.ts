@@ -165,6 +165,8 @@ export interface PropKindOptions {
    * (or -1), used beyond `distance` metres and always in the shadow pass.
    */
   lod?: {low: number[]; distance: number};
+  /** Instances smaller than this (world radius) don't cast shadows. */
+  shadowMinRadius?: number;
 }
 
 export function packInstances(list: Instance[]): {
@@ -290,6 +292,7 @@ export async function createPropKind(
 
   const lowOf = ranges.map((_, v) => o.lod?.low[v] ?? -1);
   const lodD2 = (o.lod?.distance ?? Infinity) ** 2;
+  const shadowMinRadius = o.shadowMinRadius ?? 0;
   // Instances drawn with variant w: its own, plus those of variants whose
   // low-detail stand-in is w.
   const sourcesOf = ranges.map((_, w) => [
@@ -367,6 +370,9 @@ export async function createPropKind(
             const z = data[b + 2];
             const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
             const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
+            if (radiusOf[i] < shadowMinRadius) {
+              continue;
+            }
             const pad = radiusOf[i] * Math.abs(sm[0]) * 1.5;
             if (Math.abs(sx) > 1 + pad || Math.abs(sy) > 1 + pad) {
               continue;
