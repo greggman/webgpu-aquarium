@@ -347,3 +347,31 @@ README (controls, URL params), Pages deploy verified on the live URL.
   rejects and regenerates layouts that fail simple checks (hero clusters visible, no bare stretches),
   keeping the seed deterministic.
 - **Open**: audio isn't in the design doc, so it isn't planned.
+
+---
+
+## 11. Implementation notes (deviations from this plan)
+
+Recorded as the build progressed, so the plan stays an honest description of the code.
+
+- **`@webgpu/types` dropped**: TypeScript 6's `lib.dom` already ships the WebGPU
+  interfaces and conflicts with the package. The few missing flag constants
+  (`GPUBufferUsage` etc.) are declared in `src/gpu/webgpu-constants.d.ts`.
+- **Struct layouts**: every GPU struct is declared with `defineStruct` (`src/gpu/structs.ts`),
+  which emits the WGSL and offsets; sizes feed `minBindingSize` where layouts are explicit.
+- **Label enforcement** runs in all builds (cheap wrappers), not just dev builds.
+- **Volumetrics** are a reduced-resolution raymarch on every tier (1/2, 1/3, 1/4 resolution
+  with 24/18/16/10 steps), not froxels. Shafts come from blurred, contrast-normalised
+  caustics gated by drifting noise; a phase floor keeps them visible away from the sun.
+- **Placement** runs on the CPU using the GPU-generated terrain data read back once;
+  meshes, terrain, textures, caustics and fish simulation stay on the GPU.
+- **Kelp and plant sway** is a vertex-shader current field rather than a verlet compute sim.
+- **Ambient occlusion**: SSAO (compute, 1/2 or 1/3 resolution) on all tiers plus
+  horizon AO baked into the terrain; no GTAO.
+- **Profiling**: submit-to-`onSubmittedWorkDone` latency (`?profile`) instead of timestamp
+  queries, plus `?disable=system,...` to measure per-system cost.
+- **Water styles**: five per-seed looks (tropical, lagoon, deep-blue, kelp-forest,
+  golden-hour), forceable with `?style=`.
+- **Extra camera preset** `surface` looks up through Snell's window.
+- **Play-area layout rejection** (regenerating bad layouts) was not needed: reef clusters are
+  chosen by score inside the play area and cameras are placed by searching valid spots.
