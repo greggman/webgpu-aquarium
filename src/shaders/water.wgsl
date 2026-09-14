@@ -43,7 +43,7 @@ fn inscatterColor(y: f32, dir: vec3f) -> vec3f {
   let amb = ambientAtDepth(y);
   // Looking down, the water beneath is darker; looking up, brighter.
   let updown = mix(0.35, 1.25, smoothstep(-0.8, 0.9, dir.y));
-  return frame.scattering * (sun * 0.12 + amb * updown) / extinction();
+  return frame.scattering * (sun * 0.06 + amb * updown * 0.5) / extinction();
 }
 
 /** Fog factor pieces for a path of length `dist` from the camera along `dir`. */

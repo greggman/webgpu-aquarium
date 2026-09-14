@@ -51,7 +51,12 @@ fn beam(p: vec3f) -> f32 {
   let entry = p.xz + frame.sunDir.xz * t;
   // Shafts spread with depth: sample progressively blurrier caustics.
   let lod = clamp(1.5 + depth * 0.12, 1.5, 5.0);
-  let c = textureSampleLevel(tCaustics, sLinearRepeat, entry / frame.caustics.x, lod).g;
+  let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
+  let uvc = entry / frame.caustics.x;
+  let c = sqrt(
+    textureSampleLevel(tCaustics, sLinearRepeat, uvc, lod).g *
+    textureSampleLevel(tCaustics, sLinearRepeat, rot * uvc * 0.73 + 0.31, lod).g,
+  ) * 1.15;
   // Larger-scale variation so shafts come in groups, not a uniform comb.
   let broad = textureSampleLevel(tCaustics, sLinearRepeat, entry / (frame.caustics.x * 5.3) + 0.37, 6.0).g;
   return pow(max(c, 0.0), 2.6) * (0.08 + 1.6 * broad * broad * broad);
@@ -94,7 +99,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let light = sunAtDepth(p.y) * shadowTap(p) * beam(p);
     accum += light * exp(-ext * t) * dt;
   }
-  let phase = waterPhase(dot(dir, frame.sunDir));
+  // Cap the forward peak so looking toward the sun doesn't wash out the frame.
+  let phase = min(waterPhase(dot(dir, frame.sunDir)), 0.3);
   let current = accum * frame.scattering * phase * V.strength;
 
   // Temporal accumulation with reprojection of a representative point.
@@ -196,7 +202,7 @@ export async function createVolumetrics(
   const paramData = new ArrayBuffer(16);
   new Uint32Array(paramData, 0, 1)[0] = quality.volumetricSteps;
   const tune = Number(new URLSearchParams(location.search).get('vol') ?? 1);
-  new Float32Array(paramData, 4, 3).set([70, 0.06 * tune, 0.88]);
+  new Float32Array(paramData, 4, 3).set([70, 0.022 * tune, 0.88]);
   device.queue.writeBuffer(params, 0, paramData);
 
   const sampler = device.createSampler({

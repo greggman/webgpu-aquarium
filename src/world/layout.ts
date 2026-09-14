@@ -27,6 +27,8 @@ export interface GenContext {
   occupied: SpatialHash;
   /** Solid obstacles the camera must avoid. */
   obstacles: NavSphere[];
+  /** Kelp forest locations (filled in by the plant generator). */
+  kelpForests: {x: number; z: number; radius: number}[];
   /** A generator stream unique to `name`. */
   rng(name: string): Rng;
   /** Instance count scaled by quality. */
@@ -53,6 +55,7 @@ export function createGenContext(
     clusters,
     occupied: new SpatialHash(2),
     obstacles,
+    kelpForests: [],
     surfaceTop: (x, z) => {
       let top = terrain.heightAt(x, z);
       for (const o of obstacles) {

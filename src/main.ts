@@ -20,6 +20,8 @@ import {forwardFromAngles} from './player/camera.ts';
 import {createGenContext} from './world/layout.ts';
 import {createRocks} from './gen/kinds/rocks.ts';
 import {createCoral} from './gen/kinds/coral.ts';
+import {createCritters} from './gen/kinds/critters.ts';
+import {createPlants} from './gen/kinds/plants.ts';
 
 const params = new URLSearchParams(location.search);
 const numParam = (name: string) =>
@@ -65,8 +67,19 @@ async function main() {
   nav.o.obstacles = gen.obstacles;
   // Rocks first: other content sits on top of them.
   const rocks = await createRocks(renderer, gen);
-  const content = [rocks, ...(await Promise.all([createCoral(renderer, gen)]))];
-  const spots = cameraSpots(desc, terrain.cpu, nav, gen.clusters);
+  const [coral, critters, plants] = await Promise.all([
+    createCoral(renderer, gen),
+    createCritters(renderer, gen),
+    createPlants(renderer, gen),
+  ]);
+  const content = [rocks, coral, critters, ...plants];
+  const spots = cameraSpots(
+    desc,
+    terrain.cpu,
+    nav,
+    gen.clusters,
+    gen.kelpForests,
+  );
 
   const targetsFormats = {
     color: 'rgba16float',

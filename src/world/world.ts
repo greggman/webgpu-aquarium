@@ -254,6 +254,7 @@ export function cameraSpots(
   terrain: TerrainData,
   nav: NavVolume,
   clusters: {x: number; y: number; z: number; radius: number}[],
+  kelpForests: {x: number; z: number; radius: number}[] = [],
 ): {presets: Record<string, CameraSpot>; tour: TourStop[]} {
   const rng = new Rng(desc.seed ^ 0xca3e7a);
   const c = desc.terrain.center;
@@ -278,11 +279,13 @@ export function cameraSpots(
   );
 
   // Kelp: flat sandy patch with kelp mask.
-  const [kx, kz] = bestSpot(
-    rng,
-    nav,
-    (x, z) => terrain.maskAt(2, x, z) - terrain.maskAt(0, x, z) * 0.5,
-  );
+  const [kx, kz] = kelpForests.length
+    ? [kelpForests[0].x, kelpForests[0].z]
+    : bestSpot(
+        rng,
+        nav,
+        (x, z) => terrain.maskAt(2, x, z) - terrain.maskAt(0, x, z) * 0.5,
+      );
   const kelpTarget = ground(kx, kz);
   kelpTarget[1] += 3;
   const kelp = spotLookingAt(
