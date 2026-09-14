@@ -75,7 +75,9 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let band = 0.5 + 0.5 * sin(lp.y * 4.0 + big.r * 5.0);
   var albedo = mix(vec3f(0.19, 0.17, 0.15), vec3f(0.36, 0.32, 0.27), big.r * 0.6 + band * 0.25 + mid.a * 0.15);
   albedo *= (0.8 + 0.3 * fine.r) * inst.color.rgb;
-  albedo *= mix(1.0, 0.35, pocket);
+  // Pockets are shaded by AO; their albedo only darkens a little, and their
+  // lips carry colour, so they read as holes rather than black decals.
+  albedo *= mix(1.0, 0.7, pocket);
 
   // Encrusting life follows the rock's shape: algal turf settles on ledge
   // tops and in the lips of pockets, pink coralline crust creeps out of
@@ -84,7 +86,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let occl = 1.0 - i.aoMat.x;
   let ledgeTop = i.uv.w * smoothstep(-0.2, 0.5, nIn.y);
   let rim = smoothstep(0.02, 0.2, pocket) * (1.0 - smoothstep(0.35, 0.8, pocket));
-  let turfField = mid.g * 0.45 + big.r * 0.3 + ledgeTop * 0.35 + rim * 0.3 + (fine.r - 0.5) * 0.3;
+  let turfField = mid.r * 0.45 + big.r * 0.3 + ledgeTop * 0.35 + rim * 0.3 + (fine.r - 0.5) * 0.3;
   let turf = smoothstep(0.5, 0.68, turfField) * up;
   let algae = mix(vec3f(0.19, 0.2, 0.1), vec3f(0.33, 0.27, 0.15), fine.g);
   let crustField = triplanarDetail(lp, nIn, 0.33).a * 0.7 + occl * 0.6 + rim * 0.2;
@@ -98,11 +100,12 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   var s = defaultSurface();
   s.albedo = c;
   s.normal = n;
-  // Mostly rough; a thin wet sheen only on bare, sunlit ridges.
-  let ridge = smoothstep(0.55, 0.8, height) * (1.0 - turf) * (1.0 - crust);
-  s.roughness = mix(0.82, 0.42, ridge);
-  s.ao = i.aoMat.x;
-  s.f0 = 0.035;
+  // Wet stone: bare upper faces and ridges carry a soft sheen, turf and
+  // crust stay matte.
+  let ridge = max(smoothstep(0.5, 0.8, height), smoothstep(0.3, 0.9, nIn.y) * 0.6) * (1.0 - turf) * (1.0 - crust);
+  s.roughness = mix(0.85, 0.34, ridge);
+  s.ao = i.aoMat.x * mix(1.0, 0.45, smoothstep(0.1, 0.6, pocket));
+  s.f0 = 0.04;
   return s;
 }
 `;
@@ -169,10 +172,18 @@ export async function createRocks(
   );
 
   const instances: Instance[] = [];
+  // A few stone types per basin (pale limestone, grey-blue basalt, dark
+  // weathered rock), so neighbouring rocks don't all read as the same clay.
+  const stones: [number, number, number][] = [
+    [1.2, 1.1, 0.92],
+    [0.82, 0.88, 0.98],
+    [0.66, 0.62, 0.58],
+    [1.02, 0.94, 0.86],
+  ];
   const tint = (): [number, number, number, number] => {
-    const warm = rng.range(-0.08, 0.08);
-    const b = rng.range(0.8, 1.15);
-    return [b * (1 + warm), b, b * (1 - warm), rng.range(0, 100)];
+    const st = rng.weighted(stones, [3, 2, 2, 3]);
+    const b = rng.range(0.85, 1.12);
+    return [st[0] * b, st[1] * b, st[2] * b, rng.range(0, 100)];
   };
   const place = (
     x: number,
@@ -193,7 +204,7 @@ export async function createRocks(
       scale,
       rot: quatUpYaw(up, rng.range(0, Math.PI * 2)),
       color: tint(),
-      params: [growth, 0, 0, 0],
+      params: [growth * rng.range(0.45, 1), 0, 0, 0],
       variant: pillar
         ? VARIANTS + rng.int(0, PILLARS - 1)
         : rng.int(0, VARIANTS - 1),

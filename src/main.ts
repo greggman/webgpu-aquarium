@@ -240,6 +240,8 @@ async function main() {
     adapter: gpu.info.vendor,
   };
   window.__aquarium.presets = Object.keys(spots.presets);
+  window.__aquarium.spots = spots;
+  window.__aquarium.camera = camera;
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;
   window.__aquarium.terrain = terrain.cpu;

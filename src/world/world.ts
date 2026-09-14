@@ -258,6 +258,42 @@ function lineOfSight(terrain: TerrainData, a: Vec3, b: Vec3): boolean {
   return true;
 }
 
+/**
+ * True if no ground rises close under the lens: a hump a few metres ahead
+ * fills the bottom of the frame with a blurred, featureless mound.
+ */
+function openForeground(
+  terrain: TerrainData,
+  nav: NavVolume,
+  a: Vec3,
+  b: Vec3,
+): boolean {
+  // Ground height including big rocks and coral heads.
+  const top = (x: number, z: number) => {
+    let h = terrain.heightAt(x, z);
+    for (const o of nav.o.obstacles ?? []) {
+      const d = Math.hypot(x - o.center[0], z - o.center[2]);
+      if (d < o.radius) {
+        h = Math.max(h, o.center[1] + Math.sqrt(o.radius ** 2 - d * d));
+      }
+    }
+    return h;
+  };
+  const base = Math.atan2(b[2] - a[2], b[0] - a[0]);
+  // A fan across the lower half of the frame, not just the centre line.
+  for (const off of [-0.45, -0.22, 0, 0.22, 0.45]) {
+    const dx = Math.cos(base + off);
+    const dz = Math.sin(base + off);
+    for (let t = 1; t <= 8; t += 0.5) {
+      const h = top(a[0] + dx * t, a[2] + dz * t);
+      if (h > a[1] - 1.6 - t * 0.1) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /** Places a camera `dist` metres from a target, `height` above the ground, inside the volume. */
 function spotLookingAt(
   nav: NavVolume,
@@ -268,28 +304,40 @@ function spotLookingAt(
   preferredAngle: number,
   clear: (x: number, z: number) => boolean = () => true,
 ): CameraSpot {
-  let fallback: CameraSpot | null = null;
-  for (let k = 0; k < 16; k++) {
-    const a = preferredAngle + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.4;
-    const x = target[0] + Math.cos(a) * dist;
-    const z = target[2] + Math.sin(a) * dist;
-    const y = Math.min(
-      Math.max(terrain.heightAt(x, z), target[1] - 1) + height,
-      nav.ceiling() - 0.5,
-    );
-    const pos: Vec3 = [x, Math.max(y, nav.floorAt(x, z) + 0.2), z];
-    const spot = {pos, target};
-    fallback ??= spot;
-    if (
-      nav.contains(pos) &&
-      nav.edgeFactor(x, z) < 0.3 &&
-      clear(x, z) &&
-      lineOfSight(terrain, pos, target)
-    ) {
-      return spot;
+  // Try angles around the preferred one (and a little nearer/further); take
+  // the first spot passing every test, else the one failing the fewest.
+  let best: CameraSpot | null = null;
+  let bestScore = -Infinity;
+  for (const distScale of [1, 0.8, 1.25]) {
+    for (let k = 0; k < 16; k++) {
+      const a = preferredAngle + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.4;
+      const d = dist * distScale;
+      const x = target[0] + Math.cos(a) * d;
+      const z = target[2] + Math.sin(a) * d;
+      const y = Math.min(
+        Math.max(terrain.heightAt(x, z), target[1] - 1) + height,
+        nav.ceiling() - 0.5,
+      );
+      const pos: Vec3 = [x, Math.max(y, nav.floorAt(x, z) + 0.2), z];
+      const spot = {pos, target};
+      const inside = nav.contains(pos) && nav.edgeFactor(x, z) < 0.3;
+      const score =
+        (inside ? 8 : 0) +
+        (clear(x, z) ? 2 : 0) +
+        (lineOfSight(terrain, pos, target) ? 2 : 0) +
+        (openForeground(terrain, nav, pos, target) ? 1 : 0) -
+        k * 0.01 -
+        (distScale === 1 ? 0 : 0.05);
+      if (score >= 13 - 0.2) {
+        return spot;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = spot;
+      }
     }
   }
-  return fallback!;
+  return best!;
 }
 
 export function cameraSpots(
@@ -415,7 +463,7 @@ export function cameraSpots(
     terrain,
     [hero.x + Math.cos(gapA) * 10, hero.y + 2.5, hero.z + Math.sin(gapA) * 10],
     26,
-    2.2,
+    3.6,
     away,
     kelpClear,
   );

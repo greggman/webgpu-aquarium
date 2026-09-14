@@ -634,6 +634,12 @@ fn fs(i: VOut) -> FOut {
   var reefCol = mix(rockCol * 0.8, turfCol, lump * 0.8);
   reefCol = mix(reefCol, vec3f(0.66, 0.62, 0.54) * (0.8 + 0.3 * rubbleField.b), fragment * 0.7);
   rockCol = mix(rockCol, reefCol, reefAmt);
+  // Close-range grit: small pebbles, shell fragments and turf tufts break up
+  // the broad colour fields (mipmapping fades it out with distance).
+  let micro = triplanar(p, n, 2.3);
+  rockCol *= 0.78 + 0.44 * micro.r;
+  rockCol = mix(rockCol, vec3f(0.62, 0.58, 0.5), smoothstep(0.74, 0.84, micro.a) * 0.5);
+  rockCol = mix(rockCol, rockCol * 0.45, smoothstep(0.3, 0.18, micro.r) * 0.6);
 
   var s = defaultSurface();
   s.albedo = mix(sandCol, rockCol, rockW);
