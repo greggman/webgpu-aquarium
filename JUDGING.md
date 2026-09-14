@@ -409,3 +409,9 @@ Works: surface shots, backlit kelp canopy, sand caustics with rubble, bait balls
 Scores: lighting 7, water 7, caustics 5, materials 6, geometry 6, life 6, composition 7, variety 6, artifacts 6.
 Gaps: caustics nearly invisible (smaller caustics texture blurred by the shared mip bias — fixed with a per-size bias); smeared foreground terrain; blobby low-res mounds; sticker-like coral heads; seeds 1/3 similar; few close fish.
 Works: kelp forests top-tier for mobile, surface views, shafts and fog survive the mobile cuts.
+
+## Mobile tier review 19 — PASS (avg 6.4; bar: all ≥6)
+
+Scores: lighting 7, water 7, caustics 6, materials 6, geometry 6, life 6, composition 7, variety 7, artifacts 6.
+Remaining gaps: terrain slope too close in seed1-surface; milky caustic contrast; blobby mounds; flat coral blobs; a large near bubble sprite; square kelp tips.
+Works: surface views, sunlit kelp forests, seed2 deep-blue mood, sand ripples and rock at the higher render scale.
