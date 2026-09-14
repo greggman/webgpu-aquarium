@@ -267,3 +267,27 @@ Biggest gaps (ranked):
 7. Lone hard shaft (seed2-wide).
 
 What works: kelp translucency near reference, surface views, shaft fans, seed2-reef, temporal stability, distinct moods.
+
+## Review 11 — FAIL (avg 6.6)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 7 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 7 |
+
+Biggest gaps (ranked):
+1. Fish: readable heads and eyes, thicker bodies that don't collapse edge-on; a mid-size school in reef shots.
+2. Plastic corals: table tops, candy tube gradients with white tips, sawtooth barrel sponge rims.
+3. Bare mound foregrounds (seed1/seed3 reef).
+4. Seed 4 kelp muddy olive with no blue gaps.
+5. Flat overheads with no focal point.
+6. Caustics on vertical rock faces and coral branches.
+
+What works: surface cameras near AAA, seed4-reef layered foreground, kelp forests seeds 1-3, sand caustics, palettes, particles.
