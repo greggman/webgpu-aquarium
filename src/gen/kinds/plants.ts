@@ -94,7 +94,7 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
   var d = currentSway(inst.posScale.xyz + p * inst.posScale.w, h, t, strength, inst.params.x);
   if (part == ${Part.KelpBlade}u || part == ${Part.Blade}u) {
     // Blades flutter along their length.
-    let flutter = sin(t * 2.3 + uv.y * 7.0 + inst.params.x + p.y * 3.0) * uv.y * 0.06;
+    let flutter = sin(t * 2.9 + uv.y * 7.0 + inst.params.x + p.y * 3.0) * uv.y * 0.09;
     d += vec3f(flutter, 0.0, flutter * 0.6);
   }
   return Deformed(p + d / max(inst.posScale.w, 0.1), n);
@@ -204,7 +204,7 @@ fn alphaMask(uv: vec4f, local: vec3f, inst: Instance) -> f32 {
 fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
   let h = max(p.y, 0.0);
   // Fans rock back and forth as a whole (they face into the current).
-  let rock = sin(t * 0.8 + inst.params.x) * 0.06 * h;
+  let rock = (surge(inst.posScale.xyz, t) * 0.12 + sin(t * 1.1 + inst.params.x) * 0.03) * h;
   return Deformed(p + vec3f(0.0, 0.0, rock + sin(t * 1.3 + p.x * 4.0 + inst.params.x) * 0.015 * h), n);
 }
 
@@ -498,7 +498,7 @@ export async function createPlants(
       scale: rng.range(0.7, 1.3),
       rot: quatUpYaw([n[0] * 0.5, 1, n[2] * 0.5], rng.range(0, Math.PI * 2)),
       color: grassTint(),
-      params: [rng.range(0, 100), 0.35, 0, 0],
+      params: [rng.range(0, 100), 0.6, 0, 0],
       variant: rng.pick(grassVariants),
     });
   }
@@ -575,7 +575,7 @@ export async function createPlants(
           ),
           // Olive-brown: saturated yellow turns saffron when backlit.
           color: [0.4 * g, 0.37 * g, 0.18 * g, 0],
-          params: [rng.range(0, 100), 0.024, 0, 0],
+          params: [rng.range(0, 100), 0.014, 0, 0],
           variant: kelpVariants[vi],
         });
         stems.push([x, z]);

@@ -192,8 +192,8 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
   if (part == ${Part.Tentacle}u) {
     let along = uv.y;
     let id = uv.z;
-    let wiggle = vec3f(sin(t * 1.9 + id * 17.0), 0.0, cos(t * 1.6 + id * 23.0)) * along * along * 0.035;
-    let sway = currentSway(inst.posScale.xyz, along, t, 0.05, inst.params.x);
+    let wiggle = vec3f(sin(t * 2.6 + id * 17.0), 0.0, cos(t * 2.2 + id * 23.0)) * along * along * 0.05;
+    let sway = currentSway(inst.posScale.xyz, along, t, 0.1, inst.params.x);
     let pulse = normalize(vec3f(p.x, 0.0, p.z) + 1e-4) * sin(t * 0.7 + inst.params.x) * along * 0.015;
     return Deformed(p + (wiggle + sway + pulse) / max(inst.posScale.w, 0.2), n);
   }
@@ -672,5 +672,6 @@ export async function createCritters(
     lod: {low: lod.low, distance: 7},
     // Shells and small starfish are too small to cast a visible shadow.
     shadowMinRadius: 0.4,
+    contact: {radius: 0.45, height: 0.3},
   });
 }

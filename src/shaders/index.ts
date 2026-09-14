@@ -27,6 +27,7 @@ ${FrameStruct.wgsl}
 @group(0) @binding(6) var tDetail: texture_2d<f32>;
 @group(0) @binding(7) var tTerrain: texture_2d<f32>;
 @group(0) @binding(8) var tTerrainMask: texture_2d<f32>;
+@group(0) @binding(9) var tContact: texture_2d<f32>;
 `;
 
 /** Everything a lit surface shader needs. */

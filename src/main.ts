@@ -18,6 +18,7 @@ import {Input} from './player/input.ts';
 import {SwimCamera, viewMatrix, type CameraPose} from './player/camera.ts';
 import {AttractTour} from './player/attract.ts';
 import {Caustics, makeWaves, WAVE_TILE} from './render/caustics.ts';
+import {createContactMap} from './render/contact.ts';
 import {SunShadow} from './render/shadows.ts';
 import {createVolumetrics} from './render/volumetrics.ts';
 import {createSsao} from './render/ssao.ts';
@@ -95,6 +96,14 @@ async function main() {
     createParticles(renderer, gen),
     createJellyfish(renderer, gen),
   ]);
+  renderer.setTextures({
+    contact: createContactMap(
+      device,
+      renderer.footprints,
+      desc.terrain.worldSize,
+      quality.tierIndex >= 2 ? 4096 : 2048,
+    ),
+  });
   const content = [
     rocks,
     coral,

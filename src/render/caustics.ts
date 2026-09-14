@@ -32,7 +32,7 @@ export function makeWaves(rng: Rng, tile = WAVE_TILE): Float32Array {
     const kz = (2 * Math.PI * nz) / tile;
     const k = Math.hypot(kx, kz);
     const slope = rng.range(0.018, 0.034);
-    out.set([kx, kz, slope / k, Math.sqrt(9.81 * k) * 0.55], i * 4);
+    out.set([kx, kz, slope / k, Math.sqrt(9.81 * k) * 0.95], i * 4);
     i++;
   }
   return out;

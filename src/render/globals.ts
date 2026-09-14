@@ -59,6 +59,7 @@ export interface Globals {
  *   6 detail noise texture (rgba16float for smooth bump gradients, mipmapped, repeat)
  *   7 terrain texture (rgba16float: height, normal.x, normal.z, ao)
  *   8 terrain material masks (rgba8unorm)
+ *   9 contact occlusion over the terrain square (r8unorm, 1 = open)
  */
 export function createGlobals(device: GPUDevice): Globals {
   const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
@@ -78,6 +79,7 @@ export function createGlobals(device: GPUDevice): Globals {
       {binding: 6, visibility: VF, texture: {sampleType: 'float'}},
       {binding: 7, visibility: VF, texture: {sampleType: 'float'}},
       {binding: 8, visibility: VF, texture: {sampleType: 'float'}},
+      {binding: 9, visibility: VF, texture: {sampleType: 'float'}},
     ],
   });
   const buffer = device.createBuffer({
@@ -121,6 +123,7 @@ export interface GlobalTextures {
   detail: GPUTexture;
   terrain: GPUTexture;
   terrainMask: GPUTexture;
+  contact: GPUTexture;
 }
 
 export function createGlobalsBindGroup(
@@ -157,6 +160,10 @@ export function createGlobalsBindGroup(
         resource: t.terrainMask.createView({
           label: 'globals:terrain-mask-view',
         }),
+      },
+      {
+        binding: 9,
+        resource: t.contact.createView({label: 'globals:contact-view'}),
       },
     ],
   });

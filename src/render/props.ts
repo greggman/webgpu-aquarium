@@ -110,7 +110,16 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     n = -n;
   }
   let inst = instances[i.instance];
-  let s = material(i, n, inst);
+  var s = material(i, n, inst);
+  // Buried base: the lowest few centimetres pick up sediment and darken, with
+  // an uneven edge, so props sit in the seabed rather than on it.
+  let uvT = i.world.xz / frame.terrain.x + 0.5;
+  let ground = textureSampleLevel(tTerrain, sLinearClamp, uvT, 0.0).r;
+  let sandy = 1.0 - textureSampleLevel(tTerrainMask, sLinearClamp, uvT, 0.0).r;
+  let edge = 0.04 + 0.05 * textureSampleLevel(tDetail, sLinearRepeat, i.world.xz * 0.9, 0.0).r;
+  let buried = smoothstep(edge, 0.0, i.world.y - ground);
+  s.albedo = mix(s.albedo, mix(s.albedo * 0.6, vec3f(0.5, 0.45, 0.36), sandy), buried * 0.85);
+  s.ao *= mix(1.0, 0.6, buried);
   let lit = shadeSurface(s, i.world, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
@@ -167,6 +176,11 @@ export interface PropKindOptions {
   lod?: {low: number[]; distance: number};
   /** Instances smaller than this (world radius) don't cast shadows. */
   shadowMinRadius?: number;
+  /**
+   * Contact occlusion footprint as multiples of the instance's bounding
+   * radius (see render/contact.ts); omit for things that don't block the sky.
+   */
+  contact?: {radius: number; height: number};
 }
 
 export function packInstances(list: Instance[]): {
@@ -203,6 +217,17 @@ export async function createPropKind(
   o: PropKindOptions,
 ): Promise<RenderSystem> {
   const device = renderer.device;
+  if (o.contact) {
+    for (const inst of o.instances) {
+      const r = (o.mesh.variants[inst.variant]?.radius ?? 1) * inst.scale;
+      renderer.footprints.push({
+        x: inst.pos[0],
+        z: inst.pos[2],
+        radius: r * o.contact.radius,
+        height: r * o.contact.height,
+      });
+    }
+  }
   const kindWgsl = o.alphaTest
     ? o.wgsl
     : `${o.wgsl}\nfn alphaMask(uv: vec4f, local: vec3f, inst: Instance) -> f32 { return 1.0; }`;

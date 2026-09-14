@@ -167,7 +167,8 @@ ${propsWgsl}
 fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
   let kind = u32(inst.params.w);
   if (kind == ${CoralKind.Whip}u || kind == ${CoralKind.Branching}u) {
-    let strength = select(0.004, 0.06, kind == ${CoralKind.Whip}u) / max(inst.posScale.w, 0.3);
+    // Whips and gorgonian branches are flexible; stony branching coral only shivers.
+    let strength = select(0.012, 0.12, kind == ${CoralKind.Whip}u) / max(inst.posScale.w, 0.3);
     let h = max(p.y, 0.0);
     return Deformed(p + currentSway(inst.posScale.xyz, h, t, strength, inst.params.x), n);
   }
@@ -889,5 +890,6 @@ export async function createCoral(
     wgsl: materialWgsl,
     lod: {low: lod.low, distance: 18},
     shadowMinRadius: 0.5,
+    contact: {radius: 0.55, height: 0.6},
   });
 }

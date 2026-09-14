@@ -108,6 +108,21 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   return mix(vec3f(1.0), c, fade * facing);
 }
 
+struct GroundInfo {
+  /** Terrain height under the point. */
+  height: f32,
+  /** Visibility left by nearby props (1 = open), faded out above the ground. */
+  contact: f32,
+};
+
+fn groundInfo(p: vec3f) -> GroundInfo {
+  let uv = p.xz / frame.terrain.x + 0.5;
+  let ground = textureSampleLevel(tTerrain, sLinearClamp, uv, 0.0).r;
+  let c = textureSampleLevel(tContact, sLinearClamp, uv, 0.0).r;
+  let nearGround = smoothstep(1.0, 0.0, p.y - ground);
+  return GroundInfo(ground, mix(1.0, c, nearGround));
+}
+
 /** Full lighting for a surface point. Returns radiance before water fog. */
 fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   let V = normalize(frame.camPos - p);
@@ -124,7 +139,11 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   if (shadow < 0.0) {
     shadow = sunShadow(p, N);
   }
-  let sun = sunAtDepth(p.y) * shadow * causticsAt(p, N);
+  // Where props meet the ground, both sky light and scattered sunlight are
+  // partly blocked: sand darkens against rocks, and their bases sink in.
+  let gi = groundInfo(p);
+  let contact = gi.contact;
+  let sun = sunAtDepth(p.y) * shadow * causticsAt(p, N) * mix(1.0, contact, 0.75);
 
   let a = max(s.roughness * s.roughness, 0.002);
   let f0 = mix(vec3f(s.f0), s.albedo, s.metallic);
@@ -148,16 +167,18 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   // The bright water surface above also shines through undersides.
   color += transColor * s.translucency * amb * max(-N.y, 0.0) * 0.8;
 
-  // Ambient: bright blue from above, dim bounce from below.
-  let bounce = sunAtDepth(p.y) * vec3f(0.32, 0.30, 0.24) * 0.12;
+  // Ambient: blue from above, and from below warm light bounced off the sunlit
+  // sand (strongest close to the bottom), so undersides aren't dead cutouts.
+  let lift = smoothstep(6.0, 0.0, p.y - gi.height);
+  let bounce = sunAtDepth(gi.height) * vec3f(0.62, 0.56, 0.44) * mix(0.04, 0.2, lift);
   let hemi = mix(bounce, amb, N.y * 0.5 + 0.5);
-  color += kd * s.albedo * hemi * s.ao;
+  color += kd * s.albedo * hemi * s.ao * contact;
 
   // Specular ambient: water colour reflected at grazing angles.
   let R = reflect(-V, N);
   // Rough surfaces scatter the reflection away; only smooth ones mirror the water.
   let Fa = F_Schlick(NoV, f0) * pow(1.0 - s.roughness, 1.5);
-  color += Fa * inscatterColor(p.y, R) * s.ao * 0.6;
+  color += Fa * inscatterColor(p.y, R) * s.ao * contact * 0.6;
 
   return color + s.emissive;
 }

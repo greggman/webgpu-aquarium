@@ -419,6 +419,7 @@ export async function createRocks(
     instances,
     wgsl: materialWgsl,
     cullMode: 'back',
+    contact: {radius: 0.62, height: 0.7},
     lod: {
       low: lod.low,
       distance: 28,

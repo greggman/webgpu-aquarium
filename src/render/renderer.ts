@@ -10,6 +10,7 @@ import {
   type GlobalTextures,
 } from './globals.ts';
 import {createSolidTexture} from '../gpu/util.ts';
+import type {Footprint} from './contact.ts';
 
 export const HDR_FORMAT: GPUTextureFormat = 'rgba16float';
 export const VELOCITY_FORMAT: GPUTextureFormat = 'rg16float';
@@ -82,6 +83,8 @@ export class Renderer {
     ((ctx: FrameContext, input: GPUTexture, view: GPUTexture) => void) | null =
     null;
   shadowMap: GPUTexture | null = null;
+  /** Where props meet the ground, collected while content is generated. */
+  readonly footprints: Footprint[] = [];
   private dummyShadow: GPUTexture;
 
   constructor(gpu: Gpu, quality: Quality) {
@@ -122,6 +125,12 @@ export class Renderer {
         'renderer:placeholder-terrain-mask',
         'rgba8unorm',
         [0, 0, 0, 0],
+      ),
+      contact: createSolidTexture(
+        d,
+        'renderer:placeholder-contact',
+        'rgba8unorm',
+        [1, 1, 1, 1],
       ),
     };
     this.rebuildGlobals();
