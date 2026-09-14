@@ -218,9 +218,18 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     case ${CoralKind.Sponge}u: {
       let inside = i.uv.z;
       let pore = smoothstep(0.05, 0.3, i.uv.w);
-      s.albedo = tint * mix(0.25, 1.0, pore) * mix(1.0, 0.35, inside) * (0.8 + 0.3 * fine.r);
-      s.roughness = 0.9;
-      s.translucency = 0.05;
+      // Fine oscula (small pores) from the detail texture on top of the big ones.
+      let micro = smoothstep(0.25, 0.05, polyps.g);
+      let spongeTint = mix(tint, vec3f(dot(tint, vec3f(0.33))), 0.3);
+      var c = spongeTint * mix(0.12, 1.0, pore) * mix(1.0, 0.3, inside) * (0.75 + 0.35 * fine.r);
+      c *= 1.0 - micro * 0.45;
+      // Velvety fibres catch light at grazing angles.
+      let V = normalize(frame.camPos - i.world);
+      let sheen = pow(1.0 - abs(dot(nIn, V)), 3.0);
+      s.albedo = c;
+      s.emissive = spongeTint * sheen * 0.04 * max(frame.sunColor.g, 1.0) * (1.0 - inside);
+      s.roughness = 0.95;
+      s.translucency = 0.08;
     }
     default: {
       let along = i.uv.y;
