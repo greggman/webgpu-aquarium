@@ -17,6 +17,7 @@ import {createVolumetrics} from './render/volumetrics.ts';
 import {createSsao} from './render/ssao.ts';
 import {createDof} from './render/post/dof.ts';
 import {focusDistance} from './player/focus.ts';
+import {AutoFocus} from './render/autofocus.ts';
 import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
@@ -141,6 +142,16 @@ async function main() {
   renderer.systems = renderer.systems.filter(s => !disabled.has(s.name));
   const dof =
     quality.dof && !disabled.has('dof') ? await createDof(device) : null;
+  const autoFocus = new AutoFocus(device);
+  let focusSampled = false;
+  if (dof) {
+    renderer.systems.push({
+      name: 'autofocus',
+      afterOpaque: ctx => {
+        focusSampled = autoFocus.sample(ctx.encoder, ctx.targets.depth);
+      },
+    });
+  }
   renderer.post.push(taa);
   if (dof) {
     renderer.post.push(dof);
@@ -318,7 +329,8 @@ async function main() {
     shadow.update(pose.pos, forward, desc.sunDir, desc.surfaceY);
     if (dof) {
       // Focus on whatever the camera is looking at, eased like a camera operator would.
-      const target = focusDistance(pose.pos, forward, gen);
+      const target =
+        autoFocus.measured ?? focusDistance(pose.pos, forward, gen);
       const ease = 1 - Math.exp(-(clock.paused ? 0.2 : realDt) * 3);
       focus += (target - focus) * ease;
       dof.setFocus(focus);
@@ -356,6 +368,10 @@ async function main() {
     fish.setCamera(pose.pos);
     const cpuStart = performance.now();
     renderer.render(clock.time, dt);
+    if (focusSampled) {
+      focusSampled = false;
+      autoFocus.read();
+    }
     const submitted = performance.now();
     if (!gpuPending) {
       // Submit-to-done latency approximates GPU frame cost without timestamp queries.

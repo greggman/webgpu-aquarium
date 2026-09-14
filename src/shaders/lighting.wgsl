@@ -137,7 +137,8 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
 
   // Specular ambient: water colour reflected at grazing angles.
   let R = reflect(-V, N);
-  let Fa = F_Schlick(NoV, f0) * (1.0 - s.roughness * 0.7);
+  // Rough surfaces scatter the reflection away; only smooth ones mirror the water.
+  let Fa = F_Schlick(NoV, f0) * pow(1.0 - s.roughness, 1.5);
   color += Fa * inscatterColor(p.y, R) * s.ao * 0.6;
 
   return color + s.emissive;

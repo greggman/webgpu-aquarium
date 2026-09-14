@@ -66,7 +66,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     minRenderScale: 0.6,
     maxRenderScale: 1,
     maxCanvasPixels: 1920 * 1080,
-    terrainGrid: 384,
+    terrainGrid: 512,
     shadowSize: 2048,
     volumetrics: 'high',
     volumetricSteps: 18,

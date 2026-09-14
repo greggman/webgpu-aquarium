@@ -238,11 +238,11 @@ export async function createDof(
         return input;
       }
       // Aperture scales with resolution so the look is resolution independent.
-      const aperture = (targets.height / 1080) * 5;
+      const aperture = (targets.height / 1080) * 3;
       device.queue.writeBuffer(
         uniform,
         0,
-        new Float32Array([focus, aperture, 10, 0]),
+        new Float32Array([focus, aperture, 6, 0]),
       );
       // The input alternates between TAA history textures; cache per texture.
       passTo(

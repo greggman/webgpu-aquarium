@@ -88,13 +88,12 @@ fn basinHeight(p: vec2f) -> f32 {
   let dunePhase = dot(q, duneDir) * 0.11 + fbm2(p * 0.03, 2) * 1.5;
   h += (abs(sin(dunePhase)) - 0.6) * P.duneAmp * (0.5 + 0.5 * fbm2(p * 0.02 + 7.0, 2));
 
-  // Rock outcrops scattered inside the basin.
-  let rid = ridged2(q * 0.035 * P.outcropScale, 5);
-  let outcropMask = smoothstep(0.52, 0.85, rid) * smoothstep(0.1, 0.35, fbm2(q * 0.015 + 3.0, 3) + 0.25);
-  h += outcropMask * 7.0 * P.rockiness * (0.6 + 0.6 * fbm2(q * 0.09, 3));
-  // A few taller pinnacles.
-  let pin = smoothstep(0.78, 0.95, ridged2(q * 0.02 + 11.0, 3));
-  h += pin * 9.0 * P.rockiness;
+  // Low, rounded rocky mounds inside the basin. Tall vertical features come
+  // from rock meshes instead: a heightfield can't make a clean pinnacle.
+  let rid = ridged2(q * 0.035 * P.outcropScale, 4);
+  let outcropMask = smoothstep(0.5, 0.9, rid) * smoothstep(0.1, 0.35, fbm2(q * 0.015 + 3.0, 3) + 0.25);
+  let mound = outcropMask * outcropMask * (3.0 - 2.0 * outcropMask);
+  h += mound * 3.2 * P.rockiness * (0.7 + 0.5 * fbm2(q * 0.06, 2));
 
   // Ring of cliffs.
   let angle = atan2(d.y, d.x);
