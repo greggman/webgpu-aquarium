@@ -166,3 +166,28 @@ Biggest gaps (ranked):
 
 What works: seed 3/4 reef frames (closest to HFW), seed 3 grade fix, surface sunbursts, backlit kelp colour,
 schools over the reef, reduced overhead haze, stability. Variety now passes.
+
+## Review 7 — commit (post 6-fixes) — FAIL (avg 6.2)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 5 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 6 |
+
+Biggest gaps (ranked):
+1. Kelp close-ups read as bamboo/palm: fewer, wider, ruffled, round-tipped blades; absorb canopy colour; no blue rim on stipes; kelp camera needs a stipe silhouette and open water.
+2. Pixel dither speckle on rock/turf (seed2-reef, seed4-reef).
+3. No vertical reef; antler-coral monotony; bommies as stacked pancakes.
+4. Fish read as leaves/specks; schools small spheres; fade fish near camera.
+5. Caustic hot spots near camera; giraffe-cell sand pattern (seed1-overhead).
+6. Seed 4 shaft curtain and milky haze.
+7. Surface camera has no subject.
+
+What works: seed2-reef frame, mid-distance kelp forests, ripple distance fade, palettes, temporal stability, surface sunburst.
