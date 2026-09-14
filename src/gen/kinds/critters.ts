@@ -494,6 +494,7 @@ export async function createCritters(
         const [x, z] = near(gx, gz, 0.6);
         place(CritterKind.Anemone, x, z, rng.range(0.9, 2.2), anemoneColors);
       }
+      ctx.anemones.push([gx, ctx.surfaceTop(gx, gz) + 0.25, gz]);
     }
     for (let i = 0; i < ctx.count(rng.int(3, 8) * k); i++) {
       const [x, z] = near(c.x, c.z, c.radius * 1.3);

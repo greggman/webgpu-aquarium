@@ -22,6 +22,7 @@ import {createRocks} from './gen/kinds/rocks.ts';
 import {createCoral} from './gen/kinds/coral.ts';
 import {createCritters} from './gen/kinds/critters.ts';
 import {createPlants} from './gen/kinds/plants.ts';
+import {createFish} from './sim/fish.ts';
 
 const params = new URLSearchParams(location.search);
 const numParam = (name: string) =>
@@ -72,7 +73,9 @@ async function main() {
     createCritters(renderer, gen),
     createPlants(renderer, gen),
   ]);
-  const content = [rocks, coral, critters, ...plants];
+  // Fish need the anemones and obstacles placed above.
+  const fish = await createFish(renderer, gen);
+  const content = [rocks, coral, critters, ...plants, fish];
   const spots = cameraSpots(
     desc,
     terrain.cpu,
@@ -311,6 +314,7 @@ async function main() {
     g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);
     g.set('waves', waves);
 
+    fish.setCamera(pose.pos);
     renderer.render(clock.time, dt);
     frameIndex++;
     window.__aquarium.frame++;
