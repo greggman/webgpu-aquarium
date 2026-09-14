@@ -242,3 +242,28 @@ Biggest gaps (ranked):
 7. Lone hard shaft in seed2; milky near shaft in seed4-reef.
 
 What works: shaft bundles (seed3/4 wide), seed2 palette, seed3-reef kelp framing, far terrain dissolve, Snell's window, overhead coral density, seed3-kelp dappling.
+
+## Review 10 — FAIL (avg 6.3)
+
+| # | Category | Score |
+|---|----------|-------|
+| 1 | Lighting & light shafts | 7 |
+| 2 | Water medium | 7 |
+| 3 | Caustics | 6 |
+| 4 | Materials | 6 |
+| 5 | Geometry & silhouettes | 6 |
+| 6 | Life & animation | 6 |
+| 7 | Composition, grade & mood | 6 |
+| 8 | Variety across seeds | 7 |
+| 9 | Technical artifacts | 6 |
+
+Biggest gaps (ranked):
+1. Fish still toys: need view-dependent sheen, see-through fins, dark backs and silver bellies so schools read as fish.
+2. Rocks with repeated pocket stamp; plastic table corals.
+3. Caustics don't reach rocks and coral.
+4. Weak foregrounds (seed1/seed4 reef).
+5. Seed 4 kelp muddy; starfield-like particles in dark water.
+6. Overheads flat cyan.
+7. Lone hard shaft (seed2-wide).
+
+What works: kelp translucency near reference, surface views, shaft fans, seed2-reef, temporal stability, distinct moods.
