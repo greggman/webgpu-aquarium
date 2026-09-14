@@ -97,7 +97,9 @@ fn fs(i: FSOut) -> @location(0) vec4f {
 
   let mean = m1 / 9.0;
   let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
-  let gamma = 1.1;
+  // A slightly loose clip lets thin geometry (blades, spines) resolve smoothly
+  // instead of re-aliasing every time the history is clamped.
+  let gamma = 1.35;
   let lo = mean - sigma * gamma;
   let hi = mean + sigma * gamma;
 
@@ -115,7 +117,7 @@ fn fs(i: FSOut) -> @location(0) vec4f {
   let curW = toYCoCg(tonemapW(cur));
   // Faster response when moving quickly (less ghosting), slower when still.
   let speed = length(vel * size);
-  let alpha = mix(0.08, 0.25, clamp(speed / 8.0, 0.0, 1.0));
+  let alpha = mix(0.07, 0.25, clamp(speed / 8.0, 0.0, 1.0));
   let result = mix(hist, curW, alpha);
   return vec4f(untonemapW(fromYCoCg(result)), 1.0);
 }

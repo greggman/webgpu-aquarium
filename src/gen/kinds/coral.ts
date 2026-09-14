@@ -172,7 +172,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let broad = triplanarDetail(lp, nIn, 0.6);
   let cup = smoothstep(0.02, 0.3, polyps.g);
   let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
-  let bumped = bumpFromHeight(nIn, i.world, height, 0.035);
+  let bumped = bumpFromHeight(nIn, i.world, height, 0.06);
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -184,12 +184,16 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let along = i.uv.y;
       let gen = i.uv.z;
       let tip = smoothstep(0.75, 1.0, along) * (0.4 + 0.6 * gen);
-      var c = tint * mix(0.5, 1.05, clamp(along * 0.7 + gen * 0.5, 0.0, 1.0));
+      // Living tissue is richest mid-branch; the base is browner and older,
+      // the growing tips pale and slightly see-through.
+      let base = mix(tint * vec3f(0.7, 0.6, 0.5), tint, smoothstep(0.0, 0.45, along * 0.8 + gen * 0.4));
+      var c = base * mix(0.55, 1.05, clamp(along * 0.7 + gen * 0.5, 0.0, 1.0)) * (0.85 + 0.3 * broad.r);
       c = mix(c, mix(vec3f(0.95, 0.92, 0.85), accent, inst.params.y), tip * 0.75);
-      // Polyp cells are a touch darker.
-      c *= mix(0.72, 1.0, smoothstep(0.05, 0.35, i.uv.w));
+      // Polyp cups are darker pits.
+      c *= mix(0.6, 1.0, smoothstep(0.05, 0.35, i.uv.w)) * mix(0.8, 1.0, cup);
       s.albedo = c;
-      s.translucency = 0.25;
+      s.roughness = mix(0.8, 0.55, tip);
+      s.translucency = mix(0.2, 0.6, tip);
       s.emissive = accent * tip * inst.params.z * 0.25;
     }
     case ${CoralKind.Brain}u: {
