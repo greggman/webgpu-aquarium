@@ -168,11 +168,6 @@ fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
 
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let kind = u32(inst.params.w);
-  // Anything right against the lens dissolves instead of smearing the frame.
-  let camDist = length(frame.camPos - i.world);
-  if (ign(i.pos.xy, frame.frameIndex * 3u + i.instance) > smoothstep(0.3, 0.9, camDist)) {
-    discard;
-  }
   let tint = inst.color.rgb;
   let accent = palette(inst.color.a, vec3f(0.6), vec3f(0.4), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
   let lp = i.local * inst.posScale.w;
