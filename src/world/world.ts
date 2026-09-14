@@ -425,11 +425,11 @@ export function cameraSpots(
         const dx = x - pos[0];
         const dz = z - pos[2];
         const along = (dx * hx + dz * hz) / hl;
-        if (along < -0.5 || along > 5 || top < pos[1] - 1.2) {
+        if (along < -0.5 || along > 5 || (top < pos[1] - 1.2 && along > 1.5)) {
           return true;
         }
         const across = Math.abs(dx * hz - dz * hx) / hl;
-        return across > 0.9 + Math.max(along, 0) * 0.35;
+        return across > 1.2 + Math.max(along, 0) * 0.6;
       })
     );
   };

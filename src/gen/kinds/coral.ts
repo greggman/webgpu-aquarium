@@ -48,12 +48,15 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   // Evenly spaced valleys (a stripe field bent by noise) rather than noise
   // level lines, which come out as irregular map-like blotches.
   let stripeDir = normalize(vec3f(sin(pat.p2.x), 0.3 * cos(pat.p2.y), cos(pat.p2.x)));
-  let field = dot(dir, stripeDir) * pat.p1.y * 3.2 + fbm3(q * 0.8, 3) * 7.0 + fbm3(q * 2.0, 2) * 1.6;
+  // Few enough valleys that the mesh resolves each one smoothly.
+  let field = dot(dir, stripeDir) * pat.p1.y * 2.4 + fbm3(q * 0.8, 3) * 5.5 + fbm3(q * 2.0, 2) * 1.2;
   // Rounded ridges and valleys of similar width, like real meandroid coral
   // (thin sharp ridges read as painted contour lines).
   let ridge = smoothstep(-0.75, 0.75, sin(field));
   let rim = smoothstep(0.0, 0.25, uv.y);
-  p += dir * (ridge * pat.p1.z * rim + fbm3(q * 0.7, 2) * 0.08);
+  // Gentle mesh relief (the ridges are finer than the grid can hold; strong
+  // displacement stair-steps); the shading bump carries the detail.
+  p += dir * (ridge * pat.p1.z * 0.35 * rim + fbm3(q * 0.7, 2) * 0.08);
   // Slight flare and sink at the base.
   p.y -= (1.0 - rim) * 0.1 * pat.p0.y;
   var o = sp(p, vec4f(uv, ridge, 0.0));
@@ -187,8 +190,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let thin = kind == ${CoralKind.Whip}u || kind == ${CoralKind.Branching}u;
   // Massive heads: the meander ridges themselves also drive the bump, so the
   // relief reads at pixel scale (not just as colour).
-  let brainRidge = select(0.0, i.uv.z * 1.5, kind == ${CoralKind.Brain}u);
-  let bumped = bumpFromHeight(nIn, i.world, height + brainRidge, select(0.12, 0.02, thin));
+  // (Faded with distance: finer than a few pixels the ridges alias into stripes.)
+  let brainNear = smoothstep(9.0, 2.5, length(frame.camPos - i.world));
+  let brainRidge = select(0.0, i.uv.z * 1.5 * brainNear, kind == ${CoralKind.Brain}u);
+  let bumped = bumpFromHeight(nIn, i.world, height + brainRidge * 1.2, select(0.12, 0.02, thin));
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -223,13 +228,13 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
     case ${CoralKind.Brain}u: {
       let ridge = i.uv.z;
       // Grooves only slightly darker in albedo; the relief and AO carry the rest.
-      let groove = mix(tint * 0.75, accent * 0.6, 0.15);
+      // Same hue in grooves and on crests: only brightness differs.
+      let groove = tint * 0.9;
       // Stripe contrast fades with distance, where the meanders are too fine
       // to read as relief and would otherwise alias into zebra print.
-      let near = smoothstep(9.0, 3.0, length(frame.camPos - i.world));
-      let ridgeC = mix(0.6, ridge, near);
+      let ridgeC = mix(0.6, ridge, brainNear);
       s.albedo = mix(groove, tint * (0.85 + 0.3 * fine.r), ridgeC) * (0.9 + 0.2 * polyps.r);
-      s.ao *= mix(0.72, 1.0, ridgeC);
+      s.ao *= mix(0.86, 1.0, ridgeC);
       // A thin wet sheen on the ridge crests.
       s.roughness = mix(0.8, 0.45, ridge);
       s.translucency = 0.1;
@@ -766,7 +771,8 @@ export async function createCoral(
     }
     for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.1);
+      // Plates tilt toward the light and away from the slope.
+      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.45);
     }
     for (let i = 0; i < ctx.count(rng.int(3, 6) * density * area); i++) {
       const [x, z] = inCluster(1.1);
