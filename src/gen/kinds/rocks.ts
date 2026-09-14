@@ -134,6 +134,30 @@ export async function createRocks(
       radius: 1.6,
     });
   }
+  // Pillars: tall, lumpy columns for bommies, with only a few broad ledges so
+  // they read as eroded reef heads rather than stacked plates.
+  const PILLARS = 4;
+  for (let v = 0; v < PILLARS; v++) {
+    variants.push({
+      patches: [
+        {
+          segU: hi ? 96 : 40,
+          segV: hi ? 96 : 36,
+          params: [
+            rng.range(0.8, 1.0),
+            rng.range(1.6, 2.0),
+            rng.range(0.8, 1.0),
+            rng.range(0.4, 0.55),
+            rng.range(-50, 50),
+            rng.range(-50, 50),
+            rng.range(-50, 50),
+            rng.range(0.8, 1.3),
+          ],
+        },
+      ],
+      radius: 2.6,
+    });
+  }
   const mesh = await buildMesh(
     renderer.device,
     'rocks',
@@ -155,6 +179,7 @@ export async function createRocks(
     sink: number,
     growth: number,
     onTop = false,
+    pillar = false,
   ) => {
     // Stacked rocks sit on whatever is already there (terrain or other rocks).
     const base = onTop ? ctx.surfaceTop(x, z) : ctx.groundY(x, z);
@@ -167,9 +192,21 @@ export async function createRocks(
       rot: quatUpYaw(up, rng.range(0, Math.PI * 2)),
       color: tint(),
       params: [growth, 0, 0, 0],
-      variant: rng.int(0, VARIANTS - 1),
+      variant: pillar
+        ? VARIANTS + rng.int(0, PILLARS - 1)
+        : rng.int(0, VARIANTS - 1),
     });
-    if (scale > 1.2) {
+    if (pillar) {
+      ctx.occupied.add(x, z, scale * 0.9);
+      // A stack of spheres up the column, so the camera, fish and the coral
+      // that encrusts its top all see its real height.
+      for (const k of [0.1, 0.8, 1.45]) {
+        ctx.obstacles.push({
+          center: [x, y + scale * k, z],
+          radius: scale * 0.95,
+        });
+      }
+    } else if (scale > 1.2) {
       ctx.occupied.add(x, z, scale * 0.9);
       ctx.obstacles.push({
         center: [x, y + scale * 0.2, z],
@@ -178,37 +215,39 @@ export async function createRocks(
     }
   };
 
-  // Bommies: at the most important reef clusters, a tall column of stacked
-  // boulders rises above head height. It tapers upward like an eroded pinnacle
-  // (broad footing, narrowing tiers) with the stones jittered sideways so the
-  // flanks get ledges and dark undercuts; coral later encrusts its top.
+  // Bommies: at the most important reef clusters, a coral head rises well
+  // above head height: a tall lumpy pillar with boulders buttressing its foot
+  // and a smaller head perched off-centre on top, so its silhouette has a
+  // shoulder and an overhang. Coral later encrusts its top and ledges.
   for (const c of ctx.clusters.slice(0, 3)) {
     const cx = c.x + rng.range(-1, 1);
     const cz = c.z + rng.range(-1, 1);
-    const tiers = c.rank === 0 ? 4 : 3;
-    let spread = rng.range(1.8, 2.4);
-    // The column leans slightly, as if undercut by the current on one side.
-    const leanA = rng.range(0, Math.PI * 2);
-    const lean = rng.range(0.15, 0.4);
-    for (let tier = 0; tier < tiers; tier++) {
-      const stones = tier === 0 ? rng.int(4, 5) : tier === tiers - 1 ? 1 : 2;
-      const ox = cx + Math.cos(leanA) * lean * tier;
-      const oz = cz + Math.sin(leanA) * lean * tier;
-      for (let s = 0; s < stones; s++) {
-        const a = rng.range(0, Math.PI * 2);
-        const r =
-          (stones === 1 ? rng.range(0, 0.3) : rng.range(0.35, 1)) * spread;
-        const scale = rng.range(1.7, 2.4) * (1 - tier * 0.17);
-        place(
-          ox + Math.cos(a) * r,
-          oz + Math.sin(a) * r,
-          scale,
-          tier === 0 ? 0.3 : 0.5,
-          1,
-          tier > 0,
-        );
-      }
-      spread *= rng.range(0.5, 0.65);
+    const big = c.rank === 0;
+    const scale = rng.range(1.6, 2.0) * (big ? 1.15 : 0.9);
+    place(cx, cz, scale, 0.25, 1, false, true);
+    const buttresses = rng.int(3, 5);
+    for (let s = 0; s < buttresses; s++) {
+      const a = (s / buttresses) * Math.PI * 2 + rng.range(-0.4, 0.4);
+      const r = scale * rng.range(0.9, 1.3);
+      place(
+        cx + Math.cos(a) * r,
+        cz + Math.sin(a) * r,
+        scale * rng.range(0.45, 0.7),
+        0.35,
+        1,
+      );
+    }
+    if (big || rng.bool(0.5)) {
+      const a = rng.range(0, Math.PI * 2);
+      place(
+        cx + Math.cos(a) * scale * 0.45,
+        cz + Math.sin(a) * scale * 0.45,
+        scale * rng.range(0.5, 0.6),
+        0.4,
+        1,
+        true,
+        true,
+      );
     }
   }
 

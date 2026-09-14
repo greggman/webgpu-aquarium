@@ -583,7 +583,9 @@ fn fs(i: VOut) -> FOut {
   // (The detail texture's blue channel is sand ripples: keep it off rock.)
   // (Fine grain stays out of the bump: at a distance it becomes pixel noise.)
   let reefAmt = smoothstep(0.3, 0.7, m.g) * rockW;
-  let rockN = rockBump(n, p, reefAmt, 0.3, clamp(camDist * 0.002, 0.015, 0.4));
+  // A pixel's footprint stretches at grazing angles; widen the taps to match.
+  let grazing = max(abs(dot(n, normalize(frame.camPos - p))), 0.15);
+  let rockN = rockBump(n, p, reefAmt, 0.3, clamp(camDist * 0.002 / grazing, 0.015, 0.6));
   n = normalize(mix(sandN, rockN, rockW));
 
   // Sand: warm, with darker patches of debris and fine speckle.

@@ -700,11 +700,11 @@ export async function createCoral(
     };
     // Area-proportional counts so big clusters are as lush as small ones.
     const area = (c.radius * c.radius) / 25;
-    for (let i = 0; i < Math.round(rng.int(4, 7) * density * area); i++) {
+    for (let i = 0; i < Math.round(rng.int(6, 9) * density * area); i++) {
       const [x, z] = inCluster(0.9);
       place(CoralKind.Brain, x, z, rng.range(0.7, 1.7));
     }
-    for (let i = 0; i < ctx.count(rng.int(9, 15) * density * area); i++) {
+    for (let i = 0; i < ctx.count(rng.int(6, 10) * density * area); i++) {
       const [x, z] = inCluster(1);
       place(CoralKind.Branching, x, z, rng.range(0.55, 1.35));
     }
@@ -769,7 +769,7 @@ export async function createCoral(
         CoralKind.Whip,
         CoralKind.Table,
       ],
-      [4, 1, 2, 3, 1],
+      [2, 3, 2, 2, 1],
     );
     // Mixed scales (many small, a few large) so the carpet never tiles.
     const scale = 0.3 + Math.pow(rng.float(), 2.2) * 1.2;
