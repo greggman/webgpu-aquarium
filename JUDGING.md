@@ -397,3 +397,15 @@ What works: surface views, sand caustics, depth layering, seed3-reef composition
 Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
 Gaps: brain coral zebra stripes at mid distance; blanket terrain mounds; lily-pad tables on open sand; kelp walls and hairy far kelp; sparse fish at focal points; seed 2 monotone; foreground texture smear, sand stain, kelp cutouts.
 Works: shafts and sun disc, sand caustics, near brain coral relief, rounded branch coral, distance absorption, stability, bait ball and ray.
+
+## Review 18 — FAIL (avg 6.7)
+
+Scores: lighting 7, water 7, caustics 7, materials 6, geometry 6, life 7, composition 7, variety 7, artifacts 6.
+Gaps: brain coral zebra colour and stair-stepped mesh relief; lily-pad plate corals (need tilt, stalk, dark underside); kelp camera walls; sea-whip tips still crossing the lens; empty focal points; paper-cup barrel sponges and blanket mounds; seed 2 violet-on-blue.
+Works: surface shots, backlit kelp canopy, sand caustics with rubble, bait balls and jellies, deep-blue identity, temporal stability.
+
+## Mobile tier review (mobile18) — FAIL (avg 6.2; bar: all ≥6)
+
+Scores: lighting 7, water 7, caustics 5, materials 6, geometry 6, life 6, composition 7, variety 6, artifacts 6.
+Gaps: caustics nearly invisible (smaller caustics texture blurred by the shared mip bias — fixed with a per-size bias); smeared foreground terrain; blobby low-res mounds; sticker-like coral heads; seeds 1/3 similar; few close fish.
+Works: kelp forests top-tier for mobile, surface views, shafts and fog survive the mobile cuts.
