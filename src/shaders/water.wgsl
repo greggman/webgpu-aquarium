@@ -63,7 +63,15 @@ fn applyWater(color: vec3f, worldPos: vec3f) -> vec3f {
   let dir = toP / max(dist, 1e-4);
   let T = waterTransmittance(dist);
   let ymid = mix(frame.camPos.y, worldPos.y, 0.5);
-  return color * T + inscatterColor(ymid, dir) * (1.0 - T);
+  var c = color * T + inscatterColor(ymid, dir) * (1.0 - T);
+  // Far away, dissolve into exactly the open-water backdrop so distant ridges
+  // and sunlit slopes never silhouette as a painted cut-out.
+  let typical = 1.0 / max(extinction().g, 1e-3);
+  let far = smoothstep(typical * 1.4, typical * 3.0, dist);
+  if (far > 0.0) {
+    c = mix(c, waterBackground(dir), far);
+  }
+  return c;
 }
 
 /** What you see along `dir` when nothing is in the way. */
