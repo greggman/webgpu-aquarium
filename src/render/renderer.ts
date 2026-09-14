@@ -29,6 +29,17 @@ export interface FrameContext {
   targets: Targets;
   time: number;
   dt: number;
+  view: CullView;
+}
+
+/** What systems need for CPU-side visibility culling. */
+export interface CullView {
+  camPos: Float32Array;
+  /** Unjittered camera view-projection. */
+  viewProj: Float32Array;
+  shadowViewProj: Float32Array;
+  /** Beyond this the water hides everything. */
+  maxDistance: number;
 }
 
 /** Anything that renders. All hooks are optional. */
@@ -183,6 +194,14 @@ export class Renderer {
     }
   }
 
+  /** Updated by the frame loop before render(). */
+  readonly cullView: CullView = {
+    camPos: new Float32Array(3),
+    viewProj: new Float32Array(16),
+    shadowViewProj: new Float32Array(16),
+    maxDistance: 80,
+  };
+
   render(time: number, dt: number) {
     const d = this.device;
     const g = this.globals;
@@ -195,6 +214,7 @@ export class Renderer {
       targets: this.targets,
       time,
       dt,
+      view: this.cullView,
     };
     for (const s of this.systems) {
       s.update?.(ctx);

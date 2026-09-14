@@ -12,6 +12,7 @@ import {
   DEPTH_FORMAT,
   HDR_FORMAT,
   VELOCITY_FORMAT,
+  type CullView,
   type Renderer,
   type RenderSystem,
 } from './renderer.ts';
@@ -247,20 +248,116 @@ export async function createPropKind(
     }),
   ]);
 
+  // Instances are kept on the CPU, sorted by variant. Each frame the ones the
+  // camera or the shadow map can see are copied into the GPU buffer: first the
+  // camera-visible set, then the shadow-visible set, each grouped by variant.
   const {data, ranges} = packInstances(o.instances);
+  const FLOATS = INSTANCE_SIZE / 4;
+  const count = Math.max(1, o.instances.length);
+  const variantOf = new Uint16Array(count);
+  const radiusOf = new Float32Array(count);
+  ranges.forEach((r, v) => {
+    const vr = o.mesh.variants[v]?.radius ?? 1;
+    for (let i = r.first; i < r.first + r.count; i++) {
+      variantOf[i] = v;
+      radiusOf[i] = vr * data[i * FLOATS + 3];
+    }
+  });
+  const visible = new Float32Array(count * 2 * FLOATS);
   const instanceBuf = device.createBuffer({
     label: `${o.name}:instances`,
-    size: data.byteLength,
+    size: visible.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(instanceBuf, 0, data);
   const bindGroup = device.createBindGroup({
     label: `${o.name}:bind-group`,
     layout: localLayout,
     entries: [{binding: 0, resource: {buffer: instanceBuf}}],
   });
+  const variantCount = ranges.length;
+  const camRanges = ranges.map(() => ({first: 0, count: 0}));
+  const shadowRanges = ranges.map(() => ({first: 0, count: 0}));
+  const castShadows = o.castShadows !== false;
 
-  const draw = (pass: GPURenderPassEncoder, p: GPURenderPipeline) => {
+  const cull = (view: CullView) => {
+    const m = view.viewProj;
+    const sm = view.shadowViewProj;
+    const cp = view.camPos;
+    const maxD2 = view.maxDistance * view.maxDistance;
+    let cursor = 0;
+    // Camera pass.
+    for (let v = 0; v < variantCount; v++) {
+      const r = ranges[v];
+      camRanges[v].first = cursor;
+      for (let i = r.first; i < r.first + r.count; i++) {
+        const b = i * FLOATS;
+        const x = data[b];
+        const y = data[b + 1];
+        const z = data[b + 2];
+        const rad = radiusOf[i];
+        const dx = x - cp[0];
+        const dy = y - cp[1];
+        const dz = z - cp[2];
+        if (dx * dx + dy * dy + dz * dz > maxD2 + rad * rad * 4) {
+          continue;
+        }
+        // Clip-space sphere test against the side planes (w = distance ahead).
+        const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+        const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+        const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+        const pad = rad * 1.5;
+        if (
+          cw < -pad ||
+          cx > cw * 1.05 + pad * 1.2 ||
+          cx < -cw * 1.05 - pad * 1.2 ||
+          cy > cw * 1.05 + pad * 1.2 ||
+          cy < -cw * 1.05 - pad * 1.2
+        ) {
+          continue;
+        }
+        visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
+        cursor++;
+      }
+      camRanges[v].count = cursor - camRanges[v].first;
+    }
+    // Shadow pass: inside the orthographic shadow box.
+    for (let v = 0; v < variantCount; v++) {
+      const r = ranges[v];
+      shadowRanges[v].first = cursor;
+      if (castShadows) {
+        for (let i = r.first; i < r.first + r.count; i++) {
+          const b = i * FLOATS;
+          const x = data[b];
+          const y = data[b + 1];
+          const z = data[b + 2];
+          const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
+          const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
+          const pad = radiusOf[i] * Math.abs(sm[0]) * 1.5;
+          if (Math.abs(sx) > 1 + pad || Math.abs(sy) > 1 + pad) {
+            continue;
+          }
+          visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
+          cursor++;
+        }
+      }
+      shadowRanges[v].count = cursor - shadowRanges[v].first;
+    }
+    if (cursor) {
+      device.queue.writeBuffer(
+        instanceBuf,
+        0,
+        visible.buffer,
+        0,
+        cursor * INSTANCE_SIZE,
+      );
+    }
+  };
+
+  const draw = (
+    pass: GPURenderPassEncoder,
+    p: GPURenderPipeline,
+    list: {first: number; count: number}[],
+  ) => {
     if (!o.instances.length) {
       return;
     }
@@ -268,7 +365,7 @@ export async function createPropKind(
     pass.setBindGroup(1, bindGroup);
     pass.setVertexBuffer(0, o.mesh.vertexBuffer);
     pass.setIndexBuffer(o.mesh.indexBuffer, 'uint32');
-    ranges.forEach((r, v) => {
+    list.forEach((r, v) => {
       const mv = o.mesh.variants[v];
       if (r.count && mv) {
         pass.drawIndexed(mv.indexCount, r.count, mv.firstIndex, 0, r.first);
@@ -278,9 +375,11 @@ export async function createPropKind(
 
   return {
     name: o.name,
-    drawOpaque: pass => draw(pass, pipeline),
-    drawShadow:
-      o.castShadows === false ? undefined : pass => draw(pass, shadowPipeline),
+    update: ctx => cull(ctx.view),
+    drawOpaque: pass => draw(pass, pipeline, camRanges),
+    drawShadow: castShadows
+      ? pass => draw(pass, shadowPipeline, shadowRanges)
+      : undefined,
   };
 }
 

@@ -583,6 +583,20 @@ export async function createCoral(
   for (let i = 0; i < 3; i++) add(tableVariant(rng, aux, hi));
   for (let i = 0; i < 4; i++) add(spongeVariant(rng, hi));
   for (let i = 0; i < 4; i++) add(whipVariant(rng, aux, hi));
+  // Low-detail variants for the dense reef carpet: small on screen, so they
+  // don't need many vertices.
+  const lowKind = new Map<CoralKind, number[]>();
+  const addLow = (v: VariantInfo) => {
+    lowKind.set(v.kind, [...(lowKind.get(v.kind) ?? []), variants.length]);
+    variants.push(v);
+  };
+  for (const style of ['finger', 'bush', 'staghorn'] as const) {
+    addLow(branchingVariant(rng, aux, style, false));
+  }
+  for (let i = 0; i < 3; i++) addLow(brainVariant(rng, false));
+  for (let i = 0; i < 2; i++) addLow(spongeVariant(rng, false));
+  for (let i = 0; i < 2; i++) addLow(whipVariant(rng, aux, false));
+  addLow(tableVariant(rng, aux, false));
 
   const mesh = await buildMesh(
     renderer.device,
@@ -608,8 +622,9 @@ export async function createCoral(
     z: number,
     scale: number,
     lean = 0.25,
+    low = false,
   ) => {
-    const list = byKind.get(kind)!;
+    const list = (low ? lowKind : byKind).get(kind)!;
     const variant = rng.pick(list);
     const n = ctx.terrain.normalAt(x, z);
     const y = ctx.surfaceTop(x, z) - 0.04 * scale;
@@ -707,19 +722,28 @@ export async function createCoral(
 
   // A scattering of lone coral heads and sponges across reef-mask ground.
   const center = ctx.nav.o.center;
-  for (let i = 0; i < ctx.count(400); i++) {
+  // Carpet the reef zones (ridge crests and flanks) so coral grows up the
+  // slopes, not just in clumps on flat sand.
+  for (let i = 0; i < ctx.count(9000); i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = Math.sqrt(rng.float()) * (ctx.desc.terrain.basinRadius + 10);
     const x = center[0] + Math.cos(a) * r;
     const z = center[1] + Math.sin(a) * r;
-    if (rng.float() > ctx.terrain.maskAt(1, x, z) * 0.9 + 0.05) {
+    const reef = ctx.terrain.maskAt(1, x, z);
+    if (rng.float() > reef * reef * 0.95 + 0.02) {
       continue;
     }
     const kind = rng.weighted(
-      [CoralKind.Branching, CoralKind.Brain, CoralKind.Sponge, CoralKind.Whip],
-      [3, 2, 2, 3],
+      [
+        CoralKind.Branching,
+        CoralKind.Brain,
+        CoralKind.Sponge,
+        CoralKind.Whip,
+        CoralKind.Table,
+      ],
+      [3, 3, 2, 2, 1],
     );
-    place(kind, x, z, rng.range(0.6, 1.3));
+    place(kind, x, z, rng.range(0.4, 1.0), 0.5, true);
   }
 
   return createPropKind(renderer, {

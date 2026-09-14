@@ -27,7 +27,7 @@ export const TerrainParams = defineStruct('TerrainParams', {
   warp: 'f32',
   surfaceY: 'f32',
   outcropScale: 'f32',
-  pad: 'f32',
+  spurHeight: 'f32',
 });
 
 export interface TerrainSettings {
@@ -45,6 +45,8 @@ export interface TerrainSettings {
   warp: number;
   surfaceY: number;
   outcropScale: number;
+  /** Height of the spur-and-groove reef ridges leading to the drop-off. */
+  spurHeight: number;
 }
 
 export function randomTerrainSettings(
@@ -66,6 +68,7 @@ export function randomTerrainSettings(
     warp: rng.range(0.6, 1.2),
     surfaceY,
     outcropScale: rng.range(0.8, 1.25),
+    spurHeight: rng.range(2.5, 4.5),
   };
 }
 
@@ -74,6 +77,28 @@ ${noise}
 ${TerrainParams.wgsl}
 @group(0) @binding(0) var<uniform> P: TerrainParams;
 @group(0) @binding(1) var<storage, read_write> heights: array<f32>;
+
+
+/**
+ * Spur-and-groove reef: parallel coral ridges running toward the gap in the
+ * rim, separated by sand channels, ending at the drop-off. Returns the ridge
+ * height factor (0 in channels and outside the zone, 1 on ridge crests).
+ */
+fn spurMask(p: vec2f) -> f32 {
+  let gapDir = vec2f(cos(P.gapAngle), sin(P.gapAngle));
+  let side = vec2f(-gapDir.y, gapDir.x);
+  let d = p - P.center;
+  let along = dot(d, gapDir);
+  let across = dot(d, side);
+  let R = P.basinRadius;
+  let zone = smoothstep(-R * 0.25, R * 0.25, along) *
+    smoothstep(R * 1.0, R * 0.75, along) *
+    smoothstep(R * 0.85, R * 0.35, abs(across));
+  // Grooves wander a little and are spaced ~10 m apart.
+  let groove = across * 0.62 + fbm2(p * 0.04 + 5.0, 3) * 2.6;
+  let crest = pow(0.5 + 0.5 * sin(groove), 1.6);
+  return zone * crest;
+}
 
 fn basinHeight(p: vec2f) -> f32 {
   let warpV = vec2f(fbm2(p * 0.008, 3), fbm2(p * 0.008 + vec2f(41.0, 17.0), 3));
@@ -94,6 +119,9 @@ fn basinHeight(p: vec2f) -> f32 {
   let outcropMask = smoothstep(0.5, 0.9, rid) * smoothstep(0.1, 0.35, fbm2(q * 0.015 + 3.0, 3) + 0.25);
   let mound = outcropMask * outcropMask * (3.0 - 2.0 * outcropMask);
   h += mound * 3.2 * P.rockiness * (0.7 + 0.5 * fbm2(q * 0.06, 2));
+
+  // Spur-and-groove ridges toward the drop-off.
+  h += spurMask(p) * P.spurHeight * (0.75 + 0.35 * fbm2(p * 0.07 + 9.0, 3));
 
   // Ring of cliffs.
   let angle = atan2(d.y, d.x);
@@ -142,6 +170,28 @@ ${TerrainParams.wgsl}
 @group(0) @binding(4) var dataTex: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(5) var maskTex: texture_storage_2d<rgba8unorm, write>;
 
+
+/**
+ * Spur-and-groove reef: parallel coral ridges running toward the gap in the
+ * rim, separated by sand channels, ending at the drop-off. Returns the ridge
+ * height factor (0 in channels and outside the zone, 1 on ridge crests).
+ */
+fn spurMask(p: vec2f) -> f32 {
+  let gapDir = vec2f(cos(P.gapAngle), sin(P.gapAngle));
+  let side = vec2f(-gapDir.y, gapDir.x);
+  let d = p - P.center;
+  let along = dot(d, gapDir);
+  let across = dot(d, side);
+  let R = P.basinRadius;
+  let zone = smoothstep(-R * 0.25, R * 0.25, along) *
+    smoothstep(R * 1.0, R * 0.75, along) *
+    smoothstep(R * 0.85, R * 0.35, abs(across));
+  // Grooves wander a little and are spaced ~10 m apart.
+  let groove = across * 0.62 + fbm2(p * 0.04 + 5.0, 3) * 2.6;
+  let crest = pow(0.5 + 0.5 * sin(groove), 1.6);
+  return zone * crest;
+}
+
 fn H(x: i32, y: i32) -> f32 {
   let s = i32(P.size);
   let cx = clamp(x, 0, s - 1);
@@ -188,7 +238,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var rock = smoothstep(0.12, 0.35, slope) + smoothstep(0.0, -0.25, lap) * 0.6;
   rock = clamp(rock + (fbm2(p * 0.07, 3)) * 0.3, 0.0, 1.0);
   // Reef zones: mid-depth patches near rocks.
-  let reef = clamp(smoothstep(-0.1, 0.35, fbm2(p * 0.025 + 19.0, 4)) * (1.0 - smoothstep(0.55, 0.9, slope)), 0.0, 1.0);
+  var reef = clamp(smoothstep(-0.1, 0.35, fbm2(p * 0.025 + 19.0, 4)) * (1.0 - smoothstep(0.55, 0.9, slope)), 0.0, 1.0);
+  // Ridge crests and flanks of the spur-and-groove zone are prime reef.
+  reef = max(reef, smoothstep(0.25, 0.7, spurMask(p)));
   // Kelp/seagrass zones: sandy, flatter, different patches.
   let kelp = clamp(smoothstep(0.0, 0.3, fbm2(p * 0.02 + 71.0, 3)) * (1.0 - rock), 0.0, 1.0);
   let moss = clamp(rock * smoothstep(0.55, 0.95, n.y) + fbm2(p * 0.2, 2) * 0.2, 0.0, 1.0);
@@ -489,7 +541,7 @@ fn fs(i: VOut) -> FOut {
   let sandN = normalize(vec3f(n.x - sandGrad.x, n.y, n.z - sandGrad.y));
   // Rock normal: perturb along noise-derived tangent directions.
   // Rock relief: layered height from the detail textures, as a true bump map.
-  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 - (1.0 - smoothstep(0.02, 0.2, c0)) * 0.6;
+  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 + tri.b * 0.3;
   let rockN = bumpFromHeight(n, p, rockHeight, 0.35);
   n = normalize(mix(sandN, rockN, rockW));
 
@@ -498,8 +550,9 @@ fn fs(i: VOut) -> FOut {
   var sandCol = mix(vec3f(0.62, 0.53, 0.40), vec3f(0.86, 0.78, 0.62), smoothstep(0.25, 0.75, broad.r));
   sandCol *= (0.9 + 0.2 * sandDetail.a) * (0.94 + 0.1 * r0) * (1.0 - speckle * 0.35);
   // Rock: dark stone, crevices darker still.
-  var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.6 + 0.55 * c0);
-  rockCol *= mix(0.35, 1.0, smoothstep(0.08, 0.45, c0));
+  // Layered stone tones from smooth noise (no cell pattern, which tiles into a honeycomb).
+  var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.7 + 0.4 * triFine.r);
+  rockCol *= mix(0.6, 1.0, smoothstep(0.3, 0.7, tri.b + triFine.a * 0.3));
   // Encrusting growth: green algae, pink/orange coralline algae, purple sponge.
   let hueSel = triplanar(p, n, 0.045).r;
   let algae = vec3f(0.16, 0.26, 0.08);
@@ -515,7 +568,7 @@ fn fs(i: VOut) -> FOut {
   s.albedo = mix(sandCol, rockCol, rockW);
   s.roughness = mix(0.92, 0.75, rockW);
   s.normal = n;
-  s.ao = t.a * mix(1.0, 0.55 + 0.45 * smoothstep(0.1, 0.6, c0), rockW);
+  s.ao = t.a * mix(1.0, 0.6 + 0.4 * smoothstep(0.2, 0.7, tri.r), rockW);
   s.f0 = 0.03;
 
   let lit = shadeSurface(s, p, -1.0);

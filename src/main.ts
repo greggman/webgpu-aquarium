@@ -240,6 +240,8 @@ async function main() {
   window.__aquarium.presets = Object.keys(spots.presets);
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;
+  window.__aquarium.terrain = terrain.cpu;
+  window.__aquarium.desc = desc;
   window.__aquarium.anemones = gen.anemones;
 
   const view = mat4.create();
@@ -344,6 +346,9 @@ async function main() {
     g.set('viewProjNoJitter', viewProj);
     g.set('prevViewProjNoJitter', prevViewProj);
     g.set('shadowViewProj', shadow.viewProj);
+    renderer.cullView.camPos.set(pose.pos);
+    renderer.cullView.viewProj.set(viewProj);
+    renderer.cullView.shadowViewProj.set(shadow.viewProj);
     g.set('camPos', pose.pos);
     g.set('time', clock.time);
     g.set('sunDir', desc.sunDir);
