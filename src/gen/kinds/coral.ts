@@ -642,7 +642,18 @@ export async function createCoral(
     const list = (low ? lowKind : byKind).get(kind)!;
     const variant = rng.pick(list);
     const n = ctx.terrain.normalAt(x, z);
-    const y = ctx.surfaceTop(x, z) - 0.04 * scale;
+    const vi = variants[variant];
+    // Massive heads grow up out of the substrate: bury their base (and seat
+    // them along the slope) so no dark underside or floating rim shows.
+    const massive = kind === CoralKind.Brain || kind === CoralKind.Sponge;
+    if (massive) {
+      lean = Math.max(lean, 0.7);
+    }
+    const slope = Math.hypot(n[0], n[2]) / Math.max(n[1], 0.2);
+    const sink = massive
+      ? vi.height * scale * 0.22 + vi.radius * scale * slope * 0.5
+      : 0.04 * scale;
+    const y = ctx.surfaceTop(x, z) - sink;
     instances.push({
       pos: [x, y, z],
       scale,
@@ -664,7 +675,7 @@ export async function createCoral(
       variant,
     });
     // Big coral heads are solid to the camera and to fish.
-    const v = variants[variant];
+    const v = vi;
     const solid =
       kind === CoralKind.Brain ||
       kind === CoralKind.Table ||
@@ -689,7 +700,7 @@ export async function createCoral(
     const area = (c.radius * c.radius) / 25;
     for (let i = 0; i < Math.round(rng.int(4, 7) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Brain, x, z, rng.range(0.8, 2.2));
+      place(CoralKind.Brain, x, z, rng.range(0.7, 1.7));
     }
     for (let i = 0; i < ctx.count(rng.int(9, 15) * density * area); i++) {
       const [x, z] = inCluster(1);

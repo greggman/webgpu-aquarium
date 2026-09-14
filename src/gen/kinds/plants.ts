@@ -107,8 +107,10 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let along = i.uv.y;
   switch (part) {
     case ${Part.Stipe}u: {
-      s.albedo = tint * 0.55;
-      s.translucency = 0.3;
+      // Olive-brown, ropey stipes (warmer than the blades so they don't go blue
+      // in silhouette against the water).
+      s.albedo = tint * vec3f(0.85, 0.66, 0.42) * (0.9 + 0.2 * veins);
+      s.translucency = 0.5;
       s.roughness = 0.5;
     }
     case ${Part.Bladder}u: {

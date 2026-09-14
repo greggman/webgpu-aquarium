@@ -96,8 +96,13 @@ fn spurMask(p: vec2f) -> f32 {
     smoothstep(R * 0.85, R * 0.35, abs(across));
   // Grooves wander a little and are spaced ~10 m apart.
   let groove = across * 0.62 + fbm2(p * 0.04 + 5.0, 3) * 2.6;
-  let crest = pow(0.5 + 0.5 * sin(groove), 1.6);
-  return zone * crest;
+  // Rounded, knobbly crests: the ridge breaks into coalescing coral heads
+  // along its length rather than running as a clean wedge.
+  let wave = 0.5 + 0.5 * sin(groove);
+  let rounded = smoothstep(0.15, 0.95, wave);
+  let knobs = 0.65 + 0.35 * smoothstep(-0.35, 0.35, fbm2(vec2f(along * 0.16, across * 0.05) + 13.0, 3));
+  let lumps = 1.0 + fbm2(p * 0.32 + 21.0, 2) * 0.35;
+  return zone * rounded * knobs * lumps;
 }
 
 fn basinHeight(p: vec2f) -> f32 {
@@ -188,8 +193,13 @@ fn spurMask(p: vec2f) -> f32 {
     smoothstep(R * 0.85, R * 0.35, abs(across));
   // Grooves wander a little and are spaced ~10 m apart.
   let groove = across * 0.62 + fbm2(p * 0.04 + 5.0, 3) * 2.6;
-  let crest = pow(0.5 + 0.5 * sin(groove), 1.6);
-  return zone * crest;
+  // Rounded, knobbly crests: the ridge breaks into coalescing coral heads
+  // along its length rather than running as a clean wedge.
+  let wave = 0.5 + 0.5 * sin(groove);
+  let rounded = smoothstep(0.15, 0.95, wave);
+  let knobs = 0.65 + 0.35 * smoothstep(-0.35, 0.35, fbm2(vec2f(along * 0.16, across * 0.05) + 13.0, 3));
+  let lumps = 1.0 + fbm2(p * 0.32 + 21.0, 2) * 0.35;
+  return zone * rounded * knobs * lumps;
 }
 
 fn H(x: i32, y: i32) -> f32 {
@@ -547,7 +557,8 @@ fn fs(i: VOut) -> FOut {
   // Rock normal: perturb along noise-derived tangent directions.
   // Rock relief: layered height from the detail textures, as a true bump map.
   // (The detail texture's blue channel is sand ripples: keep it off rock.)
-  let rockHeight = tri.r * 1.2 + triFine.a * 0.35 + triFine.r * 0.3;
+  // (Fine grain stays out of the bump: at a distance it becomes pixel noise.)
+  let rockHeight = tri.r * 1.2 + triFine.r * 0.3 + triFine.a * 0.08 * smoothstep(12.0, 3.0, camDist);
   let rockN = bumpFromHeight(n, p, rockHeight, 0.35);
   n = normalize(mix(sandN, rockN, rockW));
 
@@ -557,30 +568,31 @@ fn fs(i: VOut) -> FOut {
   sandCol *= (0.9 + 0.2 * sandDetail.a) * mix(0.94 + 0.1 * r0, 0.99, smoothstep(15.0, 40.0, camDist)) * (1.0 - speckle * 0.35);
   // Rock: dark stone, crevices darker still.
   // Layered stone tones from smooth noise (no cell pattern, which tiles into a honeycomb).
-  var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.7 + 0.4 * triFine.r);
+  var rockCol = mix(vec3f(0.17, 0.15, 0.13), vec3f(0.36, 0.32, 0.27), tri.r) * (0.8 + 0.25 * triFine.r);
   rockCol *= mix(0.6, 1.0, smoothstep(0.3, 0.7, broad.r * 0.7 + triFine.a * 0.3));
   // Encrusting growth: green algae, pink/orange coralline algae, purple sponge.
   let hueSel = triplanar(p, n, 0.045).r;
-  let algae = vec3f(0.16, 0.26, 0.08);
+  // Short algal turf is olive-brown, not lawn green.
+  let algae = vec3f(0.21, 0.21, 0.1);
   let coralline = vec3f(0.62, 0.26, 0.24);
   let sponge = vec3f(0.34, 0.17, 0.36);
   var growth = mix(algae, coralline, smoothstep(0.42, 0.58, hueSel));
   growth = mix(growth, sponge, smoothstep(0.62, 0.72, hueSel) * 0.8);
-  growth *= 0.75 + 0.5 * triFine.r;
-  let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.35, 0.65, triFine.r + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
+  growth *= 0.85 + 0.3 * tri.g;
+  let growthAmt = clamp((mossAmt + 0.25) * smoothstep(0.4, 0.6, tri.r * 0.75 + triFine.r * 0.25 + broad.r * 0.4) * smoothstep(0.2, 0.6, n.y), 0.0, 0.9);
   rockCol = mix(rockCol, growth, growthAmt);
 
   // Reef zones: a carpet of coral rubble, not felt. Lumpy broken fragments
   // (pale, bleached pieces among darker turf-covered ones) with bare gaps.
-  let reefAmt = smoothstep(0.4, 0.8, m.g) * rockW;
-  let rubbleField = triplanar(p, n, 1.3);
-  let lump = smoothstep(0.35, 0.75, rubbleField.r) * smoothstep(0.3, 0.6, triFine.g);
-  let fragment = smoothstep(0.7, 0.82, rubbleField.a) * smoothstep(0.4, 0.9, n.y);
+  let reefAmt = smoothstep(0.3, 0.7, m.g) * rockW;
+  let rubbleField = triplanar(p, n, 0.42);
+  let lump = smoothstep(0.35, 0.7, rubbleField.r * 0.7 + tri.g * 0.3);
+  let fragment = smoothstep(0.66, 0.76, triplanar(p, n, 0.9).r) * smoothstep(0.4, 0.9, n.y);
   let turfCol = mix(vec3f(0.2, 0.19, 0.1), vec3f(0.3, 0.25, 0.13), rubbleField.g);
   var reefCol = mix(rockCol * 0.8, turfCol, lump * 0.8);
   reefCol = mix(reefCol, vec3f(0.66, 0.62, 0.54) * (0.8 + 0.3 * rubbleField.b), fragment * 0.7);
   rockCol = mix(rockCol, reefCol, reefAmt);
-  n = normalize(mix(n, bumpFromHeight(n, p, lump * 0.8 + fragment * 0.5, 0.12), reefAmt * 0.8));
+  n = normalize(mix(n, bumpFromHeight(n, p, lump * 1.2 + fragment * 0.4, 0.3), reefAmt * 0.85));
 
   var s = defaultSurface();
   s.albedo = mix(sandCol, rockCol, rockW);
