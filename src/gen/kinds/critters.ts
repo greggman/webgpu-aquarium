@@ -398,8 +398,8 @@ function star(rng: Rng, hi: boolean): Variant {
   };
 }
 
-function shell(rng: Rng, hi: boolean): Variant {
-  if (rng.bool(0.35)) {
+function shell(rng: Rng, hi: boolean, scallopShape: boolean): Variant {
+  if (scallopShape) {
     const params = [
       rng.range(0.05, 0.09),
       rng.range(2.4, 3.2),
@@ -442,7 +442,12 @@ function seahorse(rng: Rng, aux: AuxBuilder, hi: boolean): Variant {
     const t = i / 10;
     const a = (1 - t) * turns * Math.PI * 2;
     const r = 0.012 + t * 0.035;
-    pts.push([0, 0.04 + Math.sin(a) * r, -0.01 + Math.cos(a) * r - t * 0.02, 0.003 + t * 0.008]);
+    pts.push([
+      0,
+      0.04 + Math.sin(a) * r,
+      -0.01 + Math.cos(a) * r - t * 0.02,
+      0.003 + t * 0.008,
+    ]);
   }
   // Body curving up with a pot belly, then the neck.
   const body: [number, number, number][] = [
@@ -455,7 +460,12 @@ function seahorse(rng: Rng, aux: AuxBuilder, hi: boolean): Variant {
   const radii = [0.013, 0.02, 0.022, 0.016, 0.012];
   body.forEach((p, i) => pts.push([...p, radii[i]]));
   // Head bends forward into the long snout.
-  pts.push([0, 0.325, 0.005, 0.016], [0, 0.33, 0.035, 0.009], [0, 0.325, 0.07, 0.005], [0, 0.322, 0.085, 0.004]);
+  pts.push(
+    [0, 0.325, 0.005, 0.016],
+    [0, 0.33, 0.035, 0.009],
+    [0, 0.325, 0.07, 0.005],
+    [0, 0.322, 0.085, 0.004],
+  );
   const chain = aux.addChain(pts);
   const params = new Array(16).fill(0);
   params[0] = chain.offset;
@@ -492,7 +502,7 @@ export async function createCritters(
   for (let i = 0; i < 4; i++) add(anemone(rng, aux, hi));
   for (let i = 0; i < 3; i++) add(urchin(rng, aux, hi));
   for (let i = 0; i < 4; i++) add(star(rng, hi));
-  for (let i = 0; i < 6; i++) add(shell(rng, hi));
+  for (let i = 0; i < 6; i++) add(shell(rng, hi, i < 2));
   for (let i = 0; i < 2; i++) add(seahorse(rng, aux, hi));
   const mesh = await buildMesh(
     renderer.device,
@@ -624,7 +634,15 @@ export async function createCritters(
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
       const r = c.radius * rng.range(0.7, 1.2);
-      place(CritterKind.Seahorse, c.x + Math.cos(a) * r, c.z + Math.sin(a) * r, rng.range(0.8, 1.2), seahorseColors, undefined, 0.05);
+      place(
+        CritterKind.Seahorse,
+        c.x + Math.cos(a) * r,
+        c.z + Math.sin(a) * r,
+        rng.range(0.8, 1.2),
+        seahorseColors,
+        undefined,
+        0.05,
+      );
     }
   }
 

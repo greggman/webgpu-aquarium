@@ -14,6 +14,7 @@ import {AttractTour} from './player/attract.ts';
 import {Caustics, makeWaves, WAVE_TILE} from './render/caustics.ts';
 import {SunShadow} from './render/shadows.ts';
 import {createVolumetrics} from './render/volumetrics.ts';
+import {createSsao} from './render/ssao.ts';
 import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
@@ -40,7 +41,7 @@ async function main() {
   const tier = detectTier(gpu.info, params.get('quality'));
   const quality = getQuality(tier);
   const seed = numParam('seed') ?? Math.floor(Math.random() * 1e9);
-  const desc = describeWorld(seed);
+  const desc = describeWorld(seed, params.get('style'));
   console.log(
     `[aquarium] seed ${seed}, water "${desc.water.name}", tier ${tier}`,
   );
@@ -81,7 +82,15 @@ async function main() {
     createParticles(renderer, gen),
     createJellyfish(renderer, gen),
   ]);
-  const content = [rocks, coral, critters, ...plants, fish, jellyfish, particles];
+  const content = [
+    rocks,
+    coral,
+    critters,
+    ...plants,
+    fish,
+    jellyfish,
+    particles,
+  ];
   const spots = cameraSpots(
     desc,
     terrain.cpu,
@@ -120,6 +129,7 @@ async function main() {
     },
     ...content,
     background,
+    await createSsao(renderer),
     volumetrics,
   );
   renderer.post.push(taa, {
@@ -216,6 +226,10 @@ async function main() {
   let lastFrameStart = performance.now();
   let fpsAvg = 60;
   let frameIndex = 0;
+  let gpuMs = 0;
+  let cpuMs = 0;
+  let gpuPending = false;
+  const profile = params.has('profile');
 
   hud.textContent =
     `seed ${seed} · ${desc.water.name} · ${tier}\n` +
@@ -314,17 +328,35 @@ async function main() {
     g.set('surfaceY', desc.surfaceY);
     g.set('resolution', [t.width, t.height]);
     g.set('jitter', [jx, jy]);
-    g.set('caustics', [WAVE_TILE, 1.0, 22, 0]);
+    g.set('caustics', [WAVE_TILE, 0.9, 18, 0]);
     g.set('terrain', [desc.terrain.worldSize, desc.terrain.size, 0, 0]);
     g.set('shadow', [shadow.texelWorld, shadow.size, 0, 0]);
     g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);
     g.set('waves', waves);
 
     fish.setCamera(pose.pos);
+    const cpuStart = performance.now();
     renderer.render(clock.time, dt);
+    const submitted = performance.now();
+    if (!gpuPending) {
+      // Submit-to-done latency approximates GPU frame cost without timestamp queries.
+      gpuPending = true;
+      void device.queue.onSubmittedWorkDone().then(() => {
+        gpuMs = gpuMs * 0.9 + (performance.now() - submitted) * 0.1;
+        gpuPending = false;
+      });
+    }
+    cpuMs = cpuMs * 0.9 + (submitted - cpuStart) * 0.1;
     frameIndex++;
     window.__aquarium.frame++;
     window.__aquarium.fps = fpsAvg;
+    window.__aquarium.gpuMs = gpuMs;
+    window.__aquarium.cpuMs = cpuMs;
+    if (profile && frameIndex % 15 === 0) {
+      hud.classList.remove('hidden');
+      hud.hidden = false;
+      hud.textContent = `${fpsAvg.toFixed(0)} fps · gpu ~${gpuMs.toFixed(1)} ms · cpu ${cpuMs.toFixed(1)} ms · ${renderer.targets.width}x${renderer.targets.height} (${(dynres.scale * 100).toFixed(0)}%) · ${tier}`;
+    }
 
     if (firstFrame) {
       firstFrame = false;

@@ -6,7 +6,13 @@ import {buildMesh, vertexLayout, type Patch} from '../gen/meshgen.ts';
 import {surfaceLib} from '../shaders/index.ts';
 import shapes from '../shaders/shapes.wgsl';
 import propsWgsl from '../shaders/props.wgsl';
-import {DEPTH_FORMAT, HDR_FORMAT, type FrameContext, type Renderer, type RenderSystem} from '../render/renderer.ts';
+import {
+  DEPTH_FORMAT,
+  HDR_FORMAT,
+  type FrameContext,
+  type Renderer,
+  type RenderSystem,
+} from '../render/renderer.ts';
 import type {GenContext} from '../world/layout.ts';
 
 const Part = {
@@ -185,7 +191,10 @@ interface JellyState {
   wob: number;
 }
 
-export async function createJellyfish(renderer: Renderer, ctx: GenContext): Promise<RenderSystem> {
+export async function createJellyfish(
+  renderer: Renderer,
+  ctx: GenContext,
+): Promise<RenderSystem> {
   const device = renderer.device;
   const rng = ctx.rng('jellyfish');
   const hi = ctx.quality.tierIndex >= 2;
@@ -194,20 +203,76 @@ export async function createJellyfish(renderer: Renderer, ctx: GenContext): Prom
   const variants: {patches: Patch[]; radius: number}[] = [];
   const makeVariant = () => {
     const patches: Patch[] = [
-      {segU: hi ? 48 : 24, segV: hi ? 14 : 8, params: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.Bell]},
-      {segU: hi ? 32 : 16, segV: hi ? 8 : 5, params: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.InnerBell]},
+      {
+        segU: hi ? 48 : 24,
+        segV: hi ? 14 : 8,
+        params: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.Bell],
+      },
+      {
+        segU: hi ? 32 : 16,
+        segV: hi ? 8 : 5,
+        params: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.InnerBell],
+      },
     ];
     for (let a = 0; a < 4; a++) {
-      patches.push({segU: 3, segV: hi ? 20 : 10, params: [(a / 4) * Math.PI * 2 + 0.4, rng.range(0.6, 1.2), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.Arm]});
+      patches.push({
+        segU: 3,
+        segV: hi ? 20 : 10,
+        params: [
+          (a / 4) * Math.PI * 2 + 0.4,
+          rng.range(0.6, 1.2),
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          Part.Arm,
+        ],
+      });
     }
     const tentacles = hi ? 24 : 12;
     for (let t = 0; t < tentacles; t++) {
-      patches.push({segU: 3, segV: hi ? 16 : 8, params: [(t / tentacles) * Math.PI * 2, rng.range(0.8, 2.2), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Part.Tentacle]});
+      patches.push({
+        segU: 3,
+        segV: hi ? 16 : 8,
+        params: [
+          (t / tentacles) * Math.PI * 2,
+          rng.range(0.8, 2.2),
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          Part.Tentacle,
+        ],
+      });
     }
     return {patches, radius: 2};
   };
   variants.push(makeVariant());
-  const mesh = await buildMesh(device, 'jellyfish', meshWgsl, variants, rng.nextU32());
+  const mesh = await buildMesh(
+    device,
+    'jellyfish',
+    meshWgsl,
+    variants,
+    rng.nextU32(),
+  );
 
   const center = ctx.nav.o.center;
   const R = ctx.desc.terrain.basinRadius;
@@ -240,7 +305,13 @@ export async function createJellyfish(renderer: Renderer, ctx: GenContext): Prom
   const module = createShader(device, 'jellyfish:shader', renderWgsl);
   const localLayout = device.createBindGroupLayout({
     label: 'jellyfish:local-bgl',
-    entries: [{binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {type: 'read-only-storage'}}],
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: {type: 'read-only-storage'},
+      },
+    ],
   });
   const pipeline = await device.createRenderPipelineAsync({
     label: 'jellyfish:pipeline',
@@ -256,14 +327,22 @@ export async function createJellyfish(renderer: Renderer, ctx: GenContext): Prom
         {
           format: HDR_FORMAT,
           blend: {
-            color: {srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add'},
+            color: {
+              srcFactor: 'one',
+              dstFactor: 'one-minus-src-alpha',
+              operation: 'add',
+            },
             alpha: {srcFactor: 'zero', dstFactor: 'one', operation: 'add'},
           },
         },
       ],
     },
     primitive: {topology: 'triangle-list', cullMode: 'none'},
-    depthStencil: {format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater'},
+    depthStencil: {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      depthCompare: 'greater',
+    },
   });
   const bindGroup = device.createBindGroup({
     label: 'jellyfish:bind-group',
@@ -278,7 +357,7 @@ export async function createJellyfish(renderer: Renderer, ctx: GenContext): Prom
       jellies.forEach((j, i) => {
         j.phase += dt * j.rate;
         // Each contraction gives a little upward thrust; they slowly sink between.
-        const thrust = (j.phase % 1) < 0.25 ? 0.35 : -0.03;
+        const thrust = j.phase % 1 < 0.25 ? 0.35 : -0.03;
         j.vel[1] += (thrust - j.vel[1] * 0.8) * dt;
         j.vel[0] += Math.sin(fc.time * 0.05 + j.wob) * 0.004 * dt;
         j.vel[2] += Math.cos(fc.time * 0.04 + j.wob) * 0.004 * dt;
@@ -303,7 +382,13 @@ export async function createJellyfish(renderer: Renderer, ctx: GenContext): Prom
       pass.setBindGroup(1, bindGroup);
       pass.setVertexBuffer(0, mesh.vertexBuffer);
       pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-      pass.drawIndexed(mesh.variants[0].indexCount, count, mesh.variants[0].firstIndex, 0, 0);
+      pass.drawIndexed(
+        mesh.variants[0].indexCount,
+        count,
+        mesh.variants[0].firstIndex,
+        0,
+        0,
+      );
     },
   };
 }

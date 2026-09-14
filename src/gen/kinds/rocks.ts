@@ -6,6 +6,7 @@ import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
 import {scatter} from '../../world/scatter.ts';
+import propsWgsl from '../../shaders/props.wgsl';
 
 const surfaceWgsl = /* wgsl */ `
 fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
@@ -31,7 +32,7 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
     let nrm = normalize(h + vec3f(0.0, 0.2, 0.0));
     let d = dot(p, nrm) - length(shape) * (0.42 + 0.1 * f32(i % 3u));
     if (d > 0.0) {
-      p -= nrm * d * 0.85;
+      p -= nrm * d * 0.6;
     }
   }
   // Flatten the underside so rocks sit on the sand.
@@ -46,45 +47,52 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
 `;
 
 const materialWgsl = /* wgsl */ `
+${propsWgsl}
+
 fn deform(p: vec3f, n: vec3f, uv: vec4f, inst: Instance, t: f32) -> Deformed {
   return Deformed(p, n);
 }
 
-fn tri(p: vec3f, n: vec3f, scale: f32) -> vec4f {
-  var w = pow(abs(n), vec3f(4.0));
-  w /= (w.x + w.y + w.z);
-  return textureSample(tDetail, sLinearRepeat, p.zy * scale) * w.x +
-    textureSample(tDetail, sLinearRepeat, p.xz * scale) * w.y +
-    textureSample(tDetail, sLinearRepeat, p.xy * scale) * w.z;
-}
-
 fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let lp = i.local * inst.posScale.w + inst.color.a * 17.0;
-  let big = tri(lp, nIn, 0.12);
-  let fine = tri(lp, nIn, 0.6);
+  let big = triplanarDetail(lp, nIn, 0.18);
+  let mid = triplanarDetail(lp, nIn, 0.7);
+  let fine = triplanarDetail(lp, nIn, 2.6);
   let cells = big.g;
-  // Bump the normal with the detail layers.
-  let pert = vec3f(fine.r - 0.5, fine.a - 0.5, big.b - 0.5) * 0.7 + vec3f(big.r - 0.5, 0.0, cells - 0.5) * 0.4;
-  let n = normalize(nIn + pert - nIn * dot(pert, nIn));
+  // Cracks only in places (noise-masked) and thinner, so they don't tile into a mesh.
+  let crackMask = smoothstep(0.45, 0.7, mid.r + (big.b - 0.5) * 0.4);
+  let cracks = (1.0 - smoothstep(0.02, 0.12, cells)) * crackMask;
+  let pits = smoothstep(0.62, 0.8, fine.a);
 
-  var albedo = mix(vec3f(0.16, 0.14, 0.12), vec3f(0.38, 0.34, 0.29), big.r) * (0.6 + 0.5 * cells);
-  albedo *= inst.color.rgb;
-  albedo *= mix(0.4, 1.0, smoothstep(0.08, 0.4, cells));
+  // Crisp detail normal from a layered height field.
+  let height = big.r * 0.8 + mid.g * 0.35 + fine.a * 0.12 - cracks * 0.5 - pits * 0.06;
+  let n = bumpFromHeight(nIn, i.world, height, 0.18);
 
-  // Encrusting growth on upward faces.
-  let hueSel = tri(lp, nIn, 0.05).r;
-  var growth = mix(vec3f(0.14, 0.24, 0.07), vec3f(0.6, 0.24, 0.22), smoothstep(0.45, 0.6, hueSel));
-  growth = mix(growth, vec3f(0.32, 0.16, 0.36), smoothstep(0.64, 0.72, hueSel) * 0.8);
-  growth *= 0.7 + 0.6 * fine.r;
-  let up = smoothstep(0.15, 0.75, n.y);
-  let amount = clamp(up * smoothstep(0.35, 0.6, fine.r + big.r * 0.45) * inst.params.x, 0.0, 0.92);
+  // Stone: layered greys and browns with mineral banding.
+  let band = 0.5 + 0.5 * sin(lp.y * 5.0 + big.r * 4.0);
+  var albedo = mix(vec3f(0.2, 0.18, 0.16), vec3f(0.42, 0.38, 0.32), big.r * 0.7 + band * 0.3);
+  albedo *= (0.75 + 0.35 * mid.r) * inst.color.rgb;
+  albedo *= mix(1.0, 0.3, cracks);
+
+  // Encrusting life on faces that catch the light: fine-grained, patchy, and
+  // varied rather than a flat green coat.
+  let hueSel = triplanarDetail(lp, nIn, 0.09).r;
+  let algae = vec3f(0.18, 0.22, 0.09) * (0.7 + 0.6 * fine.r);
+  let coralline = mix(vec3f(0.72, 0.3, 0.32), vec3f(0.82, 0.55, 0.6), fine.g);
+  let sponge = vec3f(0.55, 0.32, 0.12);
+  var growth = mix(algae, coralline, smoothstep(0.5, 0.58, hueSel));
+  growth = mix(growth, sponge, smoothstep(0.66, 0.7, hueSel) * 0.9);
+  let up = smoothstep(0.25, 0.85, nIn.y);
+  let patchy = smoothstep(0.42, 0.62, mid.r + big.r * 0.35 + (fine.r - 0.5) * 0.3);
+  let amount = clamp(up * patchy * inst.params.x * (1.0 - cracks), 0.0, 0.85);
 
   var s = defaultSurface();
   s.albedo = mix(albedo, growth, amount);
   s.normal = n;
-  s.roughness = mix(0.72, 0.9, amount);
-  s.ao = i.aoMat.x * mix(0.6, 1.0, smoothstep(0.05, 0.4, cells));
-  s.f0 = 0.035;
+  // Wet stone is fairly glossy; growth is matte.
+  s.roughness = mix(mix(0.38, 0.62, mid.a), 0.85, amount);
+  s.ao = i.aoMat.x * mix(1.0, 0.35, cracks);
+  s.f0 = 0.04;
   return s;
 }
 `;

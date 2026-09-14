@@ -18,82 +18,100 @@ export interface WaterStyle {
   scattering: number;
   ambient: Vec3;
   sunColor: Vec3;
+  /** Sun elevation above the horizon in air, radians [min, max]. */
+  sunElevation: [number, number];
   exposure: number;
   grade: GradeSettings;
 }
 
+const grade = (g: Partial<GradeSettings>): GradeSettings => ({
+  lift: [0, 0, 0],
+  gamma: [1, 1, 1],
+  gain: [1, 1, 1],
+  saturation: 1.2,
+  contrast: 1.18,
+  vignette: 0.75,
+  grain: 0.35,
+  bloom: 0.06,
+  ...g,
+});
+
 const STYLES: WaterStyle[] = [
   {
+    // Clear tropical shallows: bright turquoise-blue, warm sand.
     name: 'tropical',
-    absorption: [0.11, 0.036, 0.022],
-    scattering: 0.018,
-    ambient: [0.3, 0.75, 1.05],
-    sunColor: [13, 12.4, 11.2],
-    exposure: 0.36,
-    grade: {
-      lift: [0.0, 0.004, 0.01],
-      gamma: [1.0, 1.0, 1.0],
-      gain: [1.03, 1.0, 0.97],
-      saturation: 1.12,
-      contrast: 1.08,
-      vignette: 0.55,
-      grain: 0.35,
-      bloom: 0.06,
-    },
-  },
-  {
-    name: 'lagoon',
-    absorption: [0.14, 0.032, 0.03],
-    scattering: 0.024,
-    ambient: [0.32, 0.85, 0.92],
-    sunColor: [13, 12.6, 11.4],
-    exposure: 0.34,
-    grade: {
-      lift: [0.0, 0.006, 0.006],
-      gamma: [1.0, 1.0, 1.0],
-      gain: [1.04, 1.0, 0.96],
-      saturation: 1.1,
-      contrast: 1.06,
-      vignette: 0.5,
-      grain: 0.35,
-      bloom: 0.06,
-    },
-  },
-  {
-    name: 'deep-blue',
-    absorption: [0.16, 0.045, 0.022],
+    absorption: [0.1, 0.034, 0.02],
     scattering: 0.016,
-    ambient: [0.18, 0.52, 1.15],
-    sunColor: [12.5, 12.5, 12],
-    exposure: 0.42,
-    grade: {
-      lift: [0.0, 0.0, 0.012],
-      gamma: [1.0, 1.0, 1.02],
+    ambient: [0.26, 0.72, 1.1],
+    sunColor: [14, 13.2, 11.8],
+    sunElevation: [1.05, 1.3],
+    exposure: 0.36,
+    grade: grade({
+      lift: [0, 0.004, 0.012],
       gain: [1.05, 1.0, 0.95],
-      saturation: 1.1,
-      contrast: 1.1,
-      vignette: 0.6,
-      grain: 0.35,
-      bloom: 0.06,
-    },
+      saturation: 1.25,
+    }),
   },
   {
+    // Emerald lagoon: green-teal water.
+    name: 'lagoon',
+    absorption: [0.13, 0.03, 0.034],
+    scattering: 0.026,
+    ambient: [0.28, 0.82, 0.82],
+    sunColor: [13.5, 13, 10.8],
+    sunElevation: [0.95, 1.25],
+    exposure: 0.36,
+    grade: grade({lift: [0.004, 0.008, 0.0], gain: [1.06, 1.0, 0.92]}),
+  },
+  {
+    // Deep indigo open-ocean blue with high contrast.
+    name: 'deep-blue',
+    absorption: [0.17, 0.05, 0.02],
+    scattering: 0.014,
+    ambient: [0.12, 0.42, 1.2],
+    sunColor: [13, 13, 12.5],
+    sunElevation: [1.0, 1.3],
+    exposure: 0.44,
+    grade: grade({
+      lift: [0, 0, 0.016],
+      gamma: [1, 1, 1.04],
+      gain: [1.08, 1.0, 0.92],
+      contrast: 1.25,
+    }),
+  },
+  {
+    // Kelp coast: murky green-gold, softer light.
     name: 'kelp-forest',
-    absorption: [0.15, 0.04, 0.06],
-    scattering: 0.03,
-    ambient: [0.34, 0.8, 0.6],
-    sunColor: [12.5, 12.2, 10],
-    exposure: 0.38,
-    grade: {
-      lift: [0.004, 0.006, 0.0],
-      gamma: [1.0, 1.0, 1.0],
-      gain: [1.04, 1.0, 0.94],
-      saturation: 1.05,
-      contrast: 1.08,
-      vignette: 0.6,
-      grain: 0.4,
+    absorption: [0.15, 0.045, 0.058],
+    scattering: 0.034,
+    ambient: [0.3, 0.7, 0.6],
+    sunColor: [13, 12, 9],
+    sunElevation: [0.85, 1.15],
+    exposure: 0.4,
+    grade: grade({
+      lift: [0.008, 0.008, 0.0],
+      gain: [1.08, 1.0, 0.88],
+      saturation: 1.1,
+      grain: 0.45,
       bloom: 0.07,
-    },
+    }),
+  },
+  {
+    // Golden hour: low warm sun, violet-blue depths.
+    name: 'golden-hour',
+    absorption: [0.12, 0.04, 0.028],
+    scattering: 0.02,
+    ambient: [0.2, 0.42, 0.85],
+    sunColor: [16, 11.5, 6.5],
+    sunElevation: [0.45, 0.7],
+    exposure: 0.5,
+    grade: grade({
+      lift: [0.012, 0.004, 0.018],
+      gain: [1.1, 1.0, 0.9],
+      saturation: 1.2,
+      contrast: 1.22,
+      bloom: 0.08,
+    }),
   },
 ];
 
@@ -112,21 +130,24 @@ export interface WorldDesc {
   terrain: TerrainSettings;
 }
 
-export function describeWorld(seed: number): WorldDesc {
+export function describeWorld(
+  seed: number,
+  styleOverride?: string | null,
+): WorldDesc {
   const rng = new Rng(seed);
   const surfaceY = 0;
-  const base = rng.pick(STYLES);
+  const base = STYLES.find(s => s.name === styleOverride) ?? rng.pick(STYLES);
   const jitter = (v: Vec3, amt: number): Vec3 =>
     v.map(x => x * (1 + rng.range(-amt, amt))) as Vec3;
   const water: WaterStyle = {
     ...base,
-    absorption: jitter(base.absorption, 0.12),
-    scattering: base.scattering * rng.range(0.85, 1.2),
-    ambient: jitter(base.ambient, 0.08),
+    absorption: jitter(base.absorption, 0.1),
+    scattering: base.scattering * rng.range(0.85, 1.15),
+    ambient: jitter(base.ambient, 0.06),
   };
 
   // Sun in the air, then refracted into the water (Snell's law).
-  const elevation = rng.range(0.95, 1.25); // radians above horizon
+  const elevation = rng.range(...base.sunElevation);
   const azimuth = rng.range(0, Math.PI * 2);
   const zenithAir = Math.PI / 2 - elevation;
   const zenithWater = Math.asin(Math.sin(zenithAir) / 1.333);
@@ -268,13 +289,13 @@ export function cameraSpots(
   };
 
   // Reef: the hero cluster, from slightly above.
-  const reefTarget: Vec3 = [hero.x, hero.y + 1.4, hero.z];
+  const reefTarget: Vec3 = [hero.x, hero.y + 0.8, hero.z];
   const reef = spotLookingAt(
     nav,
     terrain,
     reefTarget,
-    hero.radius * 0.5 + 4.5,
-    1.8,
+    hero.radius + 3.5,
+    2.4,
     Math.atan2(c[1] - hero.z, c[0] - hero.x) + 0.5,
   );
 

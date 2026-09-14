@@ -13,6 +13,23 @@ fn bumpNormal(n: vec3f, pert: vec3f) -> vec3f {
   return normalize(n + pert - n * dot(pert, n));
 }
 
+/**
+ * Bump mapping from a scalar height using screen-space derivatives
+ * (Mikkelsen, "Bump Mapping Unparametrized Surfaces on the GPU"). Works on
+ * any generated surface without tangents. Must be called in uniform control flow.
+ */
+fn bumpFromHeight(n: vec3f, pos: vec3f, height: f32, strength: f32) -> vec3f {
+  let sx = dpdx(pos);
+  let sy = dpdy(pos);
+  let hx = dpdx(height) * strength;
+  let hy = dpdy(height) * strength;
+  let r1 = cross(sy, n);
+  let r2 = cross(n, sx);
+  let det = dot(sx, r1);
+  let grad = sign(det) * (hx * r1 + hy * r2);
+  return normalize(abs(det) * n - grad);
+}
+
 fn hash11(x: f32) -> f32 {
   return fract(sin(x * 127.1) * 43758.5453);
 }

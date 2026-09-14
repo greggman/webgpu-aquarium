@@ -241,63 +241,92 @@ function kelpPlant(
   hi: boolean,
 ): Variant {
   const patches: Patch[] = [];
-  const segs = Math.round(height * 2.5);
-  const points: [number, number, number, number][] = [];
-  let x = 0;
-  let z = 0;
-  const lean = [rng.range(-0.04, 0.04), rng.range(-0.04, 0.04)];
-  for (let i = 0; i <= segs; i++) {
-    const t = i / segs;
-    x += lean[0] + rng.range(-0.03, 0.03);
-    z += lean[1] + rng.range(-0.03, 0.03);
-    points.push([x, t * height, z, 0.035 * (1 - t * 0.5)]);
-  }
-  const stipe = aux.addChain(points);
-  patches.push(
-    P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
-  );
-  // Blades alternate up the stipe, each with a gas bladder at its base.
-  const bladeCount = Math.round(height * (hi ? 3.2 : 1.8));
-  for (let b = 0; b < bladeCount; b++) {
-    const t = 0.08 + (b / bladeCount) * 0.9;
-    const idx = Math.min(points.length - 1, Math.round(t * segs));
-    const base = points[idx];
-    const a = b * 2.39996 + rng.range(-0.3, 0.3);
-    const outward = [Math.cos(a), rng.range(0.6, 1.4), Math.sin(a)];
-    const len = rng.range(0.6, 1.3) * (1 - t * 0.3);
+  // A holdfast sends up several stipes of different heights that curve and
+  // drift apart as they rise.
+  const stipes = rng.int(2, 4);
+  for (let st = 0; st < stipes; st++) {
+    const h = height * rng.range(0.55, 1.0);
+    const segs = Math.max(6, Math.round(h * 2.5));
+    const points: [number, number, number, number][] = [];
+    const baseA = rng.range(0, Math.PI * 2);
+    const spread = rng.range(0.05, 0.25);
+    const bendA = rng.range(0, Math.PI * 2);
+    const bend = rng.range(0.3, 1.2);
+    const wave = rng.range(0.6, 1.6);
+    const phase = rng.range(0, Math.PI * 2);
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const drift = spread * t + bend * t * t;
+      const s = Math.sin(t * Math.PI * wave + phase) * 0.25 * t;
+      points.push([
+        Math.cos(baseA) * 0.06 +
+          Math.cos(bendA) * drift +
+          Math.cos(bendA + 1.57) * s,
+        t * h,
+        Math.sin(baseA) * 0.06 +
+          Math.sin(bendA) * drift +
+          Math.sin(bendA + 1.57) * s,
+        0.03 * (1 - t * 0.55),
+      ]);
+    }
+    const stipe = aux.addChain(points);
     patches.push(
-      P(
-        [
-          base[0] + Math.cos(a) * 0.05,
-          base[1],
-          base[2] + Math.sin(a) * 0.05,
-          a,
-          len,
-          rng.range(0.08, 0.16),
-          0,
-          0,
-          rng.range(0.01, 0.03),
-          ...outward,
-        ],
-        Part.KelpBlade,
-        hi ? 3 : 2,
-        hi ? 12 : 6,
-      ),
+      P([stipe.offset, stipe.count], Part.Stipe, hi ? 6 : 4, segs * 2),
     );
-    patches.push(
-      P(
-        [
-          base[0] + Math.cos(a) * 0.04,
-          base[1],
-          base[2] + Math.sin(a) * 0.04,
-          0,
-          0.03,
-        ],
-        Part.Bladder,
-        8,
-        6,
-      ),
-    );
+
+    const bladeCount = Math.round(h * (hi ? 2.8 : 1.6));
+    for (let b = 0; b < bladeCount; b++) {
+      const t = 0.1 + (b / bladeCount) * 0.9 + rng.range(-0.02, 0.02);
+      const idx = Math.min(
+        points.length - 1,
+        Math.max(0, Math.round(t * segs)),
+      );
+      const base = points[idx];
+      const a = b * 2.39996 + rng.range(-0.5, 0.5);
+      // Near the top the blades form a floating canopy: longer, spreading flat.
+      const canopy = Math.max(0, (t - 0.8) / 0.2);
+      const outward = [
+        Math.cos(a),
+        rng.range(0.5, 1.3) * (1 - canopy * 0.8),
+        Math.sin(a),
+      ];
+      const len = rng.range(0.6, 1.2) * (1 + canopy * 1.4);
+      patches.push(
+        P(
+          [
+            base[0] + Math.cos(a) * 0.04,
+            base[1],
+            base[2] + Math.sin(a) * 0.04,
+            a,
+            len,
+            rng.range(0.08, 0.16) * (1 + canopy * 0.4),
+            0,
+            0,
+            rng.range(0.01, 0.035),
+            ...outward,
+          ],
+          Part.KelpBlade,
+          hi ? 3 : 2,
+          hi ? 12 : 6,
+        ),
+      );
+      if (rng.bool(0.6)) {
+        patches.push(
+          P(
+            [
+              base[0] + Math.cos(a) * 0.035,
+              base[1],
+              base[2] + Math.sin(a) * 0.035,
+              0,
+              rng.range(0.018, 0.035),
+            ],
+            Part.Bladder,
+            8,
+            6,
+          ),
+        );
+      }
+    }
   }
   return {patches, radius: height};
 }
@@ -414,7 +443,7 @@ export async function createPlants(
       rng,
       {
         count: ctx.count(hi ? 70 : 40),
-        minDist: 1.6,
+        minDist: 2.4,
         center: fc,
         radius: rng.range(9, 14),
         density: (x, z) => (ctx.terrain.maskAt(0, x, z) < 0.6 ? 1 : 0.2),

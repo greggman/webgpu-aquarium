@@ -81,15 +81,18 @@ fn causticsAt(p: vec3f, normal: vec3f) -> vec3f {
   }
   let depth = depthBelowSurface(p.y);
   let uv = surfaceEntry(p) / scale;
-  // Deeper points see blurrier caustics (the focal lines spread out).
-  let lod = clamp(log2(1.0 + depth * 0.12), 0.0, 5.0);
+  let dist = length(p - frame.camPos);
+  // Deeper points see blurrier caustics (the focal lines spread out), and
+  // distant ones are filtered so they don't shimmer.
+  let lod = clamp(log2(1.0 + depth * 0.1) + log2(1.0 + dist * 0.06), 0.0, 6.0);
   // Two rotated, rescaled samples multiplied together hide the tiling.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let c1 = textureSampleLevel(tCaustics, sLinearRepeat, uv, lod).rgb;
   let c2 = textureSampleLevel(tCaustics, sLinearRepeat, rot * uv * 0.73 + 0.31, lod).rgb;
-  let c = sqrt(c1 * c2) * 1.15;
-  let fade = frame.caustics.y * exp(-depth / frame.caustics.z);
-  let facing = smoothstep(0.0, 0.5, normal.y);
+  let c = sqrt(c1 * c2) * 1.1;
+  let fade = frame.caustics.y * exp(-depth / frame.caustics.z) * exp(-dist * 0.025);
+  // Only surfaces facing the sun catch the pattern; steep faces would smear it.
+  let facing = smoothstep(0.3, 0.85, dot(normal, frame.sunDir));
   return mix(vec3f(1.0), c, fade * facing);
 }
 

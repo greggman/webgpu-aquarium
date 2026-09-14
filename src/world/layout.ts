@@ -103,15 +103,16 @@ function pickClusters(
   }
   candidates.sort((a, b) => b.score - a.score);
   const clusters: ReefCluster[] = [];
-  const want = rng.int(5, 7);
+  const want = rng.int(9, 12);
   for (const cand of candidates) {
     if (clusters.length >= want) {
       break;
     }
-    const radius = clusters.length === 0 ? rng.range(6, 8) : rng.range(3.5, 6);
+    const radius =
+      clusters.length === 0 ? rng.range(8, 10) : rng.range(4.5, 7.5);
     if (
       clusters.some(
-        k => Math.hypot(k.x - cand.x, k.z - cand.z) < k.radius + radius + 6,
+        k => Math.hypot(k.x - cand.x, k.z - cand.z) < k.radius + radius + 3,
       )
     ) {
       continue;

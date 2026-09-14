@@ -49,17 +49,25 @@ fn beam(p: vec3f) -> f32 {
   let depth = depthBelowSurface(p.y);
   let t = depth / max(frame.sunDir.y, 0.25);
   let entry = p.xz + frame.sunDir.xz * t;
-  // Shafts spread with depth: sample progressively blurrier caustics.
-  let lod = clamp(1.5 + depth * 0.12, 1.5, 5.0);
+  // Shafts are the caustic pattern seen edge-on. Sample it large and blurry so
+  // the shafts are broad and soft (a fine pattern aliases into a comb), and
+  // gate it with slow, large-scale noise so shafts come in groups with dark
+  // gaps between them.
   let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
-  let uvc = entry / frame.caustics.x;
+  let uvc = entry / (frame.caustics.x * 2.2);
+  let lod = clamp(3.0 + depth * 0.08, 3.0, 6.0);
   let c = sqrt(
     textureSampleLevel(tCaustics, sLinearRepeat, uvc, lod).g *
-    textureSampleLevel(tCaustics, sLinearRepeat, rot * uvc * 0.73 + 0.31, lod).g,
-  ) * 1.15;
-  // Larger-scale variation so shafts come in groups, not a uniform comb.
-  let broad = textureSampleLevel(tCaustics, sLinearRepeat, entry / (frame.caustics.x * 5.3) + 0.37, 6.0).g;
-  return pow(max(c, 0.0), 2.6) * (0.08 + 1.6 * broad * broad * broad);
+    textureSampleLevel(tCaustics, sLinearRepeat, rot * uvc * 0.61 + 0.31, lod).g,
+  );
+  // Normalise by the average brightness so contrast is independent of the mip.
+  let avg = textureSampleLevel(tCaustics, sLinearRepeat, uvc, 9.0).g;
+  let rel = c / max(avg, 1e-3);
+  let drift = vec2f(frame.time * 0.15, frame.time * 0.07);
+  let broadUv = (entry + drift) / 30.0;
+  let broad = fbm2(broadUv, 3) + 0.5 * fbm2(broadUv * 2.7 + 5.0, 2);
+  let gate = smoothstep(-0.2, 0.25, broad);
+  return pow(rel, 4.0) * gate * 1.5;
 }
 
 @compute @workgroup_size(8, 8)
@@ -100,7 +108,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     accum += light * exp(-ext * t) * dt;
   }
   // Cap the forward peak so looking toward the sun doesn't wash out the frame.
-  let phase = min(waterPhase(dot(dir, frame.sunDir)), 0.3);
+  // A floor keeps shafts readable when looking away from the sun, as games do.
+  let phase = 0.06 + min(waterPhase(dot(dir, frame.sunDir)), 0.3) * 0.6;
   let current = accum * frame.scattering * phase * V.strength;
 
   // Temporal accumulation with reprojection of a representative point.
@@ -202,7 +211,7 @@ export async function createVolumetrics(
   const paramData = new ArrayBuffer(16);
   new Uint32Array(paramData, 0, 1)[0] = quality.volumetricSteps;
   const tune = Number(new URLSearchParams(location.search).get('vol') ?? 1);
-  new Float32Array(paramData, 4, 3).set([70, 0.022 * tune, 0.88]);
+  new Float32Array(paramData, 4, 3).set([70, 0.3 * tune, 0.88]);
   device.queue.writeBuffer(params, 0, paramData);
 
   const sampler = device.createSampler({

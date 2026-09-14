@@ -55,8 +55,10 @@ try {
           cam,
           time,
         );
-        // Let temporal effects (TAA, volumetric history) converge on the still frame.
-        await page.evaluate(() => window.__aquarium.step(0, 40));
+        // Let the simulation settle (schools form, fish find their reefs)...
+        await page.evaluate(() => window.__aquarium.step(8, 96));
+        // ...then let temporal effects (TAA, volumetric history) converge on the still frame.
+        await page.evaluate(() => window.__aquarium.step(0, 30));
         await waitFrames(page, 2);
         const base = `${t}-seed${seed}-${cam}`;
         await capture(page, path.join(outDir, `${base}.png`));

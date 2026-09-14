@@ -105,13 +105,20 @@ fn spongeProfile(s: f32, r0: f32, r1: f32, h: f32, wall: f32, bulge: f32) -> vec
 }
 
 fn spongeSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
-  let prof = spongeProfile(uv.y, pat.p0.x, pat.p0.y, pat.p0.z, pat.p0.w, pat.p1.w);
+  let theta = uv.x * TAU;
+  let ring = vec3f(cos(theta), 0.0, sin(theta));
+  // Irregular organic outline: lobed cross-section and a wavy, uneven rim.
+  let lobes = 1.0 + fbm3(ring * 1.3 + pat.p2.xyz, 3) * 0.55 + 0.12 * sin(theta * 3.0 + pat.p2.x);
+  let rimWave = 1.0 + 0.18 * fbm3(ring * 2.0 + pat.p2.zyx, 2) + 0.08 * sin(theta * 5.0 + pat.p2.y);
+  let prof = spongeProfile(uv.y, pat.p0.x * lobes, pat.p0.y * lobes, pat.p0.z * rimWave, pat.p0.w, pat.p1.w);
   var p = lathePoint(prof.x, prof.y, uv.x);
-  // Porous, lumpy surface.
+  // Deep pores and knobbly ridges.
   let q = p * pat.p1.x + pat.p2.xyz;
   let pores = worley3(q);
-  p += normalize(vec3f(p.x, 0.0, p.z) + vec3f(1e-4)) * (smoothstep(0.05, 0.3, pores) - 1.0) * pat.p1.y * (1.0 - prof.z);
-  p += vec3f(fbm3(q * 0.3, 2), 0.0, fbm3(q * 0.3 + 9.0, 2)) * 0.05 * prof.y;
+  let knobs = fbm3(q * 0.6, 3);
+  let outward = normalize(vec3f(p.x, 0.0, p.z) + vec3f(1e-4));
+  p += outward * ((smoothstep(0.05, 0.35, pores) - 1.0) * pat.p1.y * 1.6 + knobs * 0.02) * (1.0 - prof.z);
+  p += vec3f(fbm3(q * 0.3, 2), 0.0, fbm3(q * 0.3 + 9.0, 2)) * 0.08 * prof.y;
   // Lean the tube.
   p += vec3f(pat.p2.w, 0.0, pat.p3.x) * prof.y * prof.y / max(pat.p0.z, 0.01);
   p += pat.p3.yzz * vec3f(1.0, 0.0, 0.0) + vec3f(0.0, 0.0, pat.p3.z);
@@ -159,8 +166,14 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let accent = palette(inst.color.a, vec3f(0.6), vec3f(0.4), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
   let lp = i.local * inst.posScale.w;
   let fine = triplanarDetail(lp + inst.params.x, nIn, 1.4);
+  // Polyp cups and corallite texture as a height field (before any branching,
+  // so the derivatives stay in uniform control flow).
+  let polyps = triplanarDetail(lp * 1.0 + inst.params.x, nIn, 9.0);
+  let cup = smoothstep(0.02, 0.3, polyps.g);
+  let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
+  let bumped = bumpFromHeight(nIn, i.world, height, 0.035);
   var s = defaultSurface();
-  s.normal = bumpNormal(nIn, (fine.rgb - 0.5) * 0.35);
+  s.normal = bumped;
   s.ao = i.aoMat.x;
   s.roughness = 0.65;
   s.f0 = 0.03;
@@ -614,32 +627,34 @@ export async function createCoral(
       const r = Math.sqrt(rng.float()) * c.radius * k;
       return [c.x + Math.cos(a) * r, c.z + Math.sin(a) * r] as const;
     };
-    for (let i = 0; i < Math.round(rng.int(1, 3) * density); i++) {
-      const [x, z] = inCluster(0.8);
-      place(CoralKind.Brain, x, z, rng.range(0.7, 1.6));
+    // Area-proportional counts so big clusters are as lush as small ones.
+    const area = (c.radius * c.radius) / 25;
+    for (let i = 0; i < Math.round(rng.int(2, 4) * density * area); i++) {
+      const [x, z] = inCluster(0.85);
+      place(CoralKind.Brain, x, z, rng.range(0.7, 1.8));
     }
-    for (let i = 0; i < ctx.count(rng.int(6, 12) * density); i++) {
+    for (let i = 0; i < ctx.count(rng.int(18, 28) * density * area); i++) {
       const [x, z] = inCluster(1);
-      place(CoralKind.Branching, x, z, rng.range(0.7, 1.8));
+      place(CoralKind.Branching, x, z, rng.range(0.6, 1.9));
     }
-    for (let i = 0; i < Math.round(rng.int(0, 2) * density); i++) {
+    for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Table, x, z, rng.range(0.8, 1.5), 0.1);
+      place(CoralKind.Table, x, z, rng.range(0.8, 1.6), 0.1);
     }
-    for (let i = 0; i < ctx.count(rng.int(1, 4) * density); i++) {
+    for (let i = 0; i < ctx.count(rng.int(3, 6) * density * area); i++) {
       const [x, z] = inCluster(1.1);
-      place(CoralKind.Sponge, x, z, rng.range(0.7, 1.5), 0.1);
+      place(CoralKind.Sponge, x, z, rng.range(0.7, 1.6), 0.1);
     }
-    for (let i = 0; i < ctx.count(rng.int(3, 8) * density); i++) {
+    for (let i = 0; i < ctx.count(rng.int(5, 10) * density * area); i++) {
       const [x, z] = inCluster(1.2);
-      place(CoralKind.Whip, x, z, rng.range(0.8, 1.8), 0.1);
+      place(CoralKind.Whip, x, z, rng.range(0.45, 1.0), 0.1);
     }
     ctx.occupied.add(c.x, c.z, c.radius * 0.8);
   }
 
   // A scattering of lone coral heads and sponges across reef-mask ground.
   const center = ctx.nav.o.center;
-  for (let i = 0; i < ctx.count(40); i++) {
+  for (let i = 0; i < ctx.count(400); i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = Math.sqrt(rng.float()) * (ctx.desc.terrain.basinRadius + 10);
     const x = center[0] + Math.cos(a) * r;

@@ -14,9 +14,11 @@ fn extinction() -> vec3f {
 /** Direct sunlight reaching height y, after travelling down through the water. */
 fn sunAtDepth(y: f32) -> vec3f {
   let path = depthBelowSurface(y) / max(frame.sunDir.y, 0.25);
-  // Light paths are attenuated a little less than view paths: forward
-  // scattering keeps sunlight travelling downward.
-  return frame.sunColor * exp(-extinction() * path * 0.6);
+  // Light paths are attenuated less than view paths (forward scattering keeps
+  // sunlight travelling down), and red is relaxed most so shallow reefs keep
+  // their warm colours as in the reference games.
+  let k = frame.absorption * vec3f(0.42, 0.6, 0.6) + vec3f(frame.scattering * 0.3);
+  return frame.sunColor * exp(-k * path);
 }
 
 /** Diffuse downwelling light (the blue glow from everywhere above) at height y. */
@@ -42,13 +44,16 @@ fn inscatterColor(y: f32, dir: vec3f) -> vec3f {
   let sun = sunAtDepth(y) * waterPhase(dot(dir, frame.sunDir)) * 4.0 * PI;
   let amb = ambientAtDepth(y);
   // Looking down, the water beneath is darker; looking up, brighter.
-  let updown = mix(0.35, 1.25, smoothstep(-0.8, 0.9, dir.y));
+  let updown = mix(0.1, 1.3, smoothstep(-0.9, 0.9, dir.y));
   return frame.scattering * (sun * 0.06 + amb * updown * 0.5) / extinction();
 }
 
 /** Fog factor pieces for a path of length `dist` from the camera along `dir`. */
 fn waterTransmittance(dist: f32) -> vec3f {
-  return exp(-extinction() * dist * frame.misc.z);
+  // The first couple of metres are kept nearly clear so close subjects stay
+  // crisp and saturated; beyond that the full absorption takes over.
+  let d = max(dist - 2.5, 0.0) + min(dist, 2.5) * 0.3;
+  return exp(-extinction() * d * frame.misc.z);
 }
 
 /** Applies absorption and in-scattering between the camera and a lit surface point. */

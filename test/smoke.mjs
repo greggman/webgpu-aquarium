@@ -24,6 +24,17 @@ const configs = [
 const ctx = await launch();
 let failed = false;
 try {
+  // Every seed must generate without errors (catches degenerate random layouts).
+  for (let seed = 3; seed <= 14; seed++) {
+    const {page} = await openAquarium(ctx, {seed: String(seed)}, {width: 320, height: 180});
+    await waitFrames(page, 3);
+    const errors = await getErrors(page);
+    if (errors.length) {
+      console.error(`[smoke:seed${seed}] FAIL: ${errors[0]}`);
+      failed = true;
+    }
+    await page.close();
+  }
   for (const cfg of configs) {
     const {page} = await openAquarium(ctx, cfg.params, cfg.viewport);
     await waitFrames(page, 30);

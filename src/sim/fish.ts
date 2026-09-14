@@ -138,16 +138,42 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     dorsalStart: number,
     dorsalEnd: number,
     superellipse: number,
-  ) => [H, W, blunt, peduncle, tailSpan, fork, dorsal, anal, pectoral, dorsalStart, dorsalEnd, superellipse];
+  ) => [
+    H,
+    W,
+    blunt,
+    peduncle,
+    tailSpan,
+    fork,
+    dorsal,
+    anal,
+    pectoral,
+    dorsalStart,
+    dorsalEnd,
+    superellipse,
+  ];
 
   // Schooling bait fish over open water.
   const baitHue = rng.range(0.52, 0.62);
   list.push({
     name: 'bait',
-    count: Math.round(rng.int(180, 280) * k),
-    length: [0.1, 0.16],
+    count: Math.round(rng.int(280, 420) * k),
+    length: [0.15, 0.22],
     bodyType: 0,
-    body: body(0.17, 0.09, 0.7, 0.18, 0.2, 0.7, 0.07, 0.04, 0.07, 0.3, 0.55, 2.2),
+    body: body(
+      0.17,
+      0.09,
+      0.7,
+      0.18,
+      0.2,
+      0.7,
+      0.07,
+      0.04,
+      0.07,
+      0.3,
+      0.55,
+      2.2,
+    ),
     colors: {
       top: hsv(baitHue, 0.5, 0.35),
       belly: [0.9, 0.92, 0.95],
@@ -167,22 +193,42 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     wander: 0.3,
     homePull: 0.15,
     home: 'open',
-    homeRadius: 14,
+    homeRadius: 7,
     eye: 0.035,
   });
 
   // Colourful reef fish that loiter around coral clusters.
-  const reefArchetypes = rng.shuffle(['tang', 'butterfly', 'damsel', 'parrot', 'wrasse']).slice(0, rng.int(3, 4));
+  const reefArchetypes = rng
+    .shuffle(['tang', 'butterfly', 'damsel', 'parrot', 'wrasse'])
+    .slice(0, rng.int(3, 4));
   for (const a of reefArchetypes) {
     const hue = rng.float();
     if (a === 'tang') {
       list.push({
         name: a,
         count: Math.round(rng.int(12, 22) * k),
-        length: [0.2, 0.3],
+        length: [0.28, 0.38],
         bodyType: 0,
-        body: body(0.42, 0.07, 0.5, 0.14, 0.32, 0.35, 0.12, 0.1, 0.1, 0.22, 0.85, 2.0),
-        colors: {top: hsv(hue, 0.85, 0.75), belly: hsv(hue, 0.7, 0.85), accent: hsv(hue + 0.15, 0.9, 0.9), fin: hsv(hue + 0.1, 0.9, 0.8)},
+        body: body(
+          0.42,
+          0.07,
+          0.5,
+          0.14,
+          0.32,
+          0.35,
+          0.12,
+          0.1,
+          0.1,
+          0.22,
+          0.85,
+          2.0,
+        ),
+        colors: {
+          top: hsv(hue, 0.85, 0.75),
+          belly: hsv(hue, 0.7, 0.85),
+          accent: hsv(hue + 0.15, 0.9, 0.9),
+          fin: hsv(hue + 0.1, 0.9, 0.8),
+        },
         pattern: rng.pick([Pattern.Gradient, Pattern.Countershade]),
         patternFreq: 1,
         iridescence: 0.2,
@@ -203,10 +249,28 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(8, 14) * k),
-        length: [0.12, 0.2],
+        length: [0.18, 0.26],
         bodyType: 0,
-        body: body(0.6, 0.06, 0.6, 0.12, 0.26, 0.05, 0.16, 0.14, 0.09, 0.2, 0.85, 2.0),
-        colors: {top: [0.95, 0.85, 0.2], belly: [0.95, 0.95, 0.9], accent: [0.08, 0.08, 0.1], fin: [0.95, 0.8, 0.2]},
+        body: body(
+          0.6,
+          0.06,
+          0.6,
+          0.12,
+          0.26,
+          0.05,
+          0.16,
+          0.14,
+          0.09,
+          0.2,
+          0.85,
+          2.0,
+        ),
+        colors: {
+          top: [0.95, 0.85, 0.2],
+          belly: [0.95, 0.95, 0.9],
+          accent: [0.08, 0.08, 0.1],
+          fin: [0.95, 0.8, 0.2],
+        },
         pattern: Pattern.Bands,
         patternFreq: rng.range(2, 4),
         iridescence: 0.1,
@@ -227,10 +291,28 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(40, 70) * k),
-        length: [0.05, 0.09],
+        length: [0.08, 0.12],
         bodyType: 0,
-        body: body(0.36, 0.1, 0.6, 0.15, 0.24, 0.5, 0.1, 0.07, 0.08, 0.25, 0.8, 2.1),
-        colors: {top: hsv(hue, 0.8, 0.7), belly: hsv(hue, 0.5, 0.9), accent: hsv(hue, 0.9, 1), fin: hsv(hue, 0.7, 0.9)},
+        body: body(
+          0.36,
+          0.1,
+          0.6,
+          0.15,
+          0.24,
+          0.5,
+          0.1,
+          0.07,
+          0.08,
+          0.25,
+          0.8,
+          2.1,
+        ),
+        colors: {
+          top: hsv(hue, 0.8, 0.7),
+          belly: hsv(hue, 0.5, 0.9),
+          accent: hsv(hue, 0.9, 1),
+          fin: hsv(hue, 0.7, 0.9),
+        },
         pattern: Pattern.Countershade,
         patternFreq: 1,
         iridescence: 0.5,
@@ -253,8 +335,26 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         count: Math.round(rng.int(4, 8) * k),
         length: [0.35, 0.55],
         bodyType: 0,
-        body: body(0.3, 0.13, 0.9, 0.18, 0.28, 0.2, 0.06, 0.05, 0.1, 0.2, 0.85, 2.3),
-        colors: {top: hsv(hue * 0.3 + 0.4, 0.7, 0.6), belly: hsv(hue * 0.3 + 0.9, 0.5, 0.85), accent: hsv(0.9, 0.6, 0.9), fin: hsv(0.55, 0.7, 0.7)},
+        body: body(
+          0.3,
+          0.13,
+          0.9,
+          0.18,
+          0.28,
+          0.2,
+          0.06,
+          0.05,
+          0.1,
+          0.2,
+          0.85,
+          2.3,
+        ),
+        colors: {
+          top: hsv(hue * 0.3 + 0.4, 0.7, 0.6),
+          belly: hsv(hue * 0.3 + 0.9, 0.5, 0.85),
+          accent: hsv(0.9, 0.6, 0.9),
+          fin: hsv(0.55, 0.7, 0.7),
+        },
         pattern: Pattern.Gradient,
         patternFreq: 1,
         iridescence: 0.35,
@@ -275,10 +375,28 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(14, 24) * k),
-        length: [0.1, 0.18],
+        length: [0.16, 0.24],
         bodyType: 0,
-        body: body(0.22, 0.08, 0.8, 0.16, 0.22, 0.1, 0.05, 0.04, 0.08, 0.22, 0.85, 2.2),
-        colors: {top: hsv(hue, 0.7, 0.7), belly: hsv(hue + 0.3, 0.6, 0.9), accent: hsv(hue + 0.5, 0.9, 0.95), fin: hsv(hue + 0.4, 0.8, 0.9)},
+        body: body(
+          0.22,
+          0.08,
+          0.8,
+          0.16,
+          0.22,
+          0.1,
+          0.05,
+          0.04,
+          0.08,
+          0.22,
+          0.85,
+          2.2,
+        ),
+        colors: {
+          top: hsv(hue, 0.7, 0.7),
+          belly: hsv(hue + 0.3, 0.6, 0.9),
+          accent: hsv(hue + 0.5, 0.9, 0.95),
+          fin: hsv(hue + 0.4, 0.8, 0.9),
+        },
         pattern: rng.pick([Pattern.Stripe, Pattern.Spots]),
         patternFreq: rng.range(6, 14),
         iridescence: 0.4,
@@ -304,8 +422,26 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     count: Math.max(2, Math.round(rng.int(3, 6) * k)),
     length: [0.6, 1.0],
     bodyType: 0,
-    body: body(0.28, 0.16, 1.0, 0.2, 0.26, 0.05, 0.08, 0.06, 0.1, 0.3, 0.8, 2.4),
-    colors: {top: hsv(rng.range(0, 0.1), 0.6, 0.45), belly: hsv(0.08, 0.35, 0.7), accent: hsv(0.05, 0.3, 0.9), fin: hsv(0.03, 0.6, 0.45)},
+    body: body(
+      0.28,
+      0.16,
+      1.0,
+      0.2,
+      0.26,
+      0.05,
+      0.08,
+      0.06,
+      0.1,
+      0.3,
+      0.8,
+      2.4,
+    ),
+    colors: {
+      top: hsv(rng.range(0, 0.1), 0.6, 0.45),
+      belly: hsv(0.08, 0.35, 0.7),
+      accent: hsv(0.05, 0.3, 0.9),
+      fin: hsv(0.03, 0.6, 0.45),
+    },
     pattern: Pattern.Spots,
     patternFreq: rng.range(10, 18),
     iridescence: 0.05,
@@ -327,11 +463,32 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   if (ctx.anemones.length) {
     list.push({
       name: 'clown',
-      count: Math.min(ctx.anemones.length * 2, Math.round(16 * Math.max(k, 0.5))),
+      count: Math.min(
+        ctx.anemones.length * 2,
+        Math.round(16 * Math.max(k, 0.5)),
+      ),
       length: [0.07, 0.1],
       bodyType: 0,
-      body: body(0.38, 0.12, 0.5, 0.2, 0.22, 0.0, 0.1, 0.07, 0.09, 0.25, 0.75, 2.0),
-      colors: {top: [1.0, 0.42, 0.05], belly: [1.0, 0.5, 0.1], accent: [0.97, 0.97, 0.95], fin: [1.0, 0.45, 0.08]},
+      body: body(
+        0.38,
+        0.12,
+        0.5,
+        0.2,
+        0.22,
+        0.0,
+        0.1,
+        0.07,
+        0.09,
+        0.25,
+        0.75,
+        2.0,
+      ),
+      colors: {
+        top: [1.0, 0.42, 0.05],
+        belly: [1.0, 0.5, 0.1],
+        accent: [0.97, 0.97, 0.95],
+        fin: [1.0, 0.45, 0.08],
+      },
       pattern: Pattern.Clown,
       patternFreq: 1,
       iridescence: 0.1,
@@ -354,13 +511,25 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   const manta = rng.bool(0.4);
   list.push({
     name: manta ? 'manta' : 'eagle-ray',
-    count: manta ? 1 : Math.max(1, Math.round(rng.int(2, 3) * Math.min(1, k * 1.5))),
+    count: manta
+      ? 1
+      : Math.max(1, Math.round(rng.int(2, 3) * Math.min(1, k * 1.5))),
     length: manta ? [2.4, 3.2] : [1.0, 1.5],
     bodyType: 1,
     body: [manta ? 1.25 : 1.1, 0.06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     colors: manta
-      ? {top: [0.08, 0.08, 0.1], belly: [0.9, 0.9, 0.88], accent: [0.5, 0.5, 0.5], fin: [0.1, 0.1, 0.12]}
-      : {top: [0.12, 0.12, 0.16], belly: [0.9, 0.9, 0.88], accent: [0.85, 0.85, 0.8], fin: [0.12, 0.12, 0.15]},
+      ? {
+          top: [0.08, 0.08, 0.1],
+          belly: [0.9, 0.9, 0.88],
+          accent: [0.5, 0.5, 0.5],
+          fin: [0.1, 0.1, 0.12],
+        }
+      : {
+          top: [0.12, 0.12, 0.16],
+          belly: [0.9, 0.9, 0.88],
+          accent: [0.85, 0.85, 0.8],
+          fin: [0.12, 0.12, 0.15],
+        },
     pattern: manta ? Pattern.Countershade : Pattern.Spots,
     patternFreq: 14,
     iridescence: 0,
@@ -910,9 +1079,14 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
 }
 `;
 
-export type FishSystem = RenderSystem & {setCamera(p: [number, number, number]): void};
+export type FishSystem = RenderSystem & {
+  setCamera(p: [number, number, number]): void;
+};
 
-export async function createFish(renderer: Renderer, ctx: GenContext): Promise<FishSystem> {
+export async function createFish(
+  renderer: Renderer,
+  ctx: GenContext,
+): Promise<FishSystem> {
   const device = renderer.device;
   const rng = ctx.rng('fish');
   const hi = ctx.quality.tierIndex >= 2;
@@ -932,14 +1106,26 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
     const len = (s.length[0] + s.length[1]) / 2;
     speciesData.set(
       [
-        ...s.band, s.speed, s.maxSpeed,
+        ...s.band,
+        s.speed,
+        s.maxSpeed,
         ...s.flock,
-        s.turn, len, s.bodyType, s.tailBeat,
-        ...s.colors.top.slice(0, 3), s.pattern,
-        ...s.colors.belly.slice(0, 3), s.patternFreq,
-        ...s.colors.accent.slice(0, 3), s.iridescence,
-        ...s.colors.fin.slice(0, 3), s.finTranslucency,
-        s.wander, s.homePull, s.body[0] * 0.28, s.eye,
+        s.turn,
+        len,
+        s.bodyType,
+        s.tailBeat,
+        ...s.colors.top.slice(0, 3),
+        s.pattern,
+        ...s.colors.belly.slice(0, 3),
+        s.patternFreq,
+        ...s.colors.accent.slice(0, 3),
+        s.iridescence,
+        ...s.colors.fin.slice(0, 3),
+        s.finTranslucency,
+        s.wander,
+        s.homePull,
+        s.body[0] * 0.28,
+        s.eye,
       ],
       i * 32,
     );
@@ -951,18 +1137,29 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
   const ranges: {first: number; count: number}[] = [];
   const center = ctx.nav.o.center;
   const basinY = ctx.terrain.heightAt(center[0], center[1]);
-  const openHome: [number, number, number] = [
-    center[0] + rng.range(-15, 15),
-    Math.min(basinY + 6, ctx.nav.ceiling() - 2),
-    center[1] + rng.range(-15, 15),
-  ];
+  // The bait ball hangs in the water column just beside the hero reef, where
+  // the cameras and the attract tour will see it.
+  const hero = ctx.clusters[0];
+  const openHome: [number, number, number] = hero
+    ? [
+        hero.x + rng.range(-4, 4),
+        Math.min(hero.y + 4.5, ctx.nav.ceiling() - 1.5),
+        hero.z + rng.range(-4, 4),
+      ]
+    : [center[0], Math.min(basinY + 6, ctx.nav.ceiling() - 2), center[1]];
   let idx = 0;
   speciesList.forEach((s, si) => {
     ranges.push({first: idx, count: s.count});
     for (let n = 0; n < s.count; n++) {
       let home: [number, number, number, number];
       if (s.home === 'reef' && ctx.clusters.length) {
-        const c = ctx.clusters[Math.min(ctx.clusters.length - 1, Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length))];
+        const c =
+          ctx.clusters[
+            Math.min(
+              ctx.clusters.length - 1,
+              Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length),
+            )
+          ];
         home = [c.x, c.y + 1.2, c.z, c.radius + s.homeRadius];
       } else if (s.home === 'anemone' && ctx.anemones.length) {
         const a = ctx.anemones[n % ctx.anemones.length];
@@ -977,9 +1174,25 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
       const x = home[0] + Math.cos(a) * r;
       const z = home[2] + Math.sin(a) * r;
       const g = ctx.terrain.heightAt(x, z);
-      const y = Math.min(Math.max(home[1] + rng.range(-1, 1), g + s.band[0] + 0.2), ctx.nav.ceiling() - 0.5);
+      const y = Math.min(
+        Math.max(home[1] + rng.range(-1, 1), g + s.band[0] + 0.2),
+        ctx.nav.ceiling() - 0.5,
+      );
       const h = rng.range(0, Math.PI * 2);
-      fishData.set([x, y, z, si, Math.cos(h) * s.speed, 0, Math.sin(h) * s.speed, rng.range(0, 10), ...home], idx * 12);
+      fishData.set(
+        [
+          x,
+          y,
+          z,
+          si,
+          Math.cos(h) * s.speed,
+          0,
+          Math.sin(h) * s.speed,
+          rng.range(0, 10),
+          ...home,
+        ],
+        idx * 12,
+      );
       idx++;
     }
   });
@@ -1003,7 +1216,9 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
   });
   const obstacleList = ctx.obstacles.slice(0, 96);
   const obstacleData = new Float32Array(Math.max(1, obstacleList.length) * 4);
-  obstacleList.forEach((o, i) => obstacleData.set([...o.center, o.radius], i * 4));
+  obstacleList.forEach((o, i) =>
+    obstacleData.set([...o.center, o.radius], i * 4),
+  );
   const obstacleBuf = storage('fish:obstacles', obstacleData);
   const simBuf = device.createBuffer({
     label: 'fish:sim-uniform',
@@ -1020,7 +1235,11 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
     layout: 'auto',
     compute: {module: simModule, entryPoint: 'main'},
   });
-  const clampSampler = device.createSampler({label: 'fish:terrain-sampler', magFilter: 'linear', minFilter: 'linear'});
+  const clampSampler = device.createSampler({
+    label: 'fish:terrain-sampler',
+    magFilter: 'linear',
+    minFilter: 'linear',
+  });
   const simGroups = [
     [stateA, stateB],
     [stateB, stateA],
@@ -1035,7 +1254,12 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
         {binding: 3, resource: {buffer: speciesBuf}},
         {binding: 4, resource: {buffer: instanceBuf}},
         {binding: 5, resource: {buffer: obstacleBuf}},
-        {binding: 6, resource: renderer.textures.terrain.createView({label: 'fish:terrain-view'})},
+        {
+          binding: 6,
+          resource: renderer.textures.terrain.createView({
+            label: 'fish:terrain-view',
+          }),
+        },
         {binding: 7, resource: clampSampler},
       ],
     }),
@@ -1045,8 +1269,16 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
   const localLayout = device.createBindGroupLayout({
     label: 'fish:local-bgl',
     entries: [
-      {binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {type: 'read-only-storage'}},
-      {binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {type: 'read-only-storage'}},
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: {type: 'read-only-storage'},
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: {type: 'read-only-storage'},
+      },
     ],
   });
   const layout = device.createPipelineLayout({
@@ -1058,16 +1290,32 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
       label: 'fish:pipeline',
       layout,
       vertex: {module: renderModule, entryPoint: 'vs', buffers: [vertexLayout]},
-      fragment: {module: renderModule, entryPoint: 'fs', targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}]},
+      fragment: {
+        module: renderModule,
+        entryPoint: 'fs',
+        targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}],
+      },
       primitive: {topology: 'triangle-list', cullMode: 'none'},
-      depthStencil: {format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater'},
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: true,
+        depthCompare: 'greater',
+      },
     }),
     device.createRenderPipelineAsync({
       label: 'fish:shadow-pipeline',
       layout,
-      vertex: {module: renderModule, entryPoint: 'vsShadow', buffers: [vertexLayout]},
+      vertex: {
+        module: renderModule,
+        entryPoint: 'vsShadow',
+        buffers: [vertexLayout],
+      },
       primitive: {topology: 'triangle-list', cullMode: 'none'},
-      depthStencil: {format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater'},
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: true,
+        depthCompare: 'greater',
+      },
     }),
   ]);
   const renderGroup = device.createBindGroup({
@@ -1092,31 +1340,47 @@ export async function createFish(renderer: Renderer, ctx: GenContext): Promise<F
     });
   };
 
-  const system: RenderSystem & {setCamera(p: [number, number, number]): void} = {
-    name: 'fish',
-    setCamera(p) {
-      camPos = p;
-    },
-    update(fc: FrameContext) {
-      // Sub-step large time steps for stability.
-      simF[0] = Math.min(fc.dt, 1 / 20);
-      simF[1] = fc.time;
-      simU[2] = total;
-      simU[3] = obstacleList.length;
-      simF.set(camPos, 4);
-      simF[7] = ctx.nav.ceiling();
-      simF[8] = ctx.desc.terrain.worldSize;
-      device.queue.writeBuffer(simBuf, 0, simData);
-      const pass = fc.encoder.beginComputePass({label: 'fish:sim-pass'});
-      pass.setPipeline(simPipeline);
-      pass.setBindGroup(0, simGroups[flip]);
-      pass.dispatchWorkgroups(Math.ceil(total / 64));
-      pass.end();
-      flip = 1 - flip;
-    },
-    drawOpaque: pass => draw(pass, pipeline),
-    drawShadow: pass => draw(pass, shadowPipeline),
-  };
-  console.log(`[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`);
+  const system: RenderSystem & {setCamera(p: [number, number, number]): void} =
+    {
+      name: 'fish',
+      setCamera(p) {
+        camPos = p;
+      },
+      update(fc: FrameContext) {
+        // Sub-step large time steps for stability. Each step needs its own
+        // uniform contents, so large steps are split across submits.
+        const steps = Math.min(4, Math.max(1, Math.ceil(fc.dt / (1 / 20))));
+        for (let s = 0; s < steps; s++) {
+          simF[0] = fc.dt / steps;
+          simF[1] = fc.time - fc.dt + (fc.dt * (s + 1)) / steps;
+          simU[2] = total;
+          simU[3] = obstacleList.length;
+          simF.set(camPos, 4);
+          simF[7] = ctx.nav.ceiling();
+          simF[8] = ctx.desc.terrain.worldSize;
+          const last = s === steps - 1;
+          const encoder = last
+            ? fc.encoder
+            : device.createCommandEncoder({label: 'fish:substep-encoder'});
+          device.queue.writeBuffer(simBuf, 0, simData);
+          const pass = encoder.beginComputePass({label: 'fish:sim-pass'});
+          pass.setPipeline(simPipeline);
+          pass.setBindGroup(0, simGroups[flip]);
+          pass.dispatchWorkgroups(Math.ceil(total / 64));
+          pass.end();
+          if (!last) {
+            device.queue.submit([
+              encoder.finish({label: 'fish:substep-commands'}),
+            ]);
+          }
+          flip = 1 - flip;
+        }
+      },
+      drawOpaque: pass => draw(pass, pipeline),
+      drawShadow: pass => draw(pass, shadowPipeline),
+    };
+  console.log(
+    `[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`,
+  );
   return system;
 }

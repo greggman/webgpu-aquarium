@@ -3,7 +3,12 @@
 
 import {createShader} from '../gpu/device.ts';
 import {surfaceLib} from '../shaders/index.ts';
-import {DEPTH_FORMAT, HDR_FORMAT, type Renderer, type RenderSystem} from './renderer.ts';
+import {
+  DEPTH_FORMAT,
+  HDR_FORMAT,
+  type Renderer,
+  type RenderSystem,
+} from './renderer.ts';
 import type {GenContext} from '../world/layout.ts';
 
 const shader = /* wgsl */ `
@@ -121,7 +126,10 @@ fn fs(i: VOut) -> @location(0) vec4f {
 }
 `;
 
-export async function createParticles(renderer: Renderer, ctx: GenContext): Promise<RenderSystem> {
+export async function createParticles(
+  renderer: Renderer,
+  ctx: GenContext,
+): Promise<RenderSystem> {
   const device = renderer.device;
   const rng = ctx.rng('particles');
   const snowCount = Math.round(4000 * ctx.quality.density);
@@ -134,25 +142,47 @@ export async function createParticles(renderer: Renderer, ctx: GenContext): Prom
   for (const c of ctx.clusters) {
     const n = rng.int(1, 3);
     for (let i = 0; i < n; i++) {
-      addEmitter(c.x + rng.range(-c.radius, c.radius), c.z + rng.range(-c.radius, c.radius), rng.range(0.6, 1.4));
+      addEmitter(
+        c.x + rng.range(-c.radius, c.radius),
+        c.z + rng.range(-c.radius, c.radius),
+        rng.range(0.6, 1.4),
+      );
     }
   }
   for (const a of ctx.anemones.slice(0, 4)) {
-    addEmitter(a[0] + rng.range(-0.5, 0.5), a[2] + rng.range(-0.5, 0.5), rng.range(0.3, 0.8));
+    addEmitter(
+      a[0] + rng.range(-0.5, 0.5),
+      a[2] + rng.range(-0.5, 0.5),
+      rng.range(0.3, 0.8),
+    );
   }
   if (!emitters.length) {
     addEmitter(0, 0, 1);
   }
   const emitterCount = emitters.length / 4;
-  const bubbleCount = Math.round(emitterCount * 40 * Math.max(0.5, ctx.quality.density));
+  const bubbleCount = Math.round(
+    emitterCount * 40 * Math.max(0.5, ctx.quality.density),
+  );
 
   const module = createShader(device, 'particles:shader', shader);
   const localLayout = device.createBindGroupLayout({
     label: 'particles:local-bgl',
     entries: [
-      {binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {type: 'uniform'}},
-      {binding: 1, visibility: GPUShaderStage.VERTEX, buffer: {type: 'read-only-storage'}},
-      {binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {sampleType: 'depth'}},
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'uniform'},
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'read-only-storage'},
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: {sampleType: 'depth'},
+      },
     ],
   });
   const layout = device.createPipelineLayout({
@@ -160,7 +190,11 @@ export async function createParticles(renderer: Renderer, ctx: GenContext): Prom
     bindGroupLayouts: [renderer.globals.layout, localLayout],
   });
   const blend: GPUBlendState = {
-    color: {srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add'},
+    color: {
+      srcFactor: 'one',
+      dstFactor: 'one-minus-src-alpha',
+      operation: 'add',
+    },
     alpha: {srcFactor: 'zero', dstFactor: 'one', operation: 'add'},
   };
   const make = (entry: string, label: string) =>
@@ -168,9 +202,17 @@ export async function createParticles(renderer: Renderer, ctx: GenContext): Prom
       label,
       layout,
       vertex: {module, entryPoint: entry},
-      fragment: {module, entryPoint: 'fs', targets: [{format: HDR_FORMAT, blend}]},
+      fragment: {
+        module,
+        entryPoint: 'fs',
+        targets: [{format: HDR_FORMAT, blend}],
+      },
       primitive: {topology: 'triangle-strip'},
-      depthStencil: {format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater'},
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: false,
+        depthCompare: 'greater',
+      },
     });
   const [snowPipeline, bubblePipeline] = await Promise.all([
     make('vsSnow', 'particles:snow-pipeline'),
@@ -204,7 +246,10 @@ export async function createParticles(renderer: Renderer, ctx: GenContext): Prom
         entries: [
           {binding: 0, resource: {buffer: paramBuf}},
           {binding: 1, resource: {buffer: emitterBuf}},
-          {binding: 2, resource: t.depth.createView({label: 'particles:depth-view'})},
+          {
+            binding: 2,
+            resource: t.depth.createView({label: 'particles:depth-view'}),
+          },
         ],
       });
     },
