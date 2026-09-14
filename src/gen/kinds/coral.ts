@@ -501,7 +501,7 @@ function tableVariant(rng: Rng, aux: AuxBuilder, hi: boolean): VariantInfo {
 }
 
 function spongeVariant(rng: Rng, hi: boolean): VariantInfo {
-  const tubes = rng.bool(0.5) ? 1 : rng.int(3, 5);
+  const tubes = rng.bool(0.25) ? 1 : rng.int(3, 7);
   const patches: Patch[] = [];
   let height = 0;
   for (let t = 0; t < tubes; t++) {

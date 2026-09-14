@@ -55,9 +55,9 @@ const STYLES: WaterStyle[] = [
   {
     // Emerald lagoon: green-teal water.
     name: 'lagoon',
-    absorption: [0.13, 0.03, 0.034],
-    scattering: 0.026,
-    ambient: [0.28, 0.82, 0.82],
+    absorption: [0.12, 0.028, 0.03],
+    scattering: 0.02,
+    ambient: [0.24, 0.76, 0.9],
     sunColor: [13.5, 13, 10.8],
     sunElevation: [0.95, 1.25],
     exposure: 0.36,
@@ -82,9 +82,9 @@ const STYLES: WaterStyle[] = [
   {
     // Kelp coast: murky green-gold, softer light.
     name: 'kelp-forest',
-    absorption: [0.15, 0.045, 0.058],
-    scattering: 0.034,
-    ambient: [0.3, 0.7, 0.6],
+    absorption: [0.14, 0.042, 0.05],
+    scattering: 0.024,
+    ambient: [0.27, 0.66, 0.64],
     sunColor: [13, 12, 9],
     sunElevation: [0.85, 1.15],
     exposure: 0.4,

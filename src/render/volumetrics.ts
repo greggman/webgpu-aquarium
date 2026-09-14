@@ -63,10 +63,10 @@ fn beam(p: vec3f) -> f32 {
   // Normalise by the average brightness so contrast is independent of the mip.
   let avg = textureSampleLevel(tCaustics, sLinearRepeat, uvc, 9.0).g;
   let rel = c / max(avg, 1e-3);
+  // Slow drifting gate from the tileable detail noise (cheap: one sample).
   let drift = vec2f(frame.time * 0.15, frame.time * 0.07);
-  let broadUv = (entry + drift) / 30.0;
-  let broad = fbm2(broadUv, 3) + 0.5 * fbm2(broadUv * 2.7 + 5.0, 2);
-  let gate = smoothstep(-0.2, 0.25, broad);
+  let broad = textureSampleLevel(tDetail, sLinearRepeat, (entry + drift) / 90.0, 2.0).r;
+  let gate = smoothstep(0.35, 0.6, broad);
   return pow(rel, 4.0) * gate * 1.5;
 }
 
@@ -247,6 +247,10 @@ export async function createVolumetrics(
         {
           binding: 5,
           resource: t.caustics.createView({label: 'volumetrics:caustics-view'}),
+        },
+        {
+          binding: 6,
+          resource: t.detail.createView({label: 'volumetrics:detail-view'}),
         },
       ],
     });

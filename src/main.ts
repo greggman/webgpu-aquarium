@@ -170,7 +170,13 @@ async function main() {
     await createSsao(renderer),
     volumetrics,
   );
-  const dof = quality.dof ? await createDof(device) : null;
+  // ?disable=ssao,volumetrics,coral,... drops systems, for profiling.
+  const disabled = new Set(
+    (params.get('disable') ?? '').split(',').filter(Boolean),
+  );
+  renderer.systems = renderer.systems.filter(s => !disabled.has(s.name));
+  const dof =
+    quality.dof && !disabled.has('dof') ? await createDof(device) : null;
   renderer.post.push(taa);
   if (dof) {
     renderer.post.push(dof);
