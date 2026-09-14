@@ -2,7 +2,7 @@
 // coral, barrel and tube sponges, and swaying sea whips. All share one mesh
 // build and one pipeline; the kind lives in patch/instance parameters.
 
-import {buildMesh, type Patch} from '../meshgen.ts';
+import {buildMesh, withCoarseCopies, type Patch} from '../meshgen.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
@@ -666,11 +666,14 @@ export async function createCoral(
   for (let i = 0; i < 2; i++) addLow(whipVariant(rng, aux, false));
   addLow(tableVariant(rng, aux, false));
 
+  // Distance stand-ins for the hero variants: coarse copies of the same shapes.
+  const lowSet = new Set([...lowKind.values()].flat());
+  const lod = withCoarseCopies(variants, i => !lowSet.has(i), 0.45);
   const mesh = await buildMesh(
     renderer.device,
     'coral',
     surfaceWgsl,
-    variants,
+    lod.variants,
     rng.nextU32(),
     aux.build(),
   );
@@ -877,17 +880,12 @@ export async function createCoral(
     place(kind, x, z, scale, 0.5, true);
   }
 
-  // Distant hero corals draw as a low-detail variant of the same kind.
-  const lowOfVariant = variants.map((v, i) => {
-    const lows = lowKind.get(v.kind) ?? [];
-    return lows.includes(i) || !lows.length ? -1 : lows[i % lows.length];
-  });
   return createPropKind(renderer, {
     name: 'coral',
     mesh,
     instances,
     wgsl: materialWgsl,
-    lod: {low: lowOfVariant, distance: 16},
+    lod: {low: lod.low, distance: 18},
     shadowMinRadius: 0.3,
   });
 }

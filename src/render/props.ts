@@ -354,20 +354,31 @@ export async function createPropKind(
       }
       camRanges[w].count = cursor - camRanges[w].first;
     }
-    // Shadow pass: inside the orthographic shadow box, at low detail.
+    // Shadow pass: inside the orthographic shadow box, with the same detail
+    // level the camera draws (a mismatched caster shape self-shadows the
+    // visible mesh).
     for (let w = 0; w < variantCount; w++) {
       shadowRanges[w].first = cursor;
       if (castShadows) {
         for (const v of sourcesOf[w]) {
           const r = ranges[v];
-          if (!r || (v === w && lowOf[v] >= 0 && lowOf[v] !== v)) {
+          if (!r) {
             continue;
           }
+          const own = v === w;
+          const hasLow = lowOf[v] >= 0 && lowOf[v] !== v;
           for (let i = r.first; i < r.first + r.count; i++) {
             const b = i * FLOATS;
             const x = data[b];
             const y = data[b + 1];
             const z = data[b + 2];
+            const ex = x - cp[0];
+            const ey = y - cp[1];
+            const ez = z - cp[2];
+            const far = ex * ex + ey * ey + ez * ez > lodD2;
+            if (own ? hasLow && far : !far) {
+              continue;
+            }
             const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
             const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
             if (radiusOf[i] < shadowMinRadius) {

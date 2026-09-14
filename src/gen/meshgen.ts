@@ -28,6 +28,37 @@ export interface Patch {
   params: number[];
 }
 
+/**
+ * Appends a coarsely tessellated copy of each selected variant (same surface
+ * and parameters, so the same shape) for use as a distance LOD. Returns the
+ * extended list and, per variant, the index of its stand-in (or -1).
+ */
+export function withCoarseCopies<T extends {patches: Patch[]}>(
+  variants: T[],
+  select: (index: number) => boolean,
+  factor = 0.4,
+): {variants: T[]; low: number[]} {
+  const all = [...variants];
+  const low = variants.map((v, i) => {
+    if (!select(i)) {
+      return -1;
+    }
+    all.push({
+      ...v,
+      patches: v.patches.map(p => ({
+        ...p,
+        segU: Math.max(4, Math.round(p.segU * factor)),
+        segV: Math.max(2, Math.round(p.segV * factor)),
+      })),
+    });
+    return all.length - 1;
+  });
+  return {
+    variants: all,
+    low: [...low, ...all.slice(variants.length).map(() => -1)],
+  };
+}
+
 export interface VariantRange {
   firstIndex: number;
   indexCount: number;
