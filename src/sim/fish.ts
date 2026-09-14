@@ -1320,7 +1320,9 @@ export async function createFish(
         s.body[0] * 0.72 * 0.28,
         s.eye * 1.15,
         s.curiosity ?? 0,
-        s.curiosity ? 0.9 : 1.5 + len * 3,
+        // Schools keep well clear of the lens: out-of-focus fish right in
+        // front of the camera read as ghosts.
+        s.curiosity ? 0.9 : Math.max(3.5, 1.5 + len * 3),
         s.roam ?? 0,
         s.roam ? 0.9 / s.roam : 0,
       ],

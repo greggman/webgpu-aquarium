@@ -361,7 +361,7 @@ function kelpPlant(
           ],
           Part.KelpBlade,
           hi && !coarse ? 4 : 1,
-          hi && !coarse ? 22 : 6,
+          hi && !coarse ? 32 : 6,
         ),
       );
       // Every blade springs from a gas bladder.
@@ -538,7 +538,13 @@ export async function createPlants(
         minDist: 3.2,
         center: fc,
         radius: rng.range(10, 15),
-        density: (x, z) => (ctx.terrain.maskAt(0, x, z) < 0.6 ? 1 : 0.2),
+        // Stands separated by open lanes, so blue water shows between them.
+        density: (x, z) => {
+          const lanes =
+            0.5 + 0.5 * Math.sin(x * 0.33 + Math.sin(z * 0.21) * 2.2 + f * 3);
+          const rocky = ctx.terrain.maskAt(0, x, z) < 0.6 ? 1 : 0.2;
+          return rocky * (lanes > 0.42 ? 1 : 0.05);
+        },
       },
       ctx.occupied,
     );

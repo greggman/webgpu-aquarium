@@ -154,11 +154,12 @@ export async function createRocks(
             rng.range(0.8, 1.0),
             rng.range(1.6, 2.0),
             rng.range(0.8, 1.0),
-            rng.range(0.4, 0.55),
+            rng.range(0.28, 0.4),
             rng.range(-50, 50),
             rng.range(-50, 50),
             rng.range(-50, 50),
-            rng.range(0.8, 1.3),
+            // Eroded ledges up the column.
+            rng.range(2.2, 3.2),
           ],
         },
       ],
@@ -215,10 +216,16 @@ export async function createRocks(
       ctx.occupied.add(x, z, scale * 0.9);
       // A stack of spheres up the column, so the camera, fish and the coral
       // that encrusts its top all see its real height.
-      for (const k of [0.1, 0.8, 1.45]) {
+      // Tapering, like the column, so things resting on the stack sit on
+      // the rock rather than on a sphere bulging past it.
+      for (const [k, r] of [
+        [0.1, 1.0],
+        [0.8, 0.8],
+        [1.4, 0.6],
+      ]) {
         ctx.obstacles.push({
           center: [x, y + scale * k, z],
-          radius: scale * 0.95,
+          radius: scale * r,
         });
       }
     } else if (scale > 1.2) {

@@ -71,8 +71,9 @@ fn tableSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let lobes = pat.p1.y;
   let edge = pow(uv.y, 3.0);
   let wave = sin(theta * lobes + fbm2(vec2f(theta * 2.0, 1.0), 2) * 2.0) * pat.p1.z * edge;
-  let dome = pat.p2.x * (1.0 - uv.y * uv.y) + pat.p2.y * uv.y;
-  let thick = pat.p1.w * (1.0 - pow(uv.y, 10.0));
+  // Upturned growing lip at the rim.
+  let dome = pat.p2.x * (1.0 - uv.y * uv.y) + pat.p2.y * uv.y + smoothstep(0.82, 1.0, uv.y) * 0.05;
+  let thick = pat.p1.w * 1.6 * (1.0 - pow(uv.y, 14.0));
   let rr = r * (1.0 + 0.04 * sin(theta * 3.0 + 1.7) * edge + 0.03 * fbm2(vec2f(theta * 4.0, 3.0), 2) * edge);
   let rough = fbm3(vec3f(cos(theta) * rr, 0.0, sin(theta) * rr) * 3.0, 3) * 0.04;
   var y = pat.p0.z + dome + wave + rough;
@@ -175,7 +176,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let broad = triplanarDetail(lp, nIn, 0.6);
   let cup = smoothstep(0.02, 0.3, polyps.g);
   let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
-  let bumped = bumpFromHeight(nIn, i.world, height, 0.06);
+  let bumped = bumpFromHeight(nIn, i.world, height, 0.1);
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -200,8 +201,11 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let branchVar = 0.8 + 0.4 * fract(sin(dot(floor(i.uv.zz * 7.0) + inst.params.x, vec2f(12.9, 78.2))) * 43758.5);
       c *= branchVar * mix(0.55, 1.0, smoothstep(0.0, 0.35, along + gen * 0.3));
       s.albedo = mix(c, vec3f(dot(c, vec3f(0.3, 0.5, 0.2))), 0.18);
-      s.roughness = mix(0.85, 0.6, tip);
-      s.translucency = mix(0.05, 0.55, tip * tip);
+      // Rough, dry-looking tissue (a smooth branch mirrors the water at its
+      // edges and glows cyan); warm light passes only through the thin tips.
+      s.roughness = 0.9;
+      s.f0 = 0.02;
+      s.translucency = mix(0.0, 0.4, tip * tip);
       s.emissive = accent * tip * inst.params.z * 0.25;
     }
     case ${CoralKind.Brain}u: {
@@ -442,14 +446,16 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
   return {
     patches: [
       {
-        segU: hi ? 128 : 64,
-        segV: hi ? 48 : 24,
+        segU: hi ? 160 : 64,
+        segV: hi ? 64 : 24,
         params: [
           ...shape,
           0,
-          rng.range(2.5, 4),
-          rng.range(10, 18),
-          rng.range(0.025, 0.045),
+          // Few, broad meanders that the mesh can actually resolve (a fine
+          // labyrinth aliases into scattered dots).
+          rng.range(1.8, 2.6),
+          rng.range(5, 8),
+          rng.range(0.03, 0.05),
           0,
           rng.range(-40, 40),
           rng.range(-40, 40),
@@ -742,14 +748,32 @@ export async function createCoral(
 
   // Encrust the tops of big rocks with small corals and sponges so the rock
   // reads as reef framework rather than bare stone.
-  for (const o of [...ctx.obstacles]) {
+  const rockObstacles = [...ctx.obstacles];
+  for (const o of rockObstacles) {
     if (o.radius < 1.1) {
       continue;
     }
+    // Pillars are stacks of spheres: only the top one carries coral, and only
+    // near its crown (the spheres bulge past the real mesh at their sides).
+    const stacked = rockObstacles.some(
+      q =>
+        q !== o &&
+        q.center[1] > o.center[1] &&
+        Math.hypot(q.center[0] - o.center[0], q.center[2] - o.center[2]) < 0.2,
+    );
+    if (stacked) {
+      continue;
+    }
+    const isStackTop = rockObstacles.some(
+      q =>
+        q !== o &&
+        q.center[1] < o.center[1] &&
+        Math.hypot(q.center[0] - o.center[0], q.center[2] - o.center[2]) < 0.2,
+    );
     const n = ctx.count(Math.round(o.radius * rng.range(2, 4)));
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
-      const r = Math.sqrt(rng.float()) * o.radius * 0.65;
+      const r = Math.sqrt(rng.float()) * o.radius * (isStackTop ? 0.35 : 0.65);
       const x = o.center[0] + Math.cos(a) * r;
       const z = o.center[2] + Math.sin(a) * r;
       const kind = rng.weighted(

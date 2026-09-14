@@ -550,18 +550,31 @@ export function cameraSpots(
   // toward the sun, so coral silhouettes against Snell's window and the shafts.
   const sunFlat = Math.atan2(desc.sunDir[2], desc.sunDir[0]);
   let surface: CameraSpot | undefined;
-  for (let k = 0; k < 10 && !surface; k++) {
-    const a = sunFlat + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.35;
-    const r = hero.radius * 0.55 + 3;
-    const x = hero.x + Math.cos(a) * r;
-    const z = hero.z + Math.sin(a) * r;
-    const y = Math.min(nav.floorAt(x, z) + 1.3, nav.ceiling() - 2);
-    if (!nav.contains([x, y, z]) || !kelpClear(x, z)) {
-      continue;
+  let surfaceScore = -Infinity;
+  for (let k = 0; k < 24; k++) {
+    const a = sunFlat + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27;
+    for (const r of [hero.radius * 0.3 + 2.5, hero.radius * 0.5 + 3]) {
+      const x = hero.x + Math.cos(a) * r;
+      const z = hero.z + Math.sin(a) * r;
+      // Low, near the bommie's base, so it rises above the lens.
+      const y = Math.min(
+        Math.max(nav.floorAt(x, z) + 0.4, hero.y + 1.2),
+        nav.ceiling() - 2,
+      );
+      if (!nav.contains([x, y, z]) || !kelpClear(x, z)) {
+        continue;
+      }
+      const score =
+        -Math.abs(y - hero.y - 1.2) * 1.5 -
+        Math.ceil(k / 2) * 0.15 -
+        (r > hero.radius * 0.3 + 2.5 ? 0.3 : 0);
+      if (score > surfaceScore) {
+        surfaceScore = score;
+        const dx = (hero.x - x) / r;
+        const dz = (hero.z - z) / r;
+        surface = {pos: [x, y, z], target: [x + dx * 6, y + 3.2, z + dz * 6]};
+      }
     }
-    const dx = (hero.x - x) / r;
-    const dz = (hero.z - z) / r;
-    surface = {pos: [x, y, z], target: [x + dx * 6, y + 4.2, z + dz * 6]};
   }
   if (!surface) {
     const upX = hero.x - Math.cos(sunFlat) * (hero.radius + 2);
