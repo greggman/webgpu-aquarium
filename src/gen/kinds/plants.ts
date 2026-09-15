@@ -600,7 +600,7 @@ export async function createPlants(
   ];
   const fans: Instance[] = [];
   for (const c of ctx.clusters) {
-    const count = ctx.count(rng.int(1, 4) * (c.rank === 0 ? 2 : 1));
+    const count = ctx.count(rng.int(3, 6) * (c.rank === 0 ? 2 : 1));
     for (let i = 0; i < count; i++) {
       const a = rng.range(0, Math.PI * 2);
       const r = c.radius * rng.range(0.5, 1.1);
@@ -609,7 +609,7 @@ export async function createPlants(
       const col = rng.pick(fanColors);
       fans.push({
         pos: [x, ctx.surfaceTop(x, z) - 0.03, z],
-        scale: rng.range(0.7, 1.5),
+        scale: rng.range(1.1, 2.4),
         // Face roughly into the current (+x), like real gorgonians.
         rot: quatUpYaw(
           [rng.range(-0.1, 0.1), 1, rng.range(-0.1, 0.1)],

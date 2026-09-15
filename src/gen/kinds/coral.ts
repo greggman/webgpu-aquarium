@@ -671,7 +671,7 @@ export async function createCoral(
 
   // Distance stand-ins for the hero variants: coarse copies of the same shapes.
   const lowSet = new Set([...lowKind.values()].flat());
-  const lod = withCoarseCopies(variants, i => !lowSet.has(i), 0.45);
+  const lod = withCoarseCopies(variants, i => !lowSet.has(i), 0.35);
   const mesh = await buildMesh(
     renderer.device,
     'coral',
@@ -780,23 +780,23 @@ export async function createCoral(
     const area = (c.radius * c.radius) / 25;
     for (let i = 0; i < Math.round(rng.int(6, 9) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Brain, x, z, rng.range(0.7, 1.7));
+      place(CoralKind.Brain, x, z, rng.range(1.1, 2.7));
     }
     for (let i = 0; i < ctx.count(rng.int(6, 10) * density * area); i++) {
       const [x, z] = inCluster(1);
-      place(CoralKind.Branching, x, z, rng.range(0.55, 1.35));
+      place(CoralKind.Branching, x, z, rng.range(0.9, 2.1));
     }
     for (let i = 0; i < Math.round(rng.int(1, 3) * density * area); i++) {
       const [x, z] = inCluster(0.9);
-      place(CoralKind.Table, x, z, rng.range(0.6, 1.15), 0.1);
+      place(CoralKind.Table, x, z, rng.range(0.9, 1.7), 0.1);
     }
     for (let i = 0; i < ctx.count(rng.int(3, 6) * density * area); i++) {
       const [x, z] = inCluster(1.1);
-      place(CoralKind.Sponge, x, z, rng.range(0.7, 1.6), 0.1);
+      place(CoralKind.Sponge, x, z, rng.range(1.0, 2.3), 0.1);
     }
     for (let i = 0; i < ctx.count(rng.int(2, 5) * density * area); i++) {
       const [x, z] = inCluster(1.2);
-      place(CoralKind.Whip, x, z, rng.range(0.45, 1.0), 0.1);
+      place(CoralKind.Whip, x, z, rng.range(0.7, 1.4), 0.1);
     }
     ctx.occupied.add(c.x, c.z, c.radius * 0.8);
   }
@@ -842,7 +842,42 @@ export async function createCoral(
         ],
         [3, 3, 2, 2],
       );
-      place(kind, x, z, rng.range(0.3, 0.7), 0.6);
+      place(kind, x, z, rng.range(0.45, 1.0), 0.6);
+    }
+  }
+
+  // Patch reefs: small coral islands dotted over the open sand between the
+  // reefs, so no stretch of the floor is empty.
+  const patches = Math.round(ctx.count(55));
+  for (let pi = 0; pi < patches; pi++) {
+    const a = rng.range(0, Math.PI * 2);
+    const r = Math.sqrt(rng.float()) * ctx.desc.terrain.basinRadius;
+    const px = ctx.nav.o.center[0] + Math.cos(a) * r;
+    const pz = ctx.nav.o.center[1] + Math.sin(a) * r;
+    if (ctx.terrain.maskAt(2, px, pz) > 0.5) {
+      continue;
+    }
+    const pieces = rng.int(3, 8);
+    for (let k = 0; k < pieces; k++) {
+      const b = rng.range(0, Math.PI * 2);
+      const d = Math.sqrt(rng.float()) * rng.range(0.8, 2.2);
+      const kind = rng.weighted(
+        [
+          CoralKind.Brain,
+          CoralKind.Sponge,
+          CoralKind.Branching,
+          CoralKind.Whip,
+        ],
+        [3, 2, 3, 1],
+      );
+      place(
+        kind,
+        px + Math.cos(b) * d,
+        pz + Math.sin(b) * d,
+        (k === 0 ? 1.4 : 0.6) + rng.float() * 0.9,
+        0.4,
+        k > 0,
+      );
     }
   }
 
@@ -850,12 +885,18 @@ export async function createCoral(
   const center = ctx.nav.o.center;
   // Carpet the reef zones (ridge crests and flanks) so coral grows up the
   // slopes, not just in clumps on flat sand.
-  for (let i = 0; i < ctx.count(11000); i++) {
+  for (let i = 0; i < ctx.count(8500); i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = Math.sqrt(rng.float()) * (ctx.desc.terrain.basinRadius + 10);
     const x = center[0] + Math.cos(a) * r;
     const z = center[1] + Math.sin(a) * r;
-    const reef = ctx.terrain.maskAt(1, x, z);
+    // Reef ground, plus a halo of coral spilling out around each reef cluster.
+    let halo = 0;
+    for (const c of ctx.clusters) {
+      const d = Math.hypot(c.x - x, c.z - z) / c.radius;
+      halo = Math.max(halo, 1 - Math.min(1, Math.max(0, d - 0.8) / 1.2));
+    }
+    const reef = Math.max(ctx.terrain.maskAt(1, x, z), halo * 0.85);
     if (rng.float() > Math.pow(reef, 1.6) * 0.95 + 0.02) {
       continue;
     }
@@ -879,7 +920,7 @@ export async function createCoral(
       continue;
     }
     // Mixed scales (many small, a few large) so the carpet never tiles.
-    const scale = 0.3 + Math.pow(rng.float(), 2.2) * 1.2;
+    const scale = 0.45 + Math.pow(rng.float(), 2.0) * 1.8;
     place(kind, x, z, scale, 0.5, true);
   }
 
@@ -888,8 +929,8 @@ export async function createCoral(
     mesh,
     instances,
     wgsl: materialWgsl,
-    lod: {low: lod.low, distance: 18},
-    shadowMinRadius: 0.5,
+    lod: {low: lod.low, distance: 12},
+    shadowMinRadius: 0.8,
     contact: {radius: 0.55, height: 0.6},
   });
 }

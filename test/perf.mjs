@@ -20,7 +20,11 @@ const ctx = await launch();
 try {
   for (const seed of seeds) {
     for (const camera of cameras) {
-      const params = {seed: String(seed), camera};
+      // camera=tour: the default experience (the cinematic tour).
+      const params =
+        camera === 'tour'
+          ? {seed: String(seed)}
+          : {seed: String(seed), camera};
       if (quality) {
         params.quality = quality;
       }

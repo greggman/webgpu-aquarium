@@ -681,14 +681,16 @@ export function cameraSpots(
   );
   const tour: TourStop[] = [];
   stopsAt.forEach((k, i) => {
-    const high = i % 3 === 1;
+    // Mostly low, close passes over the reefs (where the life is), with an
+    // occasional slightly higher establishing pass.
+    const high = i % 4 === 2;
     const angle = Math.atan2(c[1] - k.z, c[0] - k.x) + rng.range(-0.8, 0.8);
     const spot = spotLookingAt(
       nav,
       terrain,
-      [k.x, k.y + (high ? 0.5 : 1.5), k.z],
-      k.r + (high ? 9 : 5),
-      high ? 7 : 2,
+      [k.x, k.y + (high ? 0.8 : 1.4), k.z],
+      k.r * 0.7 + (high ? 7 : 4.5),
+      high ? 4.5 : 2.6,
       angle,
     );
     tour.push({pos: spot.pos, target: spot.target});

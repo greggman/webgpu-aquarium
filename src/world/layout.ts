@@ -94,13 +94,13 @@ function pickClusters(
 ): ReefCluster[] {
   const c = nav.o.center;
   const candidates: {x: number; z: number; score: number}[] = [];
-  for (let i = 0; i < 600; i++) {
+  for (let i = 0; i < 1500; i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = Math.sqrt(rng.float()) * nav.o.radiusAt(a) * 0.82;
     const x = c[0] + Math.cos(a) * r;
     const z = c[1] + Math.sin(a) * r;
     const n = terrain.normalAt(x, z);
-    if (n[1] < 0.8) {
+    if (n[1] < 0.72) {
       continue;
     }
     const score =
@@ -114,16 +114,17 @@ function pickClusters(
   }
   candidates.sort((a, b) => b.score - a.score);
   const clusters: ReefCluster[] = [];
-  const want = rng.int(9, 12);
+  // Enough reefs that wherever the camera looks there is life in view.
+  const want = rng.int(16, 20);
   for (const cand of candidates) {
     if (clusters.length >= want) {
       break;
     }
     const radius =
-      clusters.length === 0 ? rng.range(8, 10) : rng.range(4.5, 7.5);
+      clusters.length === 0 ? rng.range(11, 13) : rng.range(6, 9.5);
     if (
       clusters.some(
-        k => Math.hypot(k.x - cand.x, k.z - cand.z) < k.radius + radius + 3,
+        k => Math.hypot(k.x - cand.x, k.z - cand.z) < k.radius + radius + 1,
       )
     ) {
       continue;
