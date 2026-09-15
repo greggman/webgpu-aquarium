@@ -106,8 +106,9 @@ async function main() {
   nav.o.obstacles = gen.obstacles;
   // Rocks first: other content sits on top of them.
   const rocks = await createRocks(renderer, gen);
-  const [coral, critters, plants] = await Promise.all([
-    createCoral(renderer, gen),
+  // Coral next: critters settle on its heads.
+  const coral = await createCoral(renderer, gen);
+  const [critters, plants] = await Promise.all([
     createCritters(renderer, gen),
     createPlants(renderer, gen),
   ]);

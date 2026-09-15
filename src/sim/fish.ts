@@ -1,9 +1,13 @@
 // Fish and rays: procedural species, GPU boids, and swimming animation.
 //
 // Each seed invents a set of species (body shape, fins, colour pattern and
-// behaviour). Meshes come from the GPU mesh builder, one variant per species.
-// A compute shader runs flocking with terrain/obstacle/camera avoidance and
-// writes the instance buffer the renderer draws from.
+// behaviour). Meshes come from the GPU mesh builder, three detail levels per
+// species. Fish swim in schools: a compute shader moves each school's leader
+// (wandering, avoiding terrain, rocks and the camera) and every other fish
+// holds its own slot in the leader's formation, so the cost per fish is
+// constant however many there are. A second compute pass culls fish to the
+// view and sorts the visible ones into per-species detail levels, which are
+// drawn with GPU-written indirect draw calls.
 
 import {createShader} from '../gpu/device.ts';
 import {defineStruct} from '../gpu/structs.ts';
@@ -43,6 +47,8 @@ const SpeciesStruct = defineStruct('Species', {
   behavior: 'vec4f',
   /** dart acceleration (0 = never darts), seconds between darts, unused, unused */
   dart: 'vec4f',
+  /** formation radius, elongation along the heading, spring strength, drift */
+  school: 'vec4f',
 });
 
 const FishStruct = defineStruct('Fish', {
@@ -51,6 +57,8 @@ const FishStruct = defineStruct('Fish', {
   vel: 'vec3f',
   phase: 'f32',
   home: 'vec4f',
+  /** index of the school's leader (itself for leaders), unused xyz */
+  leader: 'vec4f',
 });
 
 const FishInstanceStruct = defineStruct('FishInstance', {
@@ -119,6 +127,10 @@ interface SpeciesDef {
   roam?: number;
   /** Sudden bursts of speed: acceleration and mean seconds between them. */
   dart?: [number, number];
+  /** Fish per school (1 = solitary). */
+  school?: number;
+  /** How loosely the school holds formation (1 = tight). */
+  spread?: number;
 }
 
 const hsv = (h: number, s: number, v: number): number[] => {
@@ -132,20 +144,32 @@ const hsv = (h: number, s: number, v: number): number[] => {
 /** Coral heads that host hovering reef fish, nearest the hero reef first. */
 function coralHomesFor(ctx: GenContext): [number, number, number, number][] {
   const hero = ctx.clusters[0];
-  return [...ctx.coralHeads]
-    .sort((a, b) =>
-      hero
-        ? Math.hypot(a[0] - hero.x, a[2] - hero.z) -
-          Math.hypot(b[0] - hero.x, b[2] - hero.z)
-        : 0,
-    )
-    .slice(0, 60);
+  return [...ctx.coralHeads].sort((a, b) =>
+    hero
+      ? Math.hypot(a[0] - hero.x, a[2] - hero.z) -
+        Math.hypot(b[0] - hero.x, b[2] - hero.z)
+      : 0,
+  );
+}
+
+/** Species school parameters: formation radius, elongation, spring, drift. */
+function schoolParams(s: SpeciesDef): [number, number, number, number] {
+  const size = Math.max(1, s.school ?? 1);
+  const len = (s.length[0] + s.length[1]) / 2;
+  const spread = s.spread ?? 1;
+  const radius = Math.max(len * 2.2 * Math.cbrt(size) * 0.62 * spread, 0.25);
+  // Roaming schools string out along their heading.
+  const elongation = s.roam ? 2.2 : 1.1;
+  // Tight schools snap into place; loose groups mill around.
+  const spring = spread > 1.5 ? 0.7 : 1.4;
+  return [radius, elongation, spring, Math.min(1, 0.15 + (spread - 1) * 0.5)];
 }
 
 /** Invents this seed's species. */
 function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
-  // A lush sea: plenty of fish everywhere (scaled down on smaller tiers).
-  const k = ctx.quality.density * 1.7;
+  // A lush sea: tens of thousands of fish (scaled down more steeply on
+  // smaller tiers, where each one costs relatively more).
+  const k = Math.pow(ctx.quality.density, 1.5) * 10;
   const list: SpeciesDef[] = [];
   const body = (
     H: number,
@@ -179,7 +203,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   const baitHue = rng.range(0.52, 0.62);
   list.push({
     name: 'bait',
-    count: Math.round(rng.int(480, 650) * k),
+    count: Math.round(rng.int(480, 700) * k),
+    school: rng.int(250, 450),
     length: [0.2, 0.28],
     bodyType: 0,
     body: body(
@@ -215,7 +240,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     wander: 0.3,
     homePull: 0.15,
     home: 'open',
-    homeRadius: 5,
+    homeRadius: 6,
     roam: 9,
     eye: 0.035,
   });
@@ -233,6 +258,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(20, 32) * k),
+        school: rng.int(6, 12),
+        spread: 1.6,
         length: [0.32, 0.46],
         bodyType: 0,
         body: body(
@@ -275,6 +302,9 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(14, 22) * k),
+        // Butterflyfish swim in pairs.
+        school: 2,
+        spread: 1.4,
         length: [0.22, 0.32],
         bodyType: 0,
         body: body(
@@ -317,6 +347,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(70, 110) * k),
+        school: rng.int(10, 22),
+        spread: 2.2,
         length: [0.12, 0.18],
         bodyType: 0,
         body: body(
@@ -359,6 +391,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(8, 14) * k),
+        school: rng.int(3, 6),
+        spread: 1.8,
         length: [0.4, 0.62],
         bodyType: 0,
         body: body(
@@ -401,6 +435,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       list.push({
         name: a,
         count: Math.round(rng.int(22, 34) * k),
+        school: rng.int(5, 10),
+        spread: 1.8,
         length: [0.2, 0.3],
         bodyType: 0,
         body: body(
@@ -447,7 +483,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   const heroHue = rng.float();
   list.push({
     name: 'curious',
-    count: Math.max(2, Math.round(rng.int(3, 5) * Math.min(1, k * 1.5))),
+    count: Math.max(2, Math.round(rng.int(4, 7) * Math.min(1, k))),
     length: [0.38, 0.55],
     bodyType: 0,
     body: body(
@@ -496,10 +532,10 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     hoverHues.forEach((hue, hi) => {
       list.push({
         name: hi === 0 ? 'chromis' : 'anthias',
-        count: Math.min(
-          Math.round(coralHomes.length * 2.5 * k),
-          Math.round(130 * k),
-        ),
+        // A little cloud over every coral head.
+        count: Math.min(coralHomes.length * 12, Math.round(300 * k)),
+        school: 12,
+        spread: 1.3,
         length: [0.09, 0.13],
         bodyType: 0,
         body: body(
@@ -547,6 +583,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     list.push({
       name: 'kelpfish',
       count: Math.round(rng.int(30, 45) * k),
+      school: rng.int(4, 9),
+      spread: 2,
       length: [0.24, 0.34],
       bodyType: 0,
       body: body(
@@ -635,10 +673,9 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   if (ctx.anemones.length) {
     list.push({
       name: 'clown',
-      count: Math.min(
-        ctx.anemones.length * 2,
-        Math.round(16 * Math.max(k, 0.5)),
-      ),
+      count: ctx.anemones.length * 2,
+      school: 2,
+      spread: 1,
       length: [0.07, 0.1],
       bodyType: 0,
       body: body(
@@ -684,8 +721,11 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   list.push({
     name: manta ? 'manta' : 'eagle-ray',
     count: manta
-      ? Math.max(1, Math.round(2 * Math.min(1, k)))
-      : Math.max(2, Math.round(rng.int(4, 7) * Math.min(1, k))),
+      ? Math.max(1, Math.round(rng.int(1, 2) * k))
+      : Math.max(2, Math.round(rng.int(4, 7) * k)),
+    // Eagle rays often glide in small groups.
+    school: manta ? 1 : rng.int(2, 5),
+    spread: 2.5,
     length: manta ? [2.4, 3.2] : [1.0, 1.5],
     bodyType: 1,
     body: [manta ? 1.25 : 1.1, 0.06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -869,7 +909,10 @@ fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
 }
 `;
 
-function speciesPatches(s: SpeciesDef, hi: boolean): Patch[] {
+/** Detail levels per species: full, reduced, and a tiny far-away stand-in. */
+const LODS = 3;
+
+function speciesPatches(s: SpeciesDef, level: number, hi: boolean): Patch[] {
   const p = (part: number, segU: number, segV: number): Patch => {
     const params = new Array(16).fill(0);
     s.body.forEach((v, i) => (params[i] = v));
@@ -877,73 +920,45 @@ function speciesPatches(s: SpeciesDef, hi: boolean): Patch[] {
     params[14] = part;
     return {segU, segV, params};
   };
+  const q = (full: number, mid: number, tiny: number) =>
+    level === 0 ? full : level === 1 ? mid : tiny;
   if (s.bodyType === 1) {
     return [
-      p(Part.RayTop, hi ? 40 : 20, hi ? 24 : 12),
-      p(Part.RayBottom, hi ? 40 : 20, hi ? 24 : 12),
-      p(Part.RayTail, 4, 8),
+      p(Part.RayTop, q(hi ? 40 : 20, 14, 6), q(hi ? 24 : 12, 8, 3)),
+      p(Part.RayBottom, q(hi ? 40 : 20, 14, 6), q(hi ? 24 : 12, 8, 3)),
+      p(Part.RayTail, q(4, 3, 2), q(8, 4, 2)),
     ];
   }
   return [
-    p(Part.Body, hi ? 28 : 14, hi ? 36 : 16),
-    p(Part.Tail, 6, 6),
-    p(Part.Dorsal, 10, 3),
-    p(Part.Anal, 6, 3),
-    p(Part.PectoralL, 3, 3),
-    p(Part.PectoralR, 3, 3),
+    p(Part.Body, q(hi ? 28 : 14, 12, 6), q(hi ? 36 : 16, 12, 5)),
+    p(Part.Tail, q(6, 3, 2), q(6, 3, 1)),
+    p(Part.Dorsal, q(10, 5, 3), q(3, 2, 1)),
+    p(Part.Anal, q(6, 3, 2), q(3, 1, 1)),
+    p(Part.PectoralL, q(3, 2, 1), q(3, 2, 1)),
+    p(Part.PectoralR, q(3, 2, 1), q(3, 2, 1)),
   ];
+}
+
+/** Triangle-index count of the body part (the rest are fins) of a patch list. */
+function bodyIndices(s: SpeciesDef, patches: Patch[]): number {
+  const body = s.bodyType === 1 ? patches : patches.slice(0, 1);
+  return body.reduce((n, p) => n + p.segU * p.segV * 6, 0);
 }
 
 // ---------------------------------------------------------------------------
 // Simulation
 
-// Neighbour search: a spatial hash grid rebuilt on the GPU each step, so each
-// fish checks only the fish in the 27 cells around it (O(n)) instead of every
-// other fish (O(n^2)).
-const GRID_CELLS = 8192;
-const GRID_CAP = 20;
-const GRID_CELL_SIZE = 2.2;
-
-const gridWgsl = /* wgsl */ `
-const GRID_CELLS = ${GRID_CELLS}u;
-const GRID_CAP = ${GRID_CAP}u;
-const GRID_CELL_SIZE = ${GRID_CELL_SIZE};
-
-fn gridCell(p: vec3f) -> vec3i {
-  return vec3i(floor(p / GRID_CELL_SIZE));
-}
-
-fn gridHash(c: vec3i) -> u32 {
-  let h = (bitcast<u32>(c.x) * 73856093u) ^ (bitcast<u32>(c.y) * 19349663u) ^ (bitcast<u32>(c.z) * 83492791u);
-  return h % GRID_CELLS;
-}
-`;
-
-const gridBuildWgsl = /* wgsl */ `
-${SimStruct.wgsl}
-${FishStruct.wgsl}
-${gridWgsl}
-@group(0) @binding(0) var<uniform> sim: Sim;
-@group(0) @binding(1) var<storage, read> fishIn: array<Fish>;
-@group(0) @binding(2) var<storage, read_write> counts: array<atomic<u32>>;
-@group(0) @binding(3) var<storage, read_write> items: array<u32>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let i = id.x;
-  if (i >= sim.count) {
-    return;
-  }
-  let h = gridHash(gridCell(fishIn[i].pos));
-  let slot = atomicAdd(&counts[h], 1u);
-  if (slot < GRID_CAP) {
-    items[h * GRID_CAP + slot] = i;
-  }
+const hashWgsl = /* wgsl */ `
+fn hashU(n: u32) -> f32 {
+  var h = n * 747796405u + 2891336453u;
+  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+  h = (h >> 22u) ^ h;
+  return f32(h) / 4294967295.0;
 }
 `;
 
 const simWgsl = /* wgsl */ `
-${gridWgsl}
+${hashWgsl}
 ${SpeciesStruct.wgsl}
 ${FishStruct.wgsl}
 ${FishInstanceStruct.wgsl}
@@ -957,8 +972,6 @@ ${SimStruct.wgsl}
 @group(0) @binding(5) var<storage, read> obstacles: array<vec4f>;
 @group(0) @binding(6) var tTerrain: texture_2d<f32>;
 @group(0) @binding(7) var sClamp: sampler;
-@group(0) @binding(8) var<storage, read> gridCounts: array<u32>;
-@group(0) @binding(9) var<storage, read> gridItems: array<u32>;
 
 fn groundAt(xz: vec2f) -> f32 {
   return textureSampleLevel(tTerrain, sClamp, xz / sim.worldSize + 0.5, 0.0).r;
@@ -992,84 +1005,59 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let sp = species[u32(f.species)];
   let dt = sim.dt;
   let len = sp.motion.y;
-  let nd = sp.flock.w;
-
-  var sep = vec3f(0.0);
-  var ali = vec3f(0.0);
-  var coh = vec3f(0.0);
-  var n = 0.0;
-  let ownSep = max(len * 1.6, 0.12);
-  let home = gridCell(f.pos);
-  var visited = array<u32, 27>();
-  var nVisited = 0u;
-  for (var cz = -1; cz <= 1; cz++) {
-  for (var cy = -1; cy <= 1; cy++) {
-  for (var cx = -1; cx <= 1; cx++) {
-    let h = gridHash(home + vec3i(cx, cy, cz));
-    // Distinct cells can hash to the same bucket: visit each bucket once.
-    var seen = false;
-    for (var k = 0u; k < nVisited; k++) {
-      seen = seen || visited[k] == h;
-    }
-    if (seen) {
-      continue;
-    }
-    visited[nVisited] = h;
-    nVisited++;
-    let inCell = min(gridCounts[h], GRID_CAP);
-    for (var s = 0u; s < inCell; s++) {
-    let j = gridItems[h * GRID_CAP + s];
-    if (j == i) {
-      continue;
-    }
-    let o = fishIn[j];
-    let d = o.pos - f.pos;
-    let d2 = dot(d, d);
-    let same = o.species == f.species;
-    // Keep clear of the bigger of the two fish, so a large fish never swims
-    // through a small one.
-    let sepDist = select(max(ownSep, species[u32(o.species)].motion.y * 1.6), ownSep, same);
-    let reach = select(sepDist, max(nd, sepDist), same);
-    if (d2 > reach * reach) {
-      continue;
-    }
-    let dist = sqrt(d2) + 1e-4;
-    if (dist < sepDist) {
-      sep -= d / dist * (sepDist - dist) / sepDist * select(3.0, 1.0, same);
-    }
-    if (same) {
-      ali += o.vel;
-      coh += o.pos;
-      n += 1.0;
-    }
-    }
-  }
-  }
-  }
+  let fi = f32(i);
+  let leaderIndex = u32(f.leader.x);
+  let isLeader = leaderIndex == i;
 
   var acc = vec3f(0.0);
-  let roam = sp.behavior.z;
-  if (n > 0.0) {
-    acc += (ali / n - f.vel) * sp.flock.y;
-    var toCenter = coh / n - f.pos;
-    if (roam > 0.0) {
-      // Roaming schools cohere sideways but barely along their heading, so
-      // they string out into streaming ribbons instead of balls.
-      let heading = normalize(f.vel + vec3f(1e-5, 0.0, 0.0));
-      let along = dot(toCenter, heading);
-      toCenter -= heading * along * 0.85;
+  var maxSpeed = sp.band.w;
+  if (isLeader) {
+    // Stay near home (which, for roaming schools, travels a slow wobbly loop).
+    let roam = sp.behavior.z;
+    let roamA = sim.time * sp.behavior.w + fi * 0.37;
+    let roamOff = vec3f(cos(roamA), 0.12 * sin(roamA * 2.0), sin(roamA) * 0.7) * roam;
+    let toHome = f.home.xyz + roamOff - f.pos;
+    let hd = length(toHome);
+    if (hd > f.home.w) {
+      acc += toHome / hd * (hd - f.home.w) * sp.extra.y;
     }
-    acc += toCenter * sp.flock.x;
-  }
-  acc += sep * sp.flock.z * 4.0;
-
-  // Stay near home (which, for roaming schools, travels a slow wobbly loop).
-  let roamA = sim.time * sp.behavior.w;
-  let roamOff = vec3f(cos(roamA), 0.12 * sin(roamA * 2.0), sin(roamA) * 0.7) * roam;
-  let toHome = f.home.xyz + roamOff - f.pos;
-  let hd = length(toHome);
-  if (hd > f.home.w) {
-    acc += toHome / hd * (hd - f.home.w) * sp.extra.y;
+    // Wander.
+    acc += vec3f(
+      sin(sim.time * 0.37 + fi * 1.7) + sin(sim.time * 0.13 + fi * 0.3),
+      sin(sim.time * 0.29 + fi * 2.3) * 0.25,
+      cos(sim.time * 0.41 + fi * 0.9) + cos(sim.time * 0.11 + fi * 1.1),
+    ) * sp.extra.x;
+    // Cruise speed.
+    let speed = length(f.vel);
+    let dir = select(vec3f(0.0, 0.0, 1.0), f.vel / speed, speed > 1e-4);
+    acc += dir * (sp.band.z - speed) * 0.8;
+  } else {
+    // Follower: hold a slot in the leader's formation. The slot is fixed per
+    // fish (hashed), laid out in the leader's heading frame, and drifts a
+    // little so the school breathes.
+    let L = fishIn[leaderIndex];
+    let lv = vec3f(L.vel.x, L.vel.y * 0.3, L.vel.z);
+    let lf = normalize(lv + vec3f(1e-4, 0.0, 0.0));
+    let lr = normalize(cross(vec3f(0.0, 1.0, 0.0), lf) + vec3f(1e-5, 0.0, 0.0));
+    let lu = cross(lf, lr);
+    var slot = vec3f(hashU(i * 3u), hashU(i * 3u + 1u), hashU(i * 3u + 2u)) * 2.0 - 1.0;
+    slot = slot / max(length(slot), 1e-3) * pow(hashU(i * 7u + 5u), 0.4);
+    let drift = sp.school.w;
+    slot += vec3f(
+      sin(sim.time * 0.31 + fi * 1.7),
+      sin(sim.time * 0.23 + fi * 2.3) * 0.5,
+      cos(sim.time * 0.27 + fi * 0.9),
+    ) * drift * 0.35;
+    let radius = sp.school.x;
+    let local = vec3f(slot.x * radius, slot.y * radius * 0.5, slot.z * radius * sp.school.y);
+    let slotPos = L.pos + lr * local.x + lu * local.y + lf * local.z;
+    let k = sp.school.z;
+    let toTarget = slotPos - f.pos;
+    acc += toTarget * k + (L.vel - f.vel) * k * 0.9;
+    // Far behind (after scattering from the camera): allowed to hurry back.
+    maxSpeed = sp.band.w * mix(1.2, 2.5, smoothstep(1.0, 6.0, length(toTarget)));
+    // A touch of individual wander so neighbours don't move in lockstep.
+    acc += vec3f(sin(sim.time * 1.1 + fi * 3.1), sin(sim.time * 0.9 + fi * 1.3) * 0.3, cos(sim.time * 1.3 + fi * 2.1)) * sp.extra.x * 0.3;
   }
 
   // Height band above the ground, below the ceiling; look ahead for rising ground.
@@ -1104,20 +1092,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
   let curious = sp.behavior.x;
   if (curious > 0.0 && cd < 18.0) {
-    let id = f32(i);
     // Each curious fish holds its own spot so they don't pile up on one point.
-    let side = sin(sim.time * 0.15 + id * 2.1) * 1.0 + (fract(id * 0.618) - 0.5) * 4.0;
+    let side = sin(sim.time * 0.15 + fi * 2.1) * 1.0 + (fract(fi * 0.618) - 0.5) * 4.0;
     let right = normalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
     // Far enough to stay inside the focus range (closer, they fill the lens as blurry shapes).
-    let spot = sim.camPos + sim.camDir * (4.0 + fract(id * 0.37) * 3.0) + right * side;
-    let toSpot = spot - f.pos;
-    acc += toSpot * curious * 1.4 * smoothstep(22.0, 6.0, cd);
+    let spot = sim.camPos + sim.camDir * (4.0 + fract(fi * 0.37) * 3.0) + right * side;
+    acc += (spot - f.pos) * curious * 1.4 * smoothstep(22.0, 6.0, cd);
   }
 
-  // Wander.
-  let fi = f32(i);
   // Darting: every few seconds a fish bolts a short way, then settles.
-  var bolting = false;
   if (sp.dart.x > 0.0) {
     let tt = sim.time / sp.dart.y + fract(fi * 0.6180339);
     let cycle = floor(tt);
@@ -1128,21 +1111,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     if (ph < 0.1 && r1 < 0.55) {
       let d = normalize(vec3f(r2 - 0.5, (r3 - 0.5) * 0.35, fract(r3 * 13.1) - 0.5) + vec3f(1e-4));
       acc += d * sp.dart.x * (1.0 - ph / 0.1);
-      bolting = true;
+      maxSpeed = max(maxSpeed, sp.band.w * 3.0);
     }
   }
-  acc += vec3f(
-    sin(sim.time * 0.37 + fi * 1.7) + sin(sim.time * 0.13 + fi * 0.3),
-    sin(sim.time * 0.29 + fi * 2.3) * 0.25,
-    cos(sim.time * 0.41 + fi * 0.9) + cos(sim.time * 0.11 + fi * 1.1),
-  ) * sp.extra.x;
-
-  var speed = length(f.vel);
-  let dir = select(vec3f(0.0, 0.0, 1.0), f.vel / speed, speed > 1e-4);
-  acc += dir * (sp.band.z - speed) * 0.8;
 
   var vel = f.vel + acc * dt * sp.motion.x;
-  speed = clamp(length(vel), sp.band.z * 0.3, select(sp.band.w, sp.band.w * 3.0, bolting));
+  let speed = clamp(length(vel), sp.band.z * 0.3, maxSpeed);
   vel = normalize(vel + vec3f(1e-5, 0.0, 0.0)) * speed;
   // Fish rarely pitch steeply.
   vel.y = clamp(vel.y, -0.45 * speed, 0.45 * speed);
@@ -1171,6 +1145,73 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
+const CullStruct = defineStruct('Cull', {
+  viewProj: 'mat4x4f',
+  camPos: 'vec3f',
+  focalPx: 'f32',
+  maxDist: 'f32',
+  count: 'u32',
+  /** Projected radius in pixels above which the full / reduced mesh is used. */
+  lod0Px: 'f32',
+  lod1Px: 'f32',
+});
+
+/** View culling and detail selection for every fish, sorted into buckets. */
+const cullWgsl = /* wgsl */ `
+${FishInstanceStruct.wgsl}
+${CullStruct.wgsl}
+const LODS = ${LODS}u;
+@group(0) @binding(0) var<uniform> P: Cull;
+@group(0) @binding(1) var<storage, read> instances: array<FishInstance>;
+/** Per species: first fish index, fish count. */
+@group(0) @binding(2) var<storage, read> ranges: array<vec2u>;
+@group(0) @binding(3) var<storage, read_write> counts: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> visible: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= P.count) {
+    return;
+  }
+  let inst = instances[i];
+  let pos = inst.posScale.xyz;
+  let r = max(inst.posScale.w * 0.7, 0.05);
+  let d = distance(pos, P.camPos);
+  if (inst.posScale.w <= 0.0 || d > P.maxDist + r) {
+    return;
+  }
+  let c = P.viewProj * vec4f(pos, 1.0);
+  let pad = r * 1.5;
+  if (c.w < -pad || c.x > c.w * 1.05 + pad * 1.2 || c.x < -c.w * 1.05 - pad * 1.2 ||
+      c.y > c.w * 1.05 + pad * 1.2 || c.y < -c.w * 1.05 - pad * 1.2) {
+    return;
+  }
+  let px = r * P.focalPx / max(d, 0.1);
+  let lod = select(select(2u, 1u, px > P.lod1Px), 0u, px > P.lod0Px);
+  let s = u32(inst.anim.w);
+  let slot = atomicAdd(&counts[s * LODS + lod], 1u);
+  visible[ranges[s].x * LODS + lod * ranges[s].y + slot] = i;
+}
+`;
+
+/** Copies the bucket counts into the instance counts of the indirect draws. */
+const indirectWgsl = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> counts: array<u32>;
+@group(0) @binding(1) var<storage, read_write> args: array<u32>;
+
+@compute @workgroup_size(16)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let b = id.x;
+  if (b >= arrayLength(&counts)) {
+    return;
+  }
+  // Two indexed-indirect draws per bucket (body, then fins), 5 u32 each.
+  args[b * 10u + 1u] = counts[b];
+  args[b * 10u + 6u] = counts[b];
+}
+`;
+
 // ---------------------------------------------------------------------------
 // Rendering
 
@@ -1188,6 +1229,18 @@ ${SpeciesStruct.wgsl}
 ${FishInstanceStruct.wgsl}
 @group(1) @binding(0) var<storage, read> instances: array<FishInstance>;
 @group(1) @binding(1) var<storage, read> species: array<Species>;
+@group(1) @binding(2) var<storage, read> visible: array<u32>;
+struct DrawInfo {
+  /** Start of this draw's run of fish indices (or first fish, if direct). */
+  base: u32,
+  /** 1: instance index + base is the fish index (no visibility list). */
+  direct: u32,
+};
+@group(1) @binding(3) var<uniform> drawInfo: DrawInfo;
+
+fn fishIndex(instance: u32) -> u32 {
+  return select(visible[drawInfo.base + instance], drawInfo.base + instance, drawInfo.direct == 1u);
+}
 
 fn quatRotate(q: vec4f, v: vec3f) -> vec3f {
   let t = 2.0 * cross(q.xyz, v);
@@ -1245,7 +1298,8 @@ fn swim(p: vec3f, uv: vec4f, phase: f32, speedNorm: f32, sp: Species) -> vec3f {
 
 @vertex
 fn vs(v: VIn) -> VOut {
-  let inst = instances[v.instance];
+  let fish = fishIndex(v.instance);
+  let inst = instances[fish];
   let sp = species[u32(inst.anim.w)];
   let local = swim(v.position.xyz, v.uv, inst.anim.x, inst.anim.z, sp);
   let prevLocal = swim(v.position.xyz, v.uv, inst.anim.y, inst.anim.z, sp);
@@ -1257,7 +1311,7 @@ fn vs(v: VIn) -> VOut {
   o.normal = quatRotate(inst.rot, v.normal.xyz);
   o.uv = v.uv;
   o.local = v.position.xyz;
-  o.instance = v.instance;
+  o.instance = fish;
   o.ao = v.position.w;
   o.curClip = frame.viewProjNoJitter * vec4f(world, 1.0);
   o.prevClip = frame.prevViewProjNoJitter * vec4f(prevWorld, 1.0);
@@ -1266,7 +1320,7 @@ fn vs(v: VIn) -> VOut {
 
 @vertex
 fn vsShadow(v: VIn) -> @builtin(position) vec4f {
-  let inst = instances[v.instance];
+  let inst = instances[fishIndex(v.instance)];
   let sp = species[u32(inst.anim.w)];
   let local = swim(v.position.xyz, v.uv, inst.anim.x, inst.anim.z, sp);
   let world = quatRotate(inst.rot, local * inst.posScale.w) + inst.posScale.xyz;
@@ -1519,16 +1573,15 @@ export async function createFish(
   const hi = ctx.quality.tierIndex >= 2;
   const speciesList = inventSpecies(rng, ctx);
 
+  // Variant s * LODS + level.
+  const lodPatches = speciesList.flatMap(s =>
+    [0, 1, 2].map(level => speciesPatches(s, level, hi)),
+  );
   const mesh = await buildMesh(
     device,
     'fish',
     meshWgsl,
-    // Small, numerous fish never cover many pixels: the low-detail mesh is
-    // plenty. Only the bigger species get the fine one.
-    speciesList.map(s => ({
-      patches: speciesPatches(s, hi && s.length[1] >= 0.3),
-      radius: 0.6,
-    })),
+    lodPatches.map(patches => ({patches, radius: 0.6})),
     rng.nextU32(),
   );
 
@@ -1562,69 +1615,98 @@ export async function createFish(
         s.curiosity ?? 0,
         // Schools keep well clear of the lens: out-of-focus fish right in
         // front of the camera read as ghosts.
-        s.curiosity ? 2.2 : Math.max(3.5, 1.5 + len * 3),
+        s.curiosity ? 2.2 : Math.min(3, 1.2 + len * 3),
         s.roam ?? 0,
         s.roam ? 0.9 / s.roam : 0,
         s.dart?.[0] ?? 0,
         s.dart?.[1] ?? 1,
         0,
         0,
+        ...schoolParams(s),
       ],
       i * SPECIES_FLOATS,
     );
   });
 
   const coralHomes = coralHomesFor(ctx);
-  // Initial fish.
+  // Initial fish, school by school. Each school shares a home; its first fish
+  // leads and the rest follow.
   const total = speciesList.reduce((a, s) => a + s.count, 0);
-  const fishData = new Float32Array(total * 12);
+  const FISH_FLOATS = FishStruct.size / 4;
+  const fishData = new Float32Array(total * FISH_FLOATS);
   const ranges: {first: number; count: number}[] = [];
   const center = ctx.nav.o.center;
   const basinY = ctx.terrain.heightAt(center[0], center[1]);
-  // The bait ball hangs in the water column just beside the hero reef, where
-  // the cameras and the attract tour will see it.
   const hero = ctx.clusters[0];
-  const openHome: [number, number, number] = hero
-    ? [
-        hero.x + rng.range(-4, 4),
-        Math.min(hero.y + 4.5, ctx.nav.ceiling() - 1.5),
-        hero.z + rng.range(-4, 4),
-      ]
-    : [center[0], Math.min(basinY + 6, ctx.nav.ceiling() - 2), center[1]];
+  const navPoint = (): [number, number] => {
+    const a = rng.range(0, Math.PI * 2);
+    const r = Math.sqrt(rng.float()) * ctx.nav.o.radiusAt(a) * 0.85;
+    return [center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r];
+  };
   let idx = 0;
   speciesList.forEach((s, si) => {
     ranges.push({first: idx, count: s.count});
+    const schoolSize = Math.max(1, s.school ?? 1);
+    let home: [number, number, number, number] = [0, 0, 0, 1];
+    let leader = idx;
     for (let n = 0; n < s.count; n++) {
-      let home: [number, number, number, number];
-      if (s.home === 'reef' && ctx.clusters.length) {
-        const c =
-          ctx.clusters[
-            Math.min(
-              ctx.clusters.length - 1,
-              // A good share gathers at the hero reef, where the cameras look.
-              rng.bool(0.6)
-                ? 0
-                : Math.floor(Math.pow(rng.float(), 1.5) * ctx.clusters.length),
-            )
+      const schoolIndex = Math.floor(n / schoolSize);
+      if (n % schoolSize === 0) {
+        leader = idx;
+        if (s.home === 'reef' && ctx.clusters.length) {
+          // A share of schools at the hero reef (where cameras look), the
+          // rest spread over every reef.
+          const c = rng.bool(0.2)
+            ? ctx.clusters[0]
+            : ctx.clusters[rng.int(0, ctx.clusters.length - 1)];
+          const a = rng.range(0, Math.PI * 2);
+          const r = rng.range(0, c.radius * 0.8);
+          const x = c.x + Math.cos(a) * r;
+          const z = c.z + Math.sin(a) * r;
+          home = [x, ctx.surfaceTop(x, z) + 1.2, z, s.homeRadius];
+        } else if (s.home === 'coral' && coralHomes.length) {
+          // One school per coral head, alternating species between heads.
+          const h =
+            coralHomes[
+              (schoolIndex * 2 + (s.name === 'anthias' ? 1 : 0)) %
+                coralHomes.length
+            ];
+          home = [h[0], h[1] + 0.35, h[2], h[3] * 0.4 + 0.2];
+        } else if (s.home === 'anemone' && ctx.anemones.length) {
+          const a = ctx.anemones[schoolIndex % ctx.anemones.length];
+          home = [a[0], a[1] + 0.1, a[2], s.homeRadius];
+        } else if (s.home === 'open') {
+          // The first school hangs beside the hero reef; the rest roam the basin.
+          const [x, z] =
+            schoolIndex === 0 && hero
+              ? [hero.x + rng.range(-4, 4), hero.z + rng.range(-4, 4)]
+              : navPoint();
+          const g = ctx.terrain.heightAt(x, z);
+          home = [
+            x,
+            Math.min(g + rng.range(3.5, 7), ctx.nav.ceiling() - 1.5),
+            z,
+            s.homeRadius,
           ];
-        home = [c.x, c.y + 1.2, c.z, c.radius + s.homeRadius];
-      } else if (s.home === 'coral' && coralHomes.length) {
-        // A little group hovering over one coral head.
-        const h = coralHomes[Math.floor(n / 8) % coralHomes.length];
-        home = [h[0], h[1] + 0.35, h[2], h[3] * 0.7 + 0.3];
-      } else if (s.home === 'anemone' && ctx.anemones.length) {
-        const a = ctx.anemones[n % ctx.anemones.length];
-        home = [a[0], a[1] + 0.1, a[2], s.homeRadius];
-      } else if (s.home === 'open') {
-        home = [...openHome, s.homeRadius];
-      } else if (s.home === 'kelp' && ctx.kelpForests.length) {
-        const kf = ctx.kelpForests[n % ctx.kelpForests.length];
-        home = [kf.x, ctx.terrain.heightAt(kf.x, kf.z) + 3, kf.z, s.homeRadius];
-      } else {
-        home = [center[0], basinY + 2, center[1], s.homeRadius];
+        } else if (s.home === 'kelp' && ctx.kelpForests.length) {
+          const kf = ctx.kelpForests[schoolIndex % ctx.kelpForests.length];
+          const [sx, sz] = kf.stems[rng.int(0, kf.stems.length - 1)] ?? [
+            kf.x,
+            kf.z,
+          ];
+          home = [
+            sx,
+            ctx.terrain.heightAt(sx, sz) + rng.range(2, 6),
+            sz,
+            s.homeRadius,
+          ];
+        } else {
+          const [x, z] = navPoint();
+          home = [x, ctx.terrain.heightAt(x, z) + 2, z, s.homeRadius];
+        }
       }
       const a = rng.range(0, Math.PI * 2);
-      const r = rng.range(0, Math.max(home[3], 0.3));
+      const r = rng.range(0, Math.max(home[3], 0.3) + schoolParams(s)[0]);
       const x = home[0] + Math.cos(a) * r;
       const z = home[2] + Math.sin(a) * r;
       const g = ctx.terrain.heightAt(x, z);
@@ -1644,12 +1726,17 @@ export async function createFish(
           Math.sin(h) * s.speed,
           rng.range(0, 10),
           ...home,
+          leader,
+          0,
+          0,
+          0,
         ],
-        idx * 12,
+        idx * FISH_FLOATS,
       );
       idx++;
     }
   });
+  void basinY;
 
   const storage = (label: string, data: Float32Array, extra = 0) => {
     const b = device.createBuffer({
@@ -1689,35 +1776,6 @@ export async function createFish(
     layout: 'auto',
     compute: {module: simModule, entryPoint: 'main'},
   });
-  const gridCounts = device.createBuffer({
-    label: 'fish:grid-counts',
-    size: GRID_CELLS * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  const gridItems = device.createBuffer({
-    label: 'fish:grid-items',
-    size: GRID_CELLS * GRID_CAP * 4,
-    usage: GPUBufferUsage.STORAGE,
-  });
-  const gridZeros = new Uint32Array(GRID_CELLS);
-  const gridModule = createShader(device, 'fish:grid-shader', gridBuildWgsl);
-  const gridPipeline = await device.createComputePipelineAsync({
-    label: 'fish:grid-pipeline',
-    layout: 'auto',
-    compute: {module: gridModule, entryPoint: 'main'},
-  });
-  const gridGroups = [stateA, stateB].map((src, i) =>
-    device.createBindGroup({
-      label: `fish:grid-bind-group-${i}`,
-      layout: gridPipeline.getBindGroupLayout(0),
-      entries: [
-        {binding: 0, resource: {buffer: simBuf}},
-        {binding: 1, resource: {buffer: src}},
-        {binding: 2, resource: {buffer: gridCounts}},
-        {binding: 3, resource: {buffer: gridItems}},
-      ],
-    }),
-  );
   const clampSampler = device.createSampler({
     label: 'fish:terrain-sampler',
     magFilter: 'linear',
@@ -1744,8 +1802,6 @@ export async function createFish(
           }),
         },
         {binding: 7, resource: clampSampler},
-        {binding: 8, resource: {buffer: gridCounts}},
-        {binding: 9, resource: {buffer: gridItems}},
       ],
     }),
   );
@@ -1761,13 +1817,126 @@ export async function createFish(
     renderWgslFor(false),
   );
   const castsShadow = speciesList.map(s => s.length[1] >= 0.3);
-  // Index count of the leading body patch(es) of each species' mesh; the rest
-  // are fins.
-  const bodyIndexCount = speciesList.map(s => {
-    const patches = speciesPatches(s, hi && s.length[1] >= 0.3);
-    const body = s.bodyType === 1 ? patches : patches.slice(0, 1);
-    return body.reduce((n, p) => n + p.segU * p.segV * 6, 0);
+  const S = speciesList.length;
+  const buckets = S * LODS;
+
+  // --- Culling and detail selection (GPU) ---
+  const rangeData = new Uint32Array(S * 2);
+  ranges.forEach((r, i) => rangeData.set([r.first, r.count], i * 2));
+  const rangeBuf = device.createBuffer({
+    label: 'fish:ranges',
+    size: rangeData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
+  device.queue.writeBuffer(rangeBuf, 0, rangeData);
+  const countsBuf = device.createBuffer({
+    label: 'fish:bucket-counts',
+    size: buckets * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const countsZero = new Uint32Array(buckets);
+  const visibleBuf = device.createBuffer({
+    label: 'fish:visible',
+    size: Math.max(total * LODS * 4, 16),
+    usage: GPUBufferUsage.STORAGE,
+  });
+  const cullBuf = device.createBuffer({
+    label: 'fish:cull-uniform',
+    size: CullStruct.size,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const cullData = new ArrayBuffer(CullStruct.size);
+  const cullF = new Float32Array(cullData);
+  const cullU = new Uint32Array(cullData);
+  const cullPipeline = await device.createComputePipelineAsync({
+    label: 'fish:cull-pipeline',
+    layout: 'auto',
+    compute: {
+      module: createShader(device, 'fish:cull-shader', cullWgsl),
+      entryPoint: 'main',
+    },
+  });
+  const cullGroup = device.createBindGroup({
+    label: 'fish:cull-bind-group',
+    layout: cullPipeline.getBindGroupLayout(0),
+    entries: [
+      {binding: 0, resource: {buffer: cullBuf}},
+      {binding: 1, resource: {buffer: instanceBuf}},
+      {binding: 2, resource: {buffer: rangeBuf}},
+      {binding: 3, resource: {buffer: countsBuf}},
+      {binding: 4, resource: {buffer: visibleBuf}},
+    ],
+  });
+  // Indirect draw arguments: per bucket a body draw and a fin draw. Index
+  // ranges are fixed; instance counts are filled in on the GPU every frame.
+  const argData = new Uint32Array(buckets * 10);
+  const variantOf = (s: number, level: number) =>
+    mesh.variants[s * LODS + level];
+  for (let si = 0; si < S; si++) {
+    for (let level = 0; level < LODS; level++) {
+      const b = si * LODS + level;
+      const v = variantOf(si, level);
+      const body = bodyIndices(speciesList[si], lodPatches[b]);
+      // The tiny level draws everything (fins included) in the body pass.
+      const bodyCount = level === LODS - 1 ? v.indexCount : body;
+      argData.set([bodyCount, 0, v.firstIndex, 0, 0], b * 10);
+      argData.set(
+        [
+          level === LODS - 1 ? 0 : v.indexCount - body,
+          0,
+          v.firstIndex + body,
+          0,
+          0,
+        ],
+        b * 10 + 5,
+      );
+    }
+  }
+  const argsBuf = device.createBuffer({
+    label: 'fish:indirect-args',
+    size: argData.byteLength,
+    usage:
+      GPUBufferUsage.INDIRECT |
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(argsBuf, 0, argData);
+  const indirectPipeline = await device.createComputePipelineAsync({
+    label: 'fish:indirect-pipeline',
+    layout: 'auto',
+    compute: {
+      module: createShader(device, 'fish:indirect-shader', indirectWgsl),
+      entryPoint: 'main',
+    },
+  });
+  const indirectGroup = device.createBindGroup({
+    label: 'fish:indirect-bind-group',
+    layout: indirectPipeline.getBindGroupLayout(0),
+    entries: [
+      {binding: 0, resource: {buffer: countsBuf}},
+      {binding: 1, resource: {buffer: argsBuf}},
+    ],
+  });
+  // Per-draw info (dynamic uniform offsets): one entry per bucket, then one
+  // direct (all fish of a species) entry per species for the shadow pass.
+  const INFO_ALIGN = 256;
+  const infoData = new Uint32Array(((buckets + S) * INFO_ALIGN) / 4);
+  for (let si = 0; si < S; si++) {
+    for (let level = 0; level < LODS; level++) {
+      const b = si * LODS + level;
+      infoData.set(
+        [ranges[si].first * LODS + level * ranges[si].count, 0],
+        (b * INFO_ALIGN) / 4,
+      );
+    }
+    infoData.set([ranges[si].first, 1], ((buckets + si) * INFO_ALIGN) / 4);
+  }
+  const infoBuf = device.createBuffer({
+    label: 'fish:draw-info',
+    size: infoData.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(infoBuf, 0, infoData);
   const localLayout = device.createBindGroupLayout({
     label: 'fish:local-bgl',
     entries: [
@@ -1780,6 +1949,16 @@ export async function createFish(
         binding: 1,
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: {type: 'read-only-storage'},
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'read-only-storage'},
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'uniform', hasDynamicOffset: true, minBindingSize: 8},
       },
     ],
   });
@@ -1873,38 +2052,28 @@ export async function createFish(
     entries: [
       {binding: 0, resource: {buffer: instanceBuf}},
       {binding: 1, resource: {buffer: speciesBuf}},
+      {binding: 2, resource: {buffer: visibleBuf}},
+      {binding: 3, resource: {buffer: infoBuf, size: 8}},
     ],
   });
 
   let flip = 0;
   let camPos: readonly number[] = [0, 0, 0];
   let camDir: readonly number[] = [0, 0, -1];
-  const draw = (
-    pass: GPURenderPassEncoder,
-    p: GPURenderPipeline,
-    part: 'all' | 'body' | 'fins' | 'shadow',
-  ) => {
+  const bind = (pass: GPURenderPassEncoder, p: GPURenderPipeline) => {
     pass.setPipeline(p);
-    pass.setBindGroup(1, renderGroup);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-    ranges.forEach((r, s) => {
-      if (part === 'shadow' && !castsShadow[s]) {
-        return;
+  };
+  const drawVisible = (pass: GPURenderPassEncoder, fins: boolean) => {
+    for (let b = 0; b < buckets; b++) {
+      const level = b % LODS;
+      if (fins && level === LODS - 1) {
+        continue;
       }
-      const v = mesh.variants[s];
-      const body = bodyIndexCount[s];
-      const first = part === 'fins' ? v.firstIndex + body : v.firstIndex;
-      const count =
-        part === 'all' || part === 'shadow'
-          ? v.indexCount
-          : part === 'body'
-            ? body
-            : v.indexCount - body;
-      if (count > 0 && r.count > 0) {
-        pass.drawIndexed(count, r.count, first, 0, r.first);
-      }
-    });
+      pass.setBindGroup(1, renderGroup, [b * INFO_ALIGN]);
+      pass.drawIndexedIndirect(argsBuf, (b * 10 + (fins ? 5 : 0)) * 4);
+    }
   };
 
   const system: FishSystem = {
@@ -1931,12 +2100,6 @@ export async function createFish(
           ? fc.encoder
           : device.createCommandEncoder({label: 'fish:substep-encoder'});
         device.queue.writeBuffer(simBuf, 0, simData);
-        device.queue.writeBuffer(gridCounts, 0, gridZeros);
-        const gridPass = encoder.beginComputePass({label: 'fish:grid-pass'});
-        gridPass.setPipeline(gridPipeline);
-        gridPass.setBindGroup(0, gridGroups[flip]);
-        gridPass.dispatchWorkgroups(Math.ceil(total / 64));
-        gridPass.end();
         const pass = encoder.beginComputePass({label: 'fish:sim-pass'});
         pass.setPipeline(simPipeline);
         pass.setBindGroup(0, simGroups[flip]);
@@ -1949,13 +2112,48 @@ export async function createFish(
         }
         flip = 1 - flip;
       }
+
+      // Cull and pick detail levels, then fill in the indirect draw counts.
+      const view = fc.view;
+      cullF.set(view.viewProj, 0);
+      cullF.set(view.camPos, 16);
+      cullF[19] = view.focalPx;
+      cullF[20] = view.maxDistance;
+      cullU[21] = total;
+      cullF[22] = 70;
+      cullF[23] = 14;
+      device.queue.writeBuffer(cullBuf, 0, cullData);
+      device.queue.writeBuffer(countsBuf, 0, countsZero);
+      const cull = fc.encoder.beginComputePass({label: 'fish:cull-pass'});
+      cull.setPipeline(cullPipeline);
+      cull.setBindGroup(0, cullGroup);
+      cull.dispatchWorkgroups(Math.ceil(total / 64));
+      cull.end();
+      const args = fc.encoder.beginComputePass({label: 'fish:indirect-pass'});
+      args.setPipeline(indirectPipeline);
+      args.setBindGroup(0, indirectGroup);
+      args.dispatchWorkgroups(Math.ceil(buckets / 16));
+      args.end();
     },
     drawOpaque: pass => {
-      draw(pass, bodyPipeline, 'body');
-      draw(pass, pipeline, 'fins');
+      bind(pass, bodyPipeline);
+      drawVisible(pass, false);
+      bind(pass, pipeline);
+      drawVisible(pass, true);
     },
-    // Only fish big enough to cast a readable shadow go into the shadow map.
-    drawShadow: pass => draw(pass, shadowPipeline, 'shadow'),
+    // Only fish big enough to cast a readable shadow go into the shadow map,
+    // all of them (off-screen fish shade what's on screen), at the tiny level.
+    drawShadow: pass => {
+      bind(pass, shadowPipeline);
+      for (let si = 0; si < S; si++) {
+        if (!castsShadow[si] || !ranges[si].count) {
+          continue;
+        }
+        const v = variantOf(si, LODS - 1);
+        pass.setBindGroup(1, renderGroup, [(buckets + si) * INFO_ALIGN]);
+        pass.drawIndexed(v.indexCount, ranges[si].count, v.firstIndex, 0, 0);
+      }
+    },
     drawTransparent: pass => {
       pass.setPipeline(blobPipeline);
       pass.setBindGroup(1, blobGroup);

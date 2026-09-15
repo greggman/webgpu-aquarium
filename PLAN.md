@@ -384,3 +384,7 @@ Recorded as the build progressed, so the plan stays an honest description of the
   and those systems draw last. `test/perf.mjs` sweeps seeds × cameras at 1080p.
 - **Camera presets** are scored rather than fixed: line of sight, foreground clearance
   (terrain, rocks, ridge crests), kelp blade streaks and tall props near the lens.
+- **Fish schools instead of boids**: neighbour-based flocking was replaced by
+  leader/follower formations (no fish-to-fish interaction), and fish are culled
+  and LOD-sorted on the GPU with indirect draws. That allowed ~10x the fish
+  (tens of thousands) at the same frame cost.

@@ -65,8 +65,12 @@ that was designed to be seen: a current gently pushes you back near the edges.
 - **Meshes**: rocks, coral, anemones, urchins, starfish, shells, seahorses,
   kelp, sea fans, fish and jellyfish are parametric patches evaluated by one
   generic GPU mesh builder (`src/gen/meshgen.ts`).
-- **Fish**: each seed invents species (body shape, fins, pattern, behaviour).
-  A compute shader runs flocking with terrain, rock and camera avoidance.
+- **Fish**: each seed invents species (body shape, fins, pattern, behaviour)
+  and fills the basin with 10–20 thousand of them in schools. A compute shader
+  steers each school's leader (terrain, rocks, camera, darting, curiosity) and
+  every other fish holds a slot in its leader's formation, so the cost per fish
+  is constant. A second compute pass culls fish to the view and picks one of
+  three mesh detail levels, feeding indirect draw calls.
 - **Light**: per-channel absorption and scattering, animated compute caustics
   from the Jacobian of refracted surface waves, a texel-snapped sun shadow map,
   volumetric shafts raymarched at reduced resolution, Snell's window.

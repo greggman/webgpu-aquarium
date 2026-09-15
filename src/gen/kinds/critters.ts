@@ -582,7 +582,7 @@ export async function createCritters(
   };
 
   for (const c of ctx.clusters) {
-    const k = c.rank === 0 ? 3 : 2;
+    const k = c.rank === 0 ? 8 : 5;
     // Anemone beds.
     for (let g = 0; g < k; g++) {
       const [gx, gz] = near(c.x, c.z, c.radius * 0.9);
@@ -593,20 +593,40 @@ export async function createCritters(
       }
       ctx.anemones.push([gx, ctx.surfaceTop(gx, gz) + 0.25, gz]);
     }
-    for (let i = 0; i < ctx.count(rng.int(3, 8) * k); i++) {
+    for (let i = 0; i < ctx.count(rng.int(8, 16) * k); i++) {
       const [x, z] = near(c.x, c.z, c.radius * 1.3);
       place(CritterKind.Urchin, x, z, rng.range(0.8, 1.6), urchinColors);
     }
-    for (let i = 0; i < ctx.count(rng.int(4, 8) * k); i++) {
+    for (let i = 0; i < ctx.count(rng.int(12, 24) * k); i++) {
       const [x, z] = near(c.x, c.z, c.radius * 1.4);
       place(CritterKind.Starfish, x, z, rng.range(0.8, 1.5), starColors);
+    }
+  }
+
+  // Anemone beds and urchins on the patch reefs and coral heads between the
+  // main reefs.
+  const heads = rng.shuffle([...ctx.coralHeads]).slice(0, ctx.count(160));
+  for (const [hx, , hz, hr] of heads) {
+    const [gx, gz] = near(hx, hz, hr + 1.2);
+    if (rng.bool(0.5)) {
+      const n = ctx.count(rng.int(2, 5));
+      for (let i = 0; i < n; i++) {
+        const [x, z] = near(gx, gz, 0.5);
+        place(CritterKind.Anemone, x, z, rng.range(0.8, 1.9), anemoneColors);
+      }
+      ctx.anemones.push([gx, ctx.surfaceTop(gx, gz) + 0.25, gz]);
+    } else {
+      for (let i = 0; i < ctx.count(rng.int(3, 8)); i++) {
+        const [x, z] = near(gx, gz, 1.2);
+        place(CritterKind.Urchin, x, z, rng.range(0.8, 1.5), urchinColors);
+      }
     }
   }
 
   // Shells and starfish scattered over the sand.
   const center = ctx.nav.o.center;
   const R = ctx.desc.terrain.basinRadius;
-  for (let i = 0; i < ctx.count(260); i++) {
+  for (let i = 0; i < ctx.count(2400); i++) {
     const [x, z] = near(center[0], center[1], R);
     if (ctx.terrain.maskAt(0, x, z) > 0.5) {
       continue;
@@ -639,7 +659,7 @@ export async function createCritters(
     [0.6, 0.5, 0.35],
   ];
   for (const c of ctx.clusters) {
-    const n = ctx.count(rng.int(2, 6));
+    const n = ctx.count(rng.int(15, 35));
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
       const r = c.radius * rng.range(0.7, 1.2);
@@ -655,7 +675,7 @@ export async function createCritters(
     }
   }
 
-  for (let i = 0; i < ctx.count(90); i++) {
+  for (let i = 0; i < ctx.count(700); i++) {
     const [x, z] = near(center[0], center[1], R);
     if (ctx.terrain.maskAt(0, x, z) < 0.3) {
       continue;

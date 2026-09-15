@@ -2,7 +2,12 @@
 // tentacles, softly bioluminescent. Drawn in the transparent pass.
 
 import {createShader} from '../gpu/device.ts';
-import {buildMesh, vertexLayout, type Patch} from '../gen/meshgen.ts';
+import {
+  buildMesh,
+  vertexLayout,
+  withLodChain,
+  type Patch,
+} from '../gen/meshgen.ts';
 import {surfaceLib} from '../shaders/index.ts';
 import shapes from '../shaders/shapes.wgsl';
 import propsWgsl from '../shaders/props.wgsl';
@@ -199,7 +204,11 @@ export async function createJellyfish(
   const device = renderer.device;
   const rng = ctx.rng('jellyfish');
   const hi = ctx.quality.tierIndex >= 2;
-  const count = Math.max(8, Math.round(rng.int(30, 48) * ctx.quality.density));
+  // Blooms of jellies drifting through the whole basin.
+  const count = Math.max(
+    40,
+    Math.round(rng.int(300, 480) * Math.pow(ctx.quality.density, 1.5)),
+  );
 
   const variants: {patches: Patch[]; radius: number}[] = [];
   const makeVariant = () => {
@@ -267,11 +276,13 @@ export async function createJellyfish(
     return {patches, radius: 2};
   };
   variants.push(makeVariant());
+  // Variant 1: the same jelly, coarsely tessellated, for distant ones.
+  const lod = withLodChain(variants, () => true, [0.35]);
   const mesh = await buildMesh(
     device,
     'jellyfish',
     meshWgsl,
-    variants,
+    lod.variants,
     rng.nextU32(),
   );
 
@@ -351,11 +362,17 @@ export async function createJellyfish(
     entries: [{binding: 0, resource: {buffer: buf}}],
   });
 
+  let nearCount = 0;
+  let farCount = 0;
   return {
     name: 'jellyfish',
     update(fc: FrameContext) {
       const dt = fc.dt;
-      jellies.forEach((j, i) => {
+      const view = fc.view;
+      const m = view.viewProj;
+      nearCount = 0;
+      farCount = 0;
+      jellies.forEach(j => {
         j.phase += dt * j.rate;
         // Each contraction gives a little upward thrust; they slowly sink between.
         const thrust = j.phase % 1 < 0.25 ? 0.35 : -0.03;
@@ -391,7 +408,30 @@ export async function createJellyfish(
         }
         const tx = Math.sin(fc.time * 0.3 + j.wob) * 0.15;
         const tz = Math.cos(fc.time * 0.25 + j.wob) * 0.15;
-        data.set([...j.pos, j.scale, j.phase, tx, tz, j.hue], i * 8);
+        // Cull to the view; near ones fill from the front of the buffer, far
+        // (coarse) ones from the back.
+        const [x, y, z] = j.pos;
+        const rad = j.scale * 2.5;
+        const dist = Math.hypot(x - cam[0], y - cam[1], z - cam[2]);
+        if (dist > view.maxDistance + rad) {
+          return;
+        }
+        const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+        const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+        const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+        const pad = rad * 1.5;
+        if (
+          cw < -pad ||
+          cx > cw * 1.05 + pad * 1.2 ||
+          cx < -cw * 1.05 - pad * 1.2 ||
+          cy > cw * 1.05 + pad * 1.2 ||
+          cy < -cw * 1.05 - pad * 1.2
+        ) {
+          return;
+        }
+        const near = (rad * view.focalPx) / Math.max(dist, 0.1) > 60;
+        const slot = near ? nearCount++ : count - 1 - farCount++;
+        data.set([x, y, z, j.scale, j.phase, tx, tz, j.hue], slot * 8);
       });
       device.queue.writeBuffer(buf, 0, data);
     },
@@ -400,13 +440,20 @@ export async function createJellyfish(
       pass.setBindGroup(1, bindGroup);
       pass.setVertexBuffer(0, mesh.vertexBuffer);
       pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-      pass.drawIndexed(
-        mesh.variants[0].indexCount,
-        count,
-        mesh.variants[0].firstIndex,
-        0,
-        0,
-      );
+      const full = mesh.variants[0];
+      const coarse = mesh.variants[lod.chains[0][1]];
+      if (nearCount) {
+        pass.drawIndexed(full.indexCount, nearCount, full.firstIndex, 0, 0);
+      }
+      if (farCount) {
+        pass.drawIndexed(
+          coarse.indexCount,
+          farCount,
+          coarse.firstIndex,
+          0,
+          count - farCount,
+        );
+      }
     },
   };
 }
