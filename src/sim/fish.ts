@@ -1560,8 +1560,24 @@ fn fs(i: BOut) -> @location(0) vec4f {
 }
 `;
 
+/** A fish (a school's leader, or a solitary fish) the camera can follow. */
+export interface FollowCandidate {
+  index: number;
+  species: string;
+  /** Body length in metres. */
+  length: number;
+  schoolSize: number;
+  schoolRadius: number;
+}
+
 export type FishSystem = RenderSystem & {
   setCamera(p: readonly number[], dir: readonly number[]): void;
+  readonly candidates: FollowCandidate[];
+  /**
+   * Reads back position+scale and rotation (8 floats each) of the given fish
+   * from the GPU; resolves a frame or two later.
+   */
+  readFish(indices: number[]): Promise<Float32Array>;
 };
 
 export async function createFish(
@@ -1643,6 +1659,7 @@ export async function createFish(
     const r = Math.sqrt(rng.float()) * ctx.nav.o.radiusAt(a) * 0.85;
     return [center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r];
   };
+  const candidates: FollowCandidate[] = [];
   let idx = 0;
   speciesList.forEach((s, si) => {
     ranges.push({first: idx, count: s.count});
@@ -1653,6 +1670,13 @@ export async function createFish(
       const schoolIndex = Math.floor(n / schoolSize);
       if (n % schoolSize === 0) {
         leader = idx;
+        candidates.push({
+          index: idx,
+          species: s.name,
+          length: (s.length[0] + s.length[1]) / 2,
+          schoolSize: Math.min(schoolSize, s.count - n),
+          schoolRadius: schoolParams(s)[0],
+        });
         if (s.home === 'reef' && ctx.clusters.length) {
           // A share of schools at the hero reef (where cameras look), the
           // rest spread over every reef.
@@ -1753,7 +1777,8 @@ export async function createFish(
   const instanceBuf = device.createBuffer({
     label: 'fish:instances',
     size: Math.max(total * FishInstanceStruct.size, 16),
-    usage: GPUBufferUsage.STORAGE,
+    // COPY_SRC: the creature-following camera reads a few fish back.
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
   const obstacleList = ctx.obstacles.slice(0, 96);
   const obstacleData = new Float32Array(Math.max(1, obstacleList.length) * 4);
@@ -2076,8 +2101,43 @@ export async function createFish(
     }
   };
 
+  const staging: GPUBuffer[] = [];
+  const READ_BYTES = 32;
+  const readFish = async (indices: number[]) => {
+    const size = Math.max(indices.length, 1) * READ_BYTES;
+    const i = staging.findIndex(b => b.size >= size);
+    const buf =
+      i >= 0
+        ? staging.splice(i, 1)[0]
+        : device.createBuffer({
+            label: 'fish:readback',
+            size: Math.ceil(size / 1024) * 1024,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+    const encoder = device.createCommandEncoder({
+      label: 'fish:readback-encoder',
+    });
+    indices.forEach((fishIndex, k) =>
+      encoder.copyBufferToBuffer(
+        instanceBuf,
+        fishIndex * FishInstanceStruct.size,
+        buf,
+        k * READ_BYTES,
+        READ_BYTES,
+      ),
+    );
+    device.queue.submit([encoder.finish({label: 'fish:readback-commands'})]);
+    await buf.mapAsync(GPUMapMode.READ, 0, size);
+    const out = new Float32Array(buf.getMappedRange(0, size).slice(0));
+    buf.unmap();
+    staging.push(buf);
+    return out;
+  };
+
   const system: FishSystem = {
     name: 'fish',
+    candidates,
+    readFish,
     setCamera(p, dir) {
       camPos = p;
       camDir = dir;

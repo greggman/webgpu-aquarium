@@ -38,8 +38,10 @@ Other scripts:
 
 The button in the top right generates a new ocean (a fresh random seed).
 
-The camera starts on a cinematic tour of the reef; any input hands control to
-you, and the tour picks back up after 5 seconds without input. The camera is kept inside the part of the basin
+The auto camera swims alongside one creature at a time (a school, a ray, a
+jellyfish, a reef fish), and every 10–15 seconds glides over to another one
+nearby. Any input hands control to you; it picks back up after 5 seconds
+without input. The camera is kept inside the part of the basin
 that was designed to be seen: a current gently pushes you back near the edges.
 
 ## URL parameters

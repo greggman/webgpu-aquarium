@@ -35,6 +35,7 @@ import {createCoral} from './gen/kinds/coral.ts';
 import {createCritters} from './gen/kinds/critters.ts';
 import {createPlants} from './gen/kinds/plants.ts';
 import {createFish} from './sim/fish.ts';
+import {CreatureCam} from './player/follow.ts';
 import {createJellyfish} from './sim/jellyfish.ts';
 import {createParticles} from './render/particles.ts';
 
@@ -222,6 +223,10 @@ async function main() {
   const input = new Input(canvas);
   const camera = new SwimCamera();
   const tour = new AttractTour(spots.tour);
+  // The auto camera follows creatures; the spline tour covers the moments
+  // before it has found one.
+  const follow = new CreatureCam(nav, fish, jellyfish, desc.rng.fork('follow'));
+  let following = false;
   const fixedCamera = params.get('camera');
   const setCamera = (
     name:
@@ -240,11 +245,13 @@ async function main() {
     taa.reset();
   };
   let attractActive = !fixedCamera;
+  let lastAutoPose: CameraPose = {pos: [0, 0, 0], yaw: 0, pitch: 0, roll: 0};
   if (fixedCamera) {
     setCamera(fixedCamera);
   } else {
     camera.setPose(spots.tour[0].pos, spots.tour[0].target);
     tour.begin(camera.pose);
+    follow.begin(camera.pose);
   }
   // The cinematic tour resumes after this many seconds without input.
   const idleToAttract = 5;
@@ -290,6 +297,7 @@ async function main() {
   window.__aquarium.kelp = gen.kelpForests;
   window.__aquarium.tallProps = gen.tallProps;
   window.__aquarium.camera = camera;
+  window.__aquarium.follow = follow;
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;
   window.__aquarium.terrain = terrain.cpu;
@@ -337,15 +345,24 @@ async function main() {
     const inputState = input.read(realDt);
     let pose: CameraPose;
     if (attractActive) {
+      const step = clock.paused ? dt : realDt;
       if (input.idleTime < 0.05) {
-        // Hand control back from wherever the tour is.
+        // Hand control back from wherever the auto camera is.
         attractActive = false;
-        const p = tour.update(0);
-        camera.pose = {...p, roll: p.roll};
+        camera.pose = {...lastAutoPose, roll: 0};
         camera.vel = [0, 0, 0];
         pose = camera.renderPose();
       } else {
-        pose = tour.update(clock.paused ? dt : realDt);
+        // Keep both running so the hand-over from the tour to following is
+        // just the follow camera starting where the tour currently is.
+        const tourPose = tour.update(following ? 0 : step);
+        if (!following) {
+          follow.syncPose(tourPose);
+        }
+        const followPose = follow.update(step);
+        following = following || follow.ready;
+        pose = following ? followPose : tourPose;
+        lastAutoPose = pose;
       }
     } else {
       camera.update(inputState, clock.paused && dt === 0 ? 0 : realDt, nav);
@@ -353,6 +370,8 @@ async function main() {
       if (!fixedCamera && input.idleTime > idleToAttract && !clock.paused) {
         attractActive = true;
         tour.begin(camera.pose);
+        follow.begin(camera.pose);
+        following = false;
       }
     }
 

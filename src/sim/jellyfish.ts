@@ -187,6 +187,11 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
 }
 `;
 
+export type JellyfishSystem = RenderSystem & {
+  /** Live CPU-side jelly positions and sizes (for the following camera). */
+  jellies(): readonly {pos: readonly number[]; scale: number}[];
+};
+
 interface JellyState {
   pos: [number, number, number];
   scale: number;
@@ -200,7 +205,7 @@ interface JellyState {
 export async function createJellyfish(
   renderer: Renderer,
   ctx: GenContext,
-): Promise<RenderSystem> {
+): Promise<JellyfishSystem> {
   const device = renderer.device;
   const rng = ctx.rng('jellyfish');
   const hi = ctx.quality.tierIndex >= 2;
@@ -366,6 +371,7 @@ export async function createJellyfish(
   let farCount = 0;
   return {
     name: 'jellyfish',
+    jellies: () => jellies,
     update(fc: FrameContext) {
       const dt = fc.dt;
       const view = fc.view;
