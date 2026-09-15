@@ -2,7 +2,7 @@
 // coral, barrel and tube sponges, and swaying sea whips. All share one mesh
 // build and one pipeline; the kind lives in patch/instance parameters.
 
-import {buildMesh, withCoarseCopies, type Patch} from '../meshgen.ts';
+import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
@@ -380,8 +380,8 @@ function branchingVariant(
   const patches: Patch[] = chains.map(c => {
     const {offset, count} = aux.addChain(c.points);
     return {
-      segU: hi ? 12 : 5,
-      segV: Math.max(4, count * (hi ? 3 : 2)),
+      segU: hi ? 8 : 5,
+      segV: Math.max(4, count * 2),
       params: [
         offset,
         count,
@@ -477,8 +477,10 @@ function brainVariant(rng: Rng, hi: boolean): VariantInfo {
   return {
     patches: [
       {
-        segU: hi ? 160 : 64,
-        segV: hi ? 64 : 24,
+        // The meanders are carried by the shading bump; the mesh only needs
+        // the silhouette and broad relief.
+        segU: hi ? 100 : 56,
+        segV: hi ? 40 : 22,
         params: [
           ...shape,
           0,
@@ -670,8 +672,8 @@ export async function createCoral(
   addLow(tableVariant(rng, aux, false));
 
   // Distance stand-ins for the hero variants: coarse copies of the same shapes.
-  const lowSet = new Set([...lowKind.values()].flat());
-  const lod = withCoarseCopies(variants, i => !lowSet.has(i), 0.35);
+  // Carpet variants are already coarse; they get one more, much coarser level.
+  const lod = withLodChain(variants, () => true, [0.45, 0.2]);
   const mesh = await buildMesh(
     renderer.device,
     'coral',
@@ -929,7 +931,7 @@ export async function createCoral(
     mesh,
     instances,
     wgsl: materialWgsl,
-    lod: {low: lod.low, distance: 12},
+    lod: {chains: lod.chains, pixels: [110, 34]},
     shadowMinRadius: 0.8,
     contact: {radius: 0.55, height: 0.6},
   });

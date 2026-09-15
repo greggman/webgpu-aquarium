@@ -629,8 +629,12 @@ export async function createPlants(
       instances,
       wgsl: plantMaterial,
       lod: {
-        low: variants.map((_, v) => kelpLow.find(k => k[0] === v)?.[1] ?? -1),
-        distance: 20,
+        chains: variants.map((_, v) => {
+          const k = kelpLow.find(pair => pair[0] === v);
+          return k ? [k[0], k[1]] : [v];
+        }),
+        // Kelp is tall but thin: judge by its blades, not its bounding radius.
+        pixels: [900],
       },
     }),
     createPropKind(renderer, {

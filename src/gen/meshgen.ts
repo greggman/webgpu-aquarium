@@ -29,34 +29,38 @@ export interface Patch {
 }
 
 /**
- * Appends a coarsely tessellated copy of each selected variant (same surface
- * and parameters, so the same shape) for use as a distance LOD. Returns the
- * extended list and, per variant, the index of its stand-in (or -1).
+ * Appends progressively coarser copies of each selected variant (same surface
+ * and parameters, so the same shape) as a level-of-detail chain. Returns the
+ * extended list and, per variant, its chain from finest to coarsest.
  */
-export function withCoarseCopies<T extends {patches: Patch[]}>(
+export function withLodChain<T extends {patches: Patch[]}>(
   variants: T[],
   select: (index: number) => boolean,
-  factor = 0.4,
-): {variants: T[]; low: number[]} {
+  factors: number[] = [0.5, 0.22],
+): {variants: T[]; chains: number[][]} {
   const all = [...variants];
-  const low = variants.map((v, i) => {
+  const chains = variants.map((v, i) => {
     if (!select(i)) {
-      return -1;
+      return [i];
     }
-    all.push({
-      ...v,
-      patches: v.patches.map(p => ({
-        ...p,
-        segU: Math.max(4, Math.round(p.segU * factor)),
-        segV: Math.max(2, Math.round(p.segV * factor)),
-      })),
-    });
-    return all.length - 1;
+    const chain = [i];
+    for (const factor of factors) {
+      all.push({
+        ...v,
+        patches: v.patches.map(p => ({
+          ...p,
+          segU: Math.max(4, Math.round(p.segU * factor)),
+          segV: Math.max(2, Math.round(p.segV * factor)),
+        })),
+      });
+      chain.push(all.length - 1);
+    }
+    return chain;
   });
-  return {
-    variants: all,
-    low: [...low, ...all.slice(variants.length).map(() => -1)],
-  };
+  for (let i = variants.length; i < all.length; i++) {
+    chains.push([i]);
+  }
+  return {variants: all, chains};
 }
 
 export interface VariantRange {

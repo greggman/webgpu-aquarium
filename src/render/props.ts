@@ -170,10 +170,12 @@ export interface PropKindOptions {
   castShadows?: boolean;
   cullMode?: GPUCullMode;
   /**
-   * Level of detail: `low[v]` is a cheaper stand-in variant for variant `v`
-   * (or -1), used beyond `distance` metres and always in the shadow pass.
+   * Level of detail: `chains[v]` lists variant `v` and its cheaper stand-ins,
+   * finest first. The level is picked by projected size: the finest while the
+   * bounding radius covers more than `pixels[0]` pixels, the next above
+   * `pixels[1]`, and so on. Shadows use at least the second level.
    */
-  lod?: {low: number[]; distance: number};
+  lod?: {chains: number[][]; pixels?: number[]};
   /** Instances smaller than this (world radius) don't cast shadows. */
   shadowMinRadius?: number;
   /**
@@ -314,112 +316,125 @@ export async function createPropKind(
   const camRanges = ranges.map(() => ({first: 0, count: 0}));
   const shadowRanges = ranges.map(() => ({first: 0, count: 0}));
   const castShadows = o.castShadows !== false;
-
-  const lowOf = ranges.map((_, v) => o.lod?.low[v] ?? -1);
-  const lodD2 = (o.lod?.distance ?? Infinity) ** 2;
   const shadowMinRadius = o.shadowMinRadius ?? 0;
-  // Instances drawn with variant w: its own, plus those of variants whose
-  // low-detail stand-in is w.
-  const sourcesOf = ranges.map((_, w) => [
-    w,
-    ...lowOf.flatMap((l, u) => (l === w && u !== w ? [u] : [])),
-  ]);
+
+  // Level-of-detail chains (a variant without one is its own only level).
+  const chains = ranges.map((_, v) => o.lod?.chains[v] ?? [v]);
+  const pixels = o.lod?.pixels ?? [90, 28, 0];
+  // Instances are sorted into per-drawn-variant scratch regions, then packed.
+  const capacity = new Array<number>(variantCount).fill(0);
+  ranges.forEach((r, v) => {
+    for (const w of new Set(chains[v])) {
+      capacity[w] += r.count;
+    }
+  });
+  const scratchOffset: number[] = [];
+  let scratchSize = 0;
+  for (let w = 0; w < variantCount; w++) {
+    scratchOffset.push(scratchSize);
+    scratchSize += capacity[w];
+  }
+  const camScratch = new Float32Array(Math.max(1, scratchSize) * FLOATS);
+  const shadowScratch = new Float32Array(Math.max(1, scratchSize) * FLOATS);
+  const camFill = new Uint32Array(variantCount);
+  const shadowFill = new Uint32Array(variantCount);
+
+  const levelFor = (px: number, chainLength: number) => {
+    let level = 0;
+    while (
+      level < chainLength - 1 &&
+      level < pixels.length &&
+      px < pixels[level]
+    ) {
+      level++;
+    }
+    return level;
+  };
 
   const cull = (view: CullView) => {
     const m = view.viewProj;
     const sm = view.shadowViewProj;
     const cp = view.camPos;
+    const focal = view.focalPx;
     const maxD2 = view.maxDistance * view.maxDistance;
-    let cursor = 0;
-    // Camera pass.
-    for (let w = 0; w < variantCount; w++) {
-      camRanges[w].first = cursor;
-      for (const v of sourcesOf[w]) {
-        const r = ranges[v];
-        if (!r) {
-          continue;
-        }
-        const own = v === w;
-        const hasLow = lowOf[v] >= 0 && lowOf[v] !== v;
-        for (let i = r.first; i < r.first + r.count; i++) {
-          const b = i * FLOATS;
-          const x = data[b];
-          const y = data[b + 1];
-          const z = data[b + 2];
-          const rad = radiusOf[i];
-          const dx = x - cp[0];
-          const dy = y - cp[1];
-          const dz = z - cp[2];
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 > maxD2 + rad * rad * 4) {
-            continue;
-          }
-          // Near instances draw at full detail, far ones as their stand-in.
-          const far = d2 > lodD2;
-          if (own ? hasLow && far : !far) {
-            continue;
-          }
-          // Clip-space sphere test against the side planes (w = distance ahead).
+    camFill.fill(0);
+    shadowFill.fill(0);
+    for (let v = 0; v < variantCount; v++) {
+      const r = ranges[v];
+      if (!r || !r.count) {
+        continue;
+      }
+      const chain = chains[v];
+      for (let i = r.first; i < r.first + r.count; i++) {
+        const b = i * FLOATS;
+        const x = data[b];
+        const y = data[b + 1];
+        const z = data[b + 2];
+        const rad = radiusOf[i];
+        const dx = x - cp[0];
+        const dy = y - cp[1];
+        const dz = z - cp[2];
+        const d2 = dx * dx + dy * dy + dz * dz;
+        const px = (rad * focal) / Math.max(Math.sqrt(d2), 0.1);
+        const level = levelFor(px, chain.length);
+
+        // Camera: distance, then clip-space sphere test against the side planes.
+        if (d2 <= maxD2 + rad * rad * 4) {
           const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
           const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
           const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
           const pad = rad * 1.5;
-          if (
+          if (!(
             cw < -pad ||
             cx > cw * 1.05 + pad * 1.2 ||
             cx < -cw * 1.05 - pad * 1.2 ||
             cy > cw * 1.05 + pad * 1.2 ||
             cy < -cw * 1.05 - pad * 1.2
-          ) {
-            continue;
+          )) {
+            const w = chain[level];
+            camScratch.set(
+              data.subarray(b, b + FLOATS),
+              (scratchOffset[w] + camFill[w]++) * FLOATS,
+            );
           }
-          visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
-          cursor++;
         }
-      }
-      camRanges[w].count = cursor - camRanges[w].first;
-    }
-    // Shadow pass: inside the orthographic shadow box, with the same detail
-    // level the camera draws (a mismatched caster shape self-shadows the
-    // visible mesh).
-    for (let w = 0; w < variantCount; w++) {
-      shadowRanges[w].first = cursor;
-      if (castShadows) {
-        for (const v of sourcesOf[w]) {
-          const r = ranges[v];
-          if (!r) {
-            continue;
-          }
-          const own = v === w;
-          const hasLow = lowOf[v] >= 0 && lowOf[v] !== v;
-          for (let i = r.first; i < r.first + r.count; i++) {
-            const b = i * FLOATS;
-            const x = data[b];
-            const y = data[b + 1];
-            const z = data[b + 2];
-            const ex = x - cp[0];
-            const ey = y - cp[1];
-            const ez = z - cp[2];
-            const far = ex * ex + ey * ey + ez * ez > lodD2;
-            if (own ? hasLow && far : !far) {
-              continue;
-            }
-            const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
-            const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
-            if (radiusOf[i] < shadowMinRadius) {
-              continue;
-            }
-            const pad = radiusOf[i] * Math.abs(sm[0]) * 1.5;
-            if (Math.abs(sx) > 1 + pad || Math.abs(sy) > 1 + pad) {
-              continue;
-            }
-            visible.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
-            cursor++;
+
+        // Shadow: inside the orthographic shadow box, one level coarser.
+        if (castShadows && rad >= shadowMinRadius) {
+          const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
+          const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
+          const pad = rad * Math.abs(sm[0]) * 1.5;
+          if (Math.abs(sx) <= 1 + pad && Math.abs(sy) <= 1 + pad) {
+            const w = chain[Math.min(chain.length - 1, Math.max(level, 1))];
+            shadowScratch.set(
+              data.subarray(b, b + FLOATS),
+              (scratchOffset[w] + shadowFill[w]++) * FLOATS,
+            );
           }
         }
       }
-      shadowRanges[w].count = cursor - shadowRanges[w].first;
     }
+    let cursor = 0;
+    const pack = (
+      scratch: Float32Array,
+      fill: Uint32Array,
+      out: {first: number; count: number}[],
+    ) => {
+      for (let w = 0; w < variantCount; w++) {
+        out[w].first = cursor;
+        out[w].count = fill[w];
+        if (fill[w]) {
+          const start = scratchOffset[w] * FLOATS;
+          visible.set(
+            scratch.subarray(start, start + fill[w] * FLOATS),
+            cursor * FLOATS,
+          );
+          cursor += fill[w];
+        }
+      }
+    };
+    pack(camScratch, camFill, camRanges);
+    pack(shadowScratch, shadowFill, shadowRanges);
     if (cursor) {
       device.queue.writeBuffer(
         instanceBuf,

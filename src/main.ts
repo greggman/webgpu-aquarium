@@ -5,6 +5,7 @@ import {
   WebGPUUnavailableError,
 } from './gpu/device.ts';
 import {showUnsupported} from './gpu/unsupported.ts';
+import {GpuProfiler} from './gpu/profiler.ts';
 import {detectTier, getQuality, DynamicResolution} from './core/quality.ts';
 import {Clock} from './core/clock.ts';
 import * as mat4 from './math/mat4.ts';
@@ -66,6 +67,10 @@ async function main() {
 
   const gpu = await initGPU(canvas);
   const {device} = gpu;
+  // ?profile=gpu: per-pass GPU timings and triangle counts.
+  const gpuProfiler =
+    params.get('profile') === 'gpu' ? GpuProfiler.install(device) : null;
+  window.__aquarium.gpuProfile = () => gpuProfiler?.summary() ?? null;
   const tier = detectTier(gpu.info, params.get('quality'));
   const quality = getQuality(tier);
   const seed = numParam('seed') ?? Math.floor(Math.random() * 1e9);
@@ -204,6 +209,7 @@ async function main() {
       return input;
     },
   });
+  renderer.post = renderer.post.filter(p => !disabled.has(p.name));
   present.setGrade({
     ...desc.water.grade,
     grain: quality.grain ? desc.water.grade.grain : 0,
@@ -394,6 +400,7 @@ async function main() {
     renderer.cullView.camPos.set(pose.pos);
     renderer.cullView.viewProj.set(viewProj);
     renderer.cullView.shadowViewProj.set(shadow.viewProj);
+    renderer.cullView.focalPx = (canvasH / 2) * proj[5];
     g.set('camPos', pose.pos);
     g.set('time', clock.time);
     g.set('sunDir', desc.sunDir);
@@ -428,6 +435,7 @@ async function main() {
       focusSampled = false;
       autoFocus.read();
     }
+    gpuProfiler?.endFrame();
     const submitted = performance.now();
     if (!gpuPending) {
       // Submit-to-done latency approximates GPU frame cost without timestamp queries.
@@ -446,7 +454,9 @@ async function main() {
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
       hud.hidden = false;
-      hud.textContent = `${fpsAvg.toFixed(0)} fps · gpu ~${gpuMs.toFixed(1)} ms · cpu ${cpuMs.toFixed(1)} ms · ${renderer.targets.width}x${renderer.targets.height} (${(dynres.scale * 100).toFixed(0)}%) · ${tier}`;
+      hud.textContent =
+        `${fpsAvg.toFixed(0)} fps · gpu ~${gpuMs.toFixed(1)} ms · cpu ${cpuMs.toFixed(1)} ms · ${renderer.targets.width}x${renderer.targets.height} (${(dynres.scale * 100).toFixed(0)}%) · ${tier}` +
+        (gpuProfiler ? `\n${gpuProfiler.summary()}` : '');
     }
 
     if (firstFrame) {

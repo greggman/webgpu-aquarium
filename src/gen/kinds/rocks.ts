@@ -1,7 +1,7 @@
 // Boulders and pebbles: noise-displaced, plane-chiselled spheres with
 // encrusting growth on their upper faces.
 
-import {buildMesh, withCoarseCopies, type Patch} from '../meshgen.ts';
+import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
@@ -195,7 +195,7 @@ export async function createRocks(
   }
   // Distance stand-ins are coarse copies of the same rocks, so nothing changes
   // shape when they swap.
-  const lod = withCoarseCopies(variants, i => i < VARIANTS + PILLARS);
+  const lod = withLodChain(variants, () => true, [0.45, 0.2]);
   const mesh = await buildMesh(
     renderer.device,
     'rocks',
@@ -420,10 +420,7 @@ export async function createRocks(
     wgsl: materialWgsl,
     cullMode: 'back',
     contact: {radius: 0.62, height: 0.7},
-    lod: {
-      low: lod.low,
-      distance: 28,
-    },
+    lod: {chains: lod.chains},
     shadowMinRadius: 0.35,
   });
 }

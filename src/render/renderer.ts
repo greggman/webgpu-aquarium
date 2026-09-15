@@ -41,6 +41,8 @@ export interface CullView {
   shadowViewProj: Float32Array;
   /** Beyond this the water hides everything. */
   maxDistance: number;
+  /** Pixels covered by one world unit at distance 1 (for screen-size LOD). */
+  focalPx: number;
 }
 
 /** Anything that renders. All hooks are optional. */
@@ -209,6 +211,7 @@ export class Renderer {
     viewProj: new Float32Array(16),
     shadowViewProj: new Float32Array(16),
     maxDistance: 80,
+    focalPx: 1000,
   };
 
   render(time: number, dt: number) {
@@ -242,7 +245,11 @@ export class Renderer {
       });
       pass.setBindGroup(0, this.shadowGlobalsBindGroup);
       for (const s of this.systems) {
-        s.drawShadow?.(pass);
+        if (s.drawShadow) {
+          pass.pushDebugGroup(s.name);
+          s.drawShadow(pass);
+          pass.popDebugGroup();
+        }
       }
       pass.end();
     }
@@ -273,7 +280,11 @@ export class Renderer {
     });
     opaque.setBindGroup(0, this.globalsBindGroup);
     for (const s of this.systems) {
-      s.drawOpaque?.(opaque);
+      if (s.drawOpaque) {
+        opaque.pushDebugGroup(s.name);
+        s.drawOpaque(opaque);
+        opaque.popDebugGroup();
+      }
     }
     opaque.end();
 
@@ -292,7 +303,11 @@ export class Renderer {
       });
       pass.setBindGroup(0, this.globalsBindGroup);
       for (const s of this.systems) {
-        s.drawTransparent?.(pass);
+        if (s.drawTransparent) {
+          pass.pushDebugGroup(s.name);
+          s.drawTransparent(pass);
+          pass.popDebugGroup();
+        }
       }
       pass.end();
     }

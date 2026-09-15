@@ -826,7 +826,53 @@ function speciesPatches(s: SpeciesDef, hi: boolean): Patch[] {
 // ---------------------------------------------------------------------------
 // Simulation
 
+// Neighbour search: a spatial hash grid rebuilt on the GPU each step, so each
+// fish checks only the fish in the 27 cells around it (O(n)) instead of every
+// other fish (O(n^2)).
+const GRID_CELLS = 8192;
+const GRID_CAP = 20;
+const GRID_CELL_SIZE = 2.2;
+
+const gridWgsl = /* wgsl */ `
+const GRID_CELLS = ${GRID_CELLS}u;
+const GRID_CAP = ${GRID_CAP}u;
+const GRID_CELL_SIZE = ${GRID_CELL_SIZE};
+
+fn gridCell(p: vec3f) -> vec3i {
+  return vec3i(floor(p / GRID_CELL_SIZE));
+}
+
+fn gridHash(c: vec3i) -> u32 {
+  let h = (bitcast<u32>(c.x) * 73856093u) ^ (bitcast<u32>(c.y) * 19349663u) ^ (bitcast<u32>(c.z) * 83492791u);
+  return h % GRID_CELLS;
+}
+`;
+
+const gridBuildWgsl = /* wgsl */ `
+${SimStruct.wgsl}
+${FishStruct.wgsl}
+${gridWgsl}
+@group(0) @binding(0) var<uniform> sim: Sim;
+@group(0) @binding(1) var<storage, read> fishIn: array<Fish>;
+@group(0) @binding(2) var<storage, read_write> counts: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> items: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= sim.count) {
+    return;
+  }
+  let h = gridHash(gridCell(fishIn[i].pos));
+  let slot = atomicAdd(&counts[h], 1u);
+  if (slot < GRID_CAP) {
+    items[h * GRID_CAP + slot] = i;
+  }
+}
+`;
+
 const simWgsl = /* wgsl */ `
+${gridWgsl}
 ${SpeciesStruct.wgsl}
 ${FishStruct.wgsl}
 ${FishInstanceStruct.wgsl}
@@ -840,6 +886,8 @@ ${SimStruct.wgsl}
 @group(0) @binding(5) var<storage, read> obstacles: array<vec4f>;
 @group(0) @binding(6) var tTerrain: texture_2d<f32>;
 @group(0) @binding(7) var sClamp: sampler;
+@group(0) @binding(8) var<storage, read> gridCounts: array<u32>;
+@group(0) @binding(9) var<storage, read> gridItems: array<u32>;
 
 fn groundAt(xz: vec2f) -> f32 {
   return textureSampleLevel(tTerrain, sClamp, xz / sim.worldSize + 0.5, 0.0).r;
@@ -880,7 +928,26 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var coh = vec3f(0.0);
   var n = 0.0;
   let ownSep = max(len * 1.6, 0.12);
-  for (var j = 0u; j < sim.count; j++) {
+  let home = gridCell(f.pos);
+  var visited = array<u32, 27>();
+  var nVisited = 0u;
+  for (var cz = -1; cz <= 1; cz++) {
+  for (var cy = -1; cy <= 1; cy++) {
+  for (var cx = -1; cx <= 1; cx++) {
+    let h = gridHash(home + vec3i(cx, cy, cz));
+    // Distinct cells can hash to the same bucket: visit each bucket once.
+    var seen = false;
+    for (var k = 0u; k < nVisited; k++) {
+      seen = seen || visited[k] == h;
+    }
+    if (seen) {
+      continue;
+    }
+    visited[nVisited] = h;
+    nVisited++;
+    let inCell = min(gridCounts[h], GRID_CAP);
+    for (var s = 0u; s < inCell; s++) {
+    let j = gridItems[h * GRID_CAP + s];
     if (j == i) {
       continue;
     }
@@ -904,6 +971,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       coh += o.pos;
       n += 1.0;
     }
+    }
+  }
+  }
   }
 
   var acc = vec3f(0.0);
@@ -1296,9 +1366,10 @@ export async function createFish(
     device,
     'fish',
     meshWgsl,
-    // Bait fish are tiny and numerous: the low-detail mesh is plenty.
+    // Small, numerous fish never cover many pixels: the low-detail mesh is
+    // plenty. Only the bigger species get the fine one.
     speciesList.map(s => ({
-      patches: speciesPatches(s, hi && s.name !== 'bait'),
+      patches: speciesPatches(s, hi && s.length[1] >= 0.3),
       radius: 0.6,
     })),
     rng.nextU32(),
@@ -1452,6 +1523,35 @@ export async function createFish(
     layout: 'auto',
     compute: {module: simModule, entryPoint: 'main'},
   });
+  const gridCounts = device.createBuffer({
+    label: 'fish:grid-counts',
+    size: GRID_CELLS * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const gridItems = device.createBuffer({
+    label: 'fish:grid-items',
+    size: GRID_CELLS * GRID_CAP * 4,
+    usage: GPUBufferUsage.STORAGE,
+  });
+  const gridZeros = new Uint32Array(GRID_CELLS);
+  const gridModule = createShader(device, 'fish:grid-shader', gridBuildWgsl);
+  const gridPipeline = await device.createComputePipelineAsync({
+    label: 'fish:grid-pipeline',
+    layout: 'auto',
+    compute: {module: gridModule, entryPoint: 'main'},
+  });
+  const gridGroups = [stateA, stateB].map((src, i) =>
+    device.createBindGroup({
+      label: `fish:grid-bind-group-${i}`,
+      layout: gridPipeline.getBindGroupLayout(0),
+      entries: [
+        {binding: 0, resource: {buffer: simBuf}},
+        {binding: 1, resource: {buffer: src}},
+        {binding: 2, resource: {buffer: gridCounts}},
+        {binding: 3, resource: {buffer: gridItems}},
+      ],
+    }),
+  );
   const clampSampler = device.createSampler({
     label: 'fish:terrain-sampler',
     magFilter: 'linear',
@@ -1478,6 +1578,8 @@ export async function createFish(
           }),
         },
         {binding: 7, resource: clampSampler},
+        {binding: 8, resource: {buffer: gridCounts}},
+        {binding: 9, resource: {buffer: gridItems}},
       ],
     }),
   );
@@ -1496,7 +1598,7 @@ export async function createFish(
   // Index count of the leading body patch(es) of each species' mesh; the rest
   // are fins.
   const bodyIndexCount = speciesList.map(s => {
-    const patches = speciesPatches(s, hi && s.name !== 'bait');
+    const patches = speciesPatches(s, hi && s.length[1] >= 0.3);
     const body = s.bodyType === 1 ? patches : patches.slice(0, 1);
     return body.reduce((n, p) => n + p.segU * p.segV * 6, 0);
   });
@@ -1619,6 +1721,12 @@ export async function createFish(
           ? fc.encoder
           : device.createCommandEncoder({label: 'fish:substep-encoder'});
         device.queue.writeBuffer(simBuf, 0, simData);
+        device.queue.writeBuffer(gridCounts, 0, gridZeros);
+        const gridPass = encoder.beginComputePass({label: 'fish:grid-pass'});
+        gridPass.setPipeline(gridPipeline);
+        gridPass.setBindGroup(0, gridGroups[flip]);
+        gridPass.dispatchWorkgroups(Math.ceil(total / 64));
+        gridPass.end();
         const pass = encoder.beginComputePass({label: 'fish:sim-pass'});
         pass.setPipeline(simPipeline);
         pass.setBindGroup(0, simGroups[flip]);

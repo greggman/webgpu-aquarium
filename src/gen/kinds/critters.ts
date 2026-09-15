@@ -1,6 +1,6 @@
 // Small seafloor life: sea anemones, urchins, starfish and shells.
 
-import {buildMesh, withCoarseCopies, type Patch} from '../meshgen.ts';
+import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {
   createPropKind,
   quatAxisAngle,
@@ -512,7 +512,7 @@ export async function createCritters(
   for (let i = 0; i < 6; i++) add(shell(rng, hi, i < 2));
   for (let i = 0; i < 2; i++) add(seahorse(rng, aux, hi));
   // Distance stand-ins: coarse copies of the same shapes.
-  const lod = withCoarseCopies(variants, () => true, 0.35);
+  const lod = withLodChain(variants, () => true, [0.45, 0.2]);
   const mesh = await buildMesh(
     renderer.device,
     'critters',
@@ -669,7 +669,7 @@ export async function createCritters(
     instances,
     wgsl: materialWgsl,
     castShadows: true,
-    lod: {low: lod.low, distance: 7},
+    lod: {chains: lod.chains},
     // Shells and small starfish are too small to cast a visible shadow.
     shadowMinRadius: 0.4,
     contact: {radius: 0.45, height: 0.3},
