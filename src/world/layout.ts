@@ -39,6 +39,8 @@ export interface GenContext {
   kelpForests: KelpForest[];
   /** Tall thin props (x, base y, z, top y) that clutter a view if right in front of the lens. */
   tallProps: [number, number, number, number][];
+  /** Tops of large coral heads (x, top y, z, radius): homes for hovering reef fish. */
+  coralHeads: [number, number, number, number][];
   /** Anemone positions (filled in by the critter generator), homes for clownfish. */
   anemones: [number, number, number][];
   /** A generator stream unique to `name`. */
@@ -69,6 +71,7 @@ export function createGenContext(
     obstacles,
     kelpForests: [],
     tallProps: [],
+    coralHeads: [],
     anemones: [],
     surfaceTop: (x, z) => {
       let top = terrain.heightAt(x, z);

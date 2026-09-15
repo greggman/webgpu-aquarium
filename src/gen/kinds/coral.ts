@@ -290,6 +290,26 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       s.roughness = 0.85;
     }
   }
+
+  // Colour variation within each colony, as on real coral:
+  // - a second pigment creeping across in irregular patches (two-tone colonies),
+  // - hue drifting slowly across the colony,
+  // - older, shaded lower parts duller and browner; growing upper parts brighter,
+  // - fine speckle of individual polyps.
+  let patchField = triplanarDetail(lp * 0.9 + inst.params.x * 3.1, nIn, 0.55).r;
+  let secondTone = smoothstep(0.45, 0.62, patchField + (inst.params.y - 0.5) * 0.3);
+  let lum = max(dot(s.albedo, vec3f(0.3, 0.55, 0.15)), 1e-3);
+  let accentAtLum = accent * (lum / max(dot(accent, vec3f(0.3, 0.55, 0.15)), 1e-3));
+  var col = mix(s.albedo, accentAtLum, secondTone * 0.45);
+  let drift = (broad.g - 0.5) * 0.35;
+  col *= vec3f(1.0 + drift, 1.0 - drift * 0.3, 1.0 - drift);
+  // Height up the colony in its own (unscaled) mesh units, most about 0.3-1 tall.
+  let heightFrac = clamp(i.local.y / 0.8, 0.0, 1.0);
+  let base = 1.0 - smoothstep(0.0, 0.35, heightFrac);
+  col = mix(col, col * vec3f(0.72, 0.64, 0.52), base * 0.55);
+  col *= mix(1.0, 1.12, smoothstep(0.5, 1.0, heightFrac));
+  col *= 0.88 + 0.24 * polyps.b;
+  s.albedo = col;
   return s;
 }
 `;
@@ -755,6 +775,15 @@ export async function createCoral(
       vi.height * scale > 0.35
     ) {
       ctx.tallProps.push([x, y, z, y + vi.height * scale]);
+    }
+    if (
+      !low &&
+      (kind === CoralKind.Brain ||
+        kind === CoralKind.Table ||
+        kind === CoralKind.Branching) &&
+      vi.radius * scale > 0.7
+    ) {
+      ctx.coralHeads.push([x, y + vi.height * scale, z, vi.radius * scale]);
     }
     // Big coral heads are solid to the camera and to fish.
     const v = vi;

@@ -447,7 +447,8 @@ export function cameraSpots(
     terrain,
     reefTarget,
     hero.radius + 3.5,
-    1.1,
+    // Above the (tall) coral carpet, looking across it.
+    1.9,
     gapA + Math.PI + 0.35,
     kelpClear,
     lensClear,

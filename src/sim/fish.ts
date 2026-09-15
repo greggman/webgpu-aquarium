@@ -41,6 +41,8 @@ const SpeciesStruct = defineStruct('Species', {
   extra: 'vec4f',
   /** curiosity (0 shy .. 1 approaches the camera), fear radius, roam radius, roam angular speed */
   behavior: 'vec4f',
+  /** dart acceleration (0 = never darts), seconds between darts, unused, unused */
+  dart: 'vec4f',
 });
 
 const FishStruct = defineStruct('Fish', {
@@ -82,7 +84,7 @@ export const Pattern = {
   Clown: 5,
 } as const;
 
-type Home = 'open' | 'reef' | 'anemone' | 'basin' | 'kelp';
+type Home = 'open' | 'reef' | 'anemone' | 'basin' | 'kelp' | 'coral';
 
 interface SpeciesDef {
   name: string;
@@ -115,6 +117,8 @@ interface SpeciesDef {
   curiosity?: number;
   /** Radius (m) of a slow loop the school's home travels, stretching it into a ribbon. */
   roam?: number;
+  /** Sudden bursts of speed: acceleration and mean seconds between them. */
+  dart?: [number, number];
 }
 
 const hsv = (h: number, s: number, v: number): number[] => {
@@ -124,6 +128,19 @@ const hsv = (h: number, s: number, v: number): number[] => {
   };
   return [f(5), f(3), f(1)];
 };
+
+/** Coral heads that host hovering reef fish, nearest the hero reef first. */
+function coralHomesFor(ctx: GenContext): [number, number, number, number][] {
+  const hero = ctx.clusters[0];
+  return [...ctx.coralHeads]
+    .sort((a, b) =>
+      hero
+        ? Math.hypot(a[0] - hero.x, a[2] - hero.z) -
+          Math.hypot(b[0] - hero.x, b[2] - hero.z)
+        : 0,
+    )
+    .slice(0, 60);
+}
 
 /** Invents this seed's species. */
 function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
@@ -470,6 +487,60 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     eye: 0.025,
     curiosity: 1,
   });
+
+  // Tiny reef fish hovering in little clouds over individual coral heads,
+  // darting in and out. Prefer heads near the hero reef, where cameras look.
+  const coralHomes = coralHomesFor(ctx);
+  if (coralHomes.length) {
+    const hoverHues = [rng.range(0.45, 0.55), rng.range(0.0, 0.08)];
+    hoverHues.forEach((hue, hi) => {
+      list.push({
+        name: hi === 0 ? 'chromis' : 'anthias',
+        count: Math.min(
+          Math.round(coralHomes.length * 2.5 * k),
+          Math.round(130 * k),
+        ),
+        length: [0.09, 0.13],
+        bodyType: 0,
+        body: body(
+          0.34,
+          0.09,
+          0.6,
+          0.14,
+          0.24,
+          0.6,
+          0.1,
+          0.08,
+          0.08,
+          0.25,
+          0.8,
+          2.1,
+        ),
+        colors: {
+          top: hsv(hue, 0.75, 0.75),
+          belly: hsv(hue + 0.03, 0.4, 0.95),
+          accent: hsv(hue + 0.08, 0.9, 1),
+          fin: hsv(hue, 0.6, 0.9),
+        },
+        pattern: Pattern.Countershade,
+        patternFreq: 1,
+        iridescence: 0.6,
+        finTranslucency: 0.6,
+        band: [0.2, 4],
+        speed: 0.15,
+        maxSpeed: 0.9,
+        flock: [0.3, 0.4, 1.4, 0.6],
+        turn: 5,
+        tailBeat: 2.4,
+        wander: 0.5,
+        homePull: 2.2,
+        home: 'coral',
+        homeRadius: 0.5,
+        eye: 0.05,
+        dart: [14, 2.5],
+      });
+    });
+  }
 
   // Fish that live among the kelp.
   if (ctx.kelpForests.length) {
@@ -1045,6 +1116,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   // Wander.
   let fi = f32(i);
+  // Darting: every few seconds a fish bolts a short way, then settles.
+  var bolting = false;
+  if (sp.dart.x > 0.0) {
+    let tt = sim.time / sp.dart.y + fract(fi * 0.6180339);
+    let cycle = floor(tt);
+    let ph = fract(tt);
+    let r1 = fract(sin(fi * 12.9898 + cycle * 78.233) * 43758.5453);
+    let r2 = fract(r1 * 91.7 + 0.31);
+    let r3 = fract(r2 * 57.3 + 0.77);
+    if (ph < 0.1 && r1 < 0.55) {
+      let d = normalize(vec3f(r2 - 0.5, (r3 - 0.5) * 0.35, fract(r3 * 13.1) - 0.5) + vec3f(1e-4));
+      acc += d * sp.dart.x * (1.0 - ph / 0.1);
+      bolting = true;
+    }
+  }
   acc += vec3f(
     sin(sim.time * 0.37 + fi * 1.7) + sin(sim.time * 0.13 + fi * 0.3),
     sin(sim.time * 0.29 + fi * 2.3) * 0.25,
@@ -1056,7 +1142,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   acc += dir * (sp.band.z - speed) * 0.8;
 
   var vel = f.vel + acc * dt * sp.motion.x;
-  speed = clamp(length(vel), sp.band.z * 0.3, sp.band.w);
+  speed = clamp(length(vel), sp.band.z * 0.3, select(sp.band.w, sp.band.w * 3.0, bolting));
   vel = normalize(vel + vec3f(1e-5, 0.0, 0.0)) * speed;
   // Fish rarely pitch steeply.
   vel.y = clamp(vel.y, -0.45 * speed, 0.45 * speed);
@@ -1349,6 +1435,77 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
 }
 `;
 };
+// Soft contact shadows: a blurred dark blob on the ground under each fish
+// swimming close to the bottom, offset along the sun and fading with height.
+// (The shadow map only has the bigger fish, and too few texels for these.)
+const blobShadowWgsl = /* wgsl */ `
+${surfaceLib}
+${FishInstanceStruct.wgsl}
+@group(1) @binding(0) var<storage, read> instances: array<FishInstance>;
+
+struct BOut {
+  @builtin(position) pos: vec4f,
+  @location(0) quad: vec2f,
+  @location(1) strength: f32,
+};
+
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f {
+  let t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BOut {
+  let inst = instances[ii];
+  let corners = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+    vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
+  );
+  let c = corners[vi];
+  var o: BOut;
+  let fishPos = inst.posScale.xyz;
+  let len = inst.posScale.w;
+  let uv = fishPos.xz / frame.terrain.x + 0.5;
+  let ground = textureSampleLevel(tTerrain, sLinearClamp, uv, 0.0).r;
+  let h = fishPos.y - ground;
+  // Bigger fish throw a darker shadow, and from higher up.
+  let size = clamp(len * 2.5, 0.35, 1.0);
+  let fade = (1.0 - smoothstep(0.3, 2.5 + size * 2.5, h)) * smoothstep(-0.1, 0.05, h) * size;
+  if (fade <= 0.0 || len <= 0.0) {
+    o.pos = vec4f(0.0, 0.0, -2.0, 1.0);
+    return o;
+  }
+  // Blob elongated along the fish, growing softer and larger with height.
+  let fwd3 = quatRotate(inst.rot, vec3f(0.0, 0.0, 1.0));
+  let fwd = normalize(vec2f(fwd3.x, fwd3.z) + vec2f(1e-4, 0.0));
+  let side = vec2f(-fwd.y, fwd.x);
+  let spread = 1.0 + h * 0.8;
+  let halfLen = len * 0.55 * spread + 0.05;
+  let halfWid = len * 0.22 * spread + 0.05;
+  let offset = -frame.sunDir.xz / max(frame.sunDir.y, 0.3) * h;
+  let xz = fishPos.xz + offset + fwd * c.y * halfLen + side * c.x * halfWid;
+  let gy = textureSampleLevel(tTerrain, sLinearClamp, xz / frame.terrain.x + 0.5, 0.0).r;
+  // Pulled a little toward the camera so it isn't hidden by the terrain mesh
+  // (whose triangles sit a few centimetres off the height texture).
+  let groundPoint = vec3f(xz.x, gy + 0.03, xz.y);
+  let toCam = frame.camPos - groundPoint;
+  let lifted = groundPoint + toCam / max(length(toCam), 1e-3) * min(0.25, length(toCam) * 0.05);
+  o.pos = frame.viewProj * vec4f(lifted, 1.0);
+  o.quad = c;
+  o.strength = fade;
+  return o;
+}
+
+@fragment
+fn fs(i: BOut) -> @location(0) vec4f {
+  let r2 = dot(i.quad, i.quad);
+  let blob = exp(-r2 * 2.2) * (1.0 - smoothstep(0.75, 1.0, r2));
+  let dark = min(0.8, blob * i.strength * 0.95);
+  // Multiplied into the scene (see blend state).
+  return vec4f(vec3f(1.0 - dark), 1.0);
+}
+`;
+
 export type FishSystem = RenderSystem & {
   setCamera(p: readonly number[], dir: readonly number[]): void;
 };
@@ -1408,11 +1565,16 @@ export async function createFish(
         s.curiosity ? 2.2 : Math.max(3.5, 1.5 + len * 3),
         s.roam ?? 0,
         s.roam ? 0.9 / s.roam : 0,
+        s.dart?.[0] ?? 0,
+        s.dart?.[1] ?? 1,
+        0,
+        0,
       ],
       i * SPECIES_FLOATS,
     );
   });
 
+  const coralHomes = coralHomesFor(ctx);
   // Initial fish.
   const total = speciesList.reduce((a, s) => a + s.count, 0);
   const fishData = new Float32Array(total * 12);
@@ -1446,6 +1608,10 @@ export async function createFish(
             )
           ];
         home = [c.x, c.y + 1.2, c.z, c.radius + s.homeRadius];
+      } else if (s.home === 'coral' && coralHomes.length) {
+        // A little group hovering over one coral head.
+        const h = coralHomes[Math.floor(n / 8) % coralHomes.length];
+        home = [h[0], h[1] + 0.35, h[2], h[3] * 0.7 + 0.3];
       } else if (s.home === 'anemone' && ctx.anemones.length) {
         const a = ctx.anemones[n % ctx.anemones.length];
         home = [a[0], a[1] + 0.1, a[2], s.homeRadius];
@@ -1657,6 +1823,50 @@ export async function createFish(
       },
     }),
   ]);
+  const blobModule = createShader(device, 'fish:blob-shader', blobShadowWgsl);
+  const blobLayout = device.createBindGroupLayout({
+    label: 'fish:blob-bgl',
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'read-only-storage'},
+      },
+    ],
+  });
+  const blobPipeline = await device.createRenderPipelineAsync({
+    label: 'fish:blob-pipeline',
+    layout: device.createPipelineLayout({
+      label: 'fish:blob-pipeline-layout',
+      bindGroupLayouts: [renderer.globals.layout, blobLayout],
+    }),
+    vertex: {module: blobModule, entryPoint: 'vs'},
+    fragment: {
+      module: blobModule,
+      entryPoint: 'fs',
+      targets: [
+        {
+          format: HDR_FORMAT,
+          // Multiply: dst * src.
+          blend: {
+            color: {srcFactor: 'zero', dstFactor: 'src', operation: 'add'},
+            alpha: {srcFactor: 'zero', dstFactor: 'one', operation: 'add'},
+          },
+        },
+      ],
+    },
+    primitive: {topology: 'triangle-list', cullMode: 'none'},
+    depthStencil: {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      depthCompare: 'greater-equal',
+    },
+  });
+  const blobGroup = device.createBindGroup({
+    label: 'fish:blob-bind-group',
+    layout: blobLayout,
+    entries: [{binding: 0, resource: {buffer: instanceBuf}}],
+  });
   const renderGroup = device.createBindGroup({
     label: 'fish:render-bind-group',
     layout: localLayout,
@@ -1746,6 +1956,11 @@ export async function createFish(
     },
     // Only fish big enough to cast a readable shadow go into the shadow map.
     drawShadow: pass => draw(pass, shadowPipeline, 'shadow'),
+    drawTransparent: pass => {
+      pass.setPipeline(blobPipeline);
+      pass.setBindGroup(1, blobGroup);
+      pass.draw(6, total);
+    },
   };
   console.log(
     `[fish] ${speciesList.map(s => `${s.name}x${s.count}`).join(', ')}`,

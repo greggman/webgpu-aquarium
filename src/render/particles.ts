@@ -1,4 +1,4 @@
-// Marine snow and bubble streams. Both are computed entirely in the vertex
+// Marine snow, bubble streams and surge-driven sand puffs. All are computed entirely in the vertex
 // shader from per-particle hashes and time, so there is no simulation state.
 
 import {createShader} from '../gpu/device.ts';
@@ -114,6 +114,48 @@ fn vsBubble(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
   return o;
 }
 
+/**
+ * Sediment puffs: each surge stroke lifts little clouds of sand off the floor
+ * that swell, drift with the flow and settle. Fixed spots around the camera;
+ * each one fires on some surge cycles (in sync with the swaying seabed).
+ */
+@vertex
+fn vsPuff(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+  var o: VOut;
+  let h = hash3u(ii * 3u + 101u);
+  let box = 34.0;
+  let spot = h.xz * box;
+  let rel = fract((spot - frame.camPos.xz) / box) * box - box * 0.5;
+  let xz = frame.camPos.xz + rel;
+  let uv = xz / frame.terrain.x + 0.5;
+  let ground = textureSampleLevel(tTerrain, sLinearClamp, uv, 0.0).r;
+  let rocky = textureSampleLevel(tTerrainMask, sLinearClamp, uv, 0.0).r;
+  let flowDir = normalize(vec2f(1.0, 0.35));
+  let sk = dot(xz, flowDir) * 0.11;
+  let cyc = (frame.time * 0.9 - sk) / 6.2831853 + 0.2 + h.y * 0.12;
+  let cycleIndex = floor(cyc);
+  let life = fract(cyc) / 0.5;
+  let fires = fract(sin(cycleIndex * 12.9898 + f32(ii) * 78.233) * 43758.5453) < 0.4;
+  if (!fires || life > 1.0 || rocky > 0.45) {
+    o.pos = vec4f(0.0, 0.0, -2.0, 1.0);
+    return o;
+  }
+  let drift = vec3f(flowDir.x, 0.0, flowDir.y) * life * (0.6 + h.z * 0.6);
+  let p = vec3f(xz.x, ground + 0.06 + life * (0.15 + h.z * 0.35), xz.y) + drift;
+  let size = 0.2 + life * (0.5 + h.x * 0.6);
+  let corner = cornerOf(vi);
+  o.pos = billboard(p, size, corner);
+  o.quad = corner;
+  let dist = length(p - frame.camPos);
+  // Lit sand-coloured silt.
+  // Suspended silt scatters light: a touch brighter than the sand it came from.
+  o.color = sunAtDepth(ground) * vec3f(0.7, 0.66, 0.54) * 0.075 + ambientAtDepth(ground) * vec3f(0.65, 0.62, 0.52) * 0.3;
+  o.alpha = pow(sin(3.14159 * life), 1.2) * 0.42 * smoothstep(box * 0.5, box * 0.3, dist) * smoothstep(0.8, 2.5, dist);
+  o.kind = 2u;
+  o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
+  return o;
+}
+
 @fragment
 fn fs(i: VOut) -> @location(0) vec4f {
   let r2 = dot(i.quad, i.quad);
@@ -127,6 +169,12 @@ fn fs(i: VOut) -> @location(0) vec4f {
   if (i.kind == 0u) {
     let a = (1.0 - r2) * i.alpha * soft;
     return vec4f(i.color * a, a * 0.5);
+  }
+  if (i.kind == 2u) {
+    // Billowy: soft falloff with a lumpy edge.
+    let lump = 0.75 + 0.25 * sin(atan2(i.quad.y, i.quad.x) * 5.0 + i.alpha * 40.0);
+    let a = pow(max(1.0 - r2 / lump, 0.0), 1.6) * i.alpha * soft;
+    return vec4f(i.color * a, a);
   }
   // Bubble: bright Fresnel rim and a specular glint, nearly clear centre.
   let r = sqrt(r2);
@@ -225,10 +273,12 @@ export async function createParticles(
         depthCompare: 'greater',
       },
     });
-  const [snowPipeline, bubblePipeline] = await Promise.all([
+  const [snowPipeline, bubblePipeline, puffPipeline] = await Promise.all([
     make('vsSnow', 'particles:snow-pipeline'),
     make('vsBubble', 'particles:bubble-pipeline'),
+    make('vsPuff', 'particles:puff-pipeline'),
   ]);
+  const puffCount = Math.round(260 * Math.max(ctx.quality.density, 0.5));
 
   const paramBuf = device.createBuffer({
     label: 'particles:params',
@@ -273,6 +323,8 @@ export async function createParticles(
       pass.draw(4, snowCount);
       pass.setPipeline(bubblePipeline);
       pass.draw(4, bubbleCount);
+      pass.setPipeline(puffPipeline);
+      pass.draw(4, puffCount);
     },
   };
 }

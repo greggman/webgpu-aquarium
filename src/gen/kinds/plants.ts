@@ -56,7 +56,8 @@ fn ribbon(pat: Patch, uv: vec2f, part: f32) -> SurfacePoint {
     p.y += v * len * sqrt(max(1.0 - pat.p1.z * pat.p1.z, 0.1));
     p += fwd * ruffle;
   }
-  var o = sp(p, vec4f(uv, pat.p0.y, part));
+  // uv.z packs the blade's attach height with its age (0..9 in hundreds).
+  var o = sp(p, vec4f(uv, pat.p0.y + floor(clamp(pat.p3.x, 0.0, 1.0) * 9.0 + 0.5) * 100.0, part));
   o.ao = mix(0.35, 1.0, smoothstep(0.0, 0.6, v));
   return o;
 }
@@ -132,9 +133,14 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       let mottle = 0.5 + 0.5 * sin(i.uv.y * 9.0 + veins * 2.0);
       // Each blade differs a little in age and colour.
       let bladeHash = fract(sin(i.uv.z * 91.7 + inst.params.x) * 43758.5);
+      let age = floor(i.uv.z / 100.0) / 9.0;
       var c = tint * mix(0.55, 1.15, smoothstep(0.0, 0.8, along)) * (0.94 + 0.06 * mottle) *
         mix(vec3f(0.85, 0.9, 0.8), vec3f(1.12, 1.05, 0.95), bladeHash);
       c = mix(c, tint * vec3f(1.2, 1.05, 0.6), smoothstep(0.85, 1.0, along) * 0.5);
+      // Young blades are fresh and golden-green; old ones brown and darken
+      // toward frayed, bleached tips.
+      c = mix(c, c * vec3f(0.78, 0.62, 0.42), age * 0.8);
+      c = mix(c, vec3f(0.55, 0.5, 0.36) * tint.g * 1.6, age * smoothstep(0.7, 1.0, along) * 0.6);
       s.albedo = c;
       s.translucency = 0.9 + 0.08 * mottle;
       // Slick but not mirror-like: sharp highlights read as white slivers.
@@ -331,17 +337,24 @@ function kelpPlant(
         Math.max(0, Math.round(t * segs)),
       );
       const base = points[idx];
-      // Blades hang off the downcurrent side of the stipe.
-      const a = rng.normal(0, 0.7);
+      // Blades hang off the downcurrent side of the stipe, some twisting off
+      // sideways against it.
+      const a = rng.normal(0, rng.bool(0.2) ? 1.6 : 0.8);
+      // Lower blades are older: longer, droopier and browner.
+      const age = Math.min(1, Math.max(0, 1 - t + rng.normal(0, 0.2)));
       // Blades in the top fifth lie along the surface as a canopy.
       const canopy = Math.max(0, (t - 0.8) / 0.2);
       const outward = [
         Math.cos(a),
-        rng.range(0.2, 0.6) * (1 - canopy),
+        rng.range(-0.25, 0.75) * (1 - canopy) - age * 0.2,
         Math.sin(a),
       ];
       // Long narrow ribbons (not leaves): giant kelp blades trail far downstream.
-      const len = rng.range(1.4, 3.8) * (1 + canopy * 0.6);
+      // Mostly short young blades, a few very long old ones.
+      const len =
+        (0.8 + Math.pow(rng.float(), 1.8) * 3.6) *
+        (1 + canopy * 0.6) *
+        (0.8 + age * 0.5);
       patches.push(
         P(
           [
@@ -351,12 +364,13 @@ function kelpPlant(
             a,
             len,
             // (Far stand-ins get wider blades: thin ones alias into hair.)
-            rng.range(0.16, 0.38) * (coarse ? 1.6 : 1),
+            rng.range(0.12, 0.42) * (0.8 + age * 0.35) * (coarse ? 1.6 : 1),
             // How strongly the blade streams downcurrent along its length.
-            rng.range(0.45, 0.8) + canopy * 0.2,
+            rng.range(0.25, 0.95) + age * 0.25 + canopy * 0.2,
             canopy,
-            rng.range(0.05, 0.09),
+            rng.range(0.04, 0.1) + age * 0.03,
             ...outward,
+            age,
           ],
           Part.KelpBlade,
           hi && !coarse ? 4 : 2,

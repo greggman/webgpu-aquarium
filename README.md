@@ -53,6 +53,7 @@ that was designed to be seen: a current gently pushes you back near the edges.
 | `time` | `?time=20` | Start time in seconds |
 | `paused` | `?paused=1` | Start paused (for deterministic captures) |
 | `profile` | `?profile` | Show frame timing HUD |
+| `profile=gpu` | `?profile=gpu` | Also list triangles and draw calls per system, and GPU time per pass (per-pass times are not meaningful on tile-based Apple GPUs, which defer all the work to the end of the frame) |
 | `hud` | `?hud=0` | Hide the HUD |
 | `disable` | `?disable=volumetrics,ssao` | Drop render systems or effects (profiling) |
 

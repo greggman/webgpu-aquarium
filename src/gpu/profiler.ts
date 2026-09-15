@@ -2,6 +2,10 @@
 // timestamp queries and counts the triangles each pass draws, without the
 // individual systems knowing about it. Results are averaged and exposed on
 // window.__aquarium.gpuProfile.
+//
+// Caveat: tile-based GPUs (Apple) defer rendering to the end of the command
+// buffer, so each pass's timestamps span most of the frame and per-pass times
+// can't be compared there. Triangle and draw counts are always exact.
 
 export interface PassStats {
   /** Average GPU milliseconds per frame. */
