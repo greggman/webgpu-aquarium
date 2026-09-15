@@ -650,6 +650,12 @@ export async function createPlants(
         // Kelp is tall but thin: judge by its blades, not its bounding radius.
         pixels: [900],
       },
+      // Seagrass tufts fade out by ~25 m; kelp is visible as far as the water allows.
+      fadeDistance: (inst, r) =>
+        kelpVariants.includes(inst.variant) ||
+        kelpLow.some(k => k[1] === inst.variant)
+          ? 1e6
+          : Math.min(80, Math.max(18, r * 30)),
     }),
     createPropKind(renderer, {
       name: 'fans',

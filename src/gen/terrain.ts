@@ -6,6 +6,7 @@
 // never visible.
 
 import {createShader} from '../gpu/device.ts';
+import type {CullView} from '../render/renderer.ts';
 import {defineStruct, StructBuffer} from '../gpu/structs.ts';
 import {dispatch2D, readBuffer} from '../gpu/util.ts';
 import {noise, surfaceLib} from '../shaders/index.ts';
@@ -467,6 +468,48 @@ ${propsWgsl}
 
 struct Grid { count: u32, worldSize: f32 };
 @group(1) @binding(0) var<uniform> grid: Grid;
+/**
+ * Visible terrain chunks: xy = first grid cell, z = cell step (detail level),
+ * w = cells per chunk side at that step.
+ */
+@group(1) @binding(1) var<storage, read> chunks: array<vec4f>;
+
+/** Grid position (0..1 across the whole grid) and skirt flag for a chunk vertex. */
+fn chunkVertex(vi: u32, ii: u32) -> vec3f {
+  let c = chunks[ii];
+  let cells = u32(c.w);
+  let n = cells + 1u;
+  var lx: u32;
+  var lz: u32;
+  var skirt = 0.0;
+  if (vi < n * n) {
+    lx = vi % n;
+    lz = vi / n;
+  } else {
+    // Skirt: a copy of the edge ring, dropped down to hide cracks between
+    // neighbouring chunks at different detail levels.
+    let k = vi - n * n;
+    let m = cells;
+    if (k < m) { lx = k; lz = 0u; }
+    else if (k < 2u * m) { lx = m; lz = k - m; }
+    else if (k < 3u * m) { lx = m - (k - 2u * m); lz = m; }
+    else { lx = 0u; lz = m - (k - 3u * m); }
+    skirt = 1.0;
+  }
+  let gx = (c.x + f32(lx) * c.z) / f32(grid.count);
+  let gz = (c.y + f32(lz) * c.z) / f32(grid.count);
+  return vec3f(gx, gz, skirt * c.z);
+}
+
+/** World position of a chunk vertex (the grid is denser near the middle). */
+fn chunkWorld(vi: u32, ii: u32) -> vec3f {
+  let cv = chunkVertex(vi, ii);
+  let g = cv.xy * 2.0 - 1.0;
+  let warped = sign(g) * pow(abs(g), vec2f(1.6));
+  let xz = warped * grid.worldSize * 0.5;
+  let h = textureSampleLevel(tTerrain, sLinearClamp, xz / frame.terrain.x + 0.5, 0.0).r;
+  return vec3f(xz.x, h - cv.z * 0.35, xz.y);
+}
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -481,17 +524,9 @@ fn terrainUv(xz: vec2f) -> vec2f {
 }
 
 @vertex
-fn vs(@builtin(vertex_index) vi: u32) -> VOut {
-  let n = grid.count + 1u;
-  let gx = f32(vi % n) / f32(grid.count);
-  let gz = f32(vi / n) / f32(grid.count);
-  // Denser grid near the middle of the world where the camera lives.
-  let g = vec2f(gx, gz) * 2.0 - 1.0;
-  let warped = sign(g) * pow(abs(g), vec2f(1.6));
-  let xz = warped * grid.worldSize * 0.5;
-  let uv = terrainUv(xz);
-  let h = textureSampleLevel(tTerrain, sLinearClamp, uv, 0.0).r;
-  let world = vec3f(xz.x, h, xz.y);
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+  let world = chunkWorld(vi, ii);
+  let uv = terrainUv(world.xz);
   var o: VOut;
   o.pos = frame.viewProj * vec4f(world, 1.0);
   o.world = world;
@@ -656,16 +691,14 @@ fn fs(i: VOut) -> FOut {
 }
 
 @vertex
-fn vsShadow(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
-  let n = grid.count + 1u;
-  let g = vec2f(f32(vi % n), f32(vi / n)) / f32(grid.count) * 2.0 - 1.0;
-  let xz = sign(g) * pow(abs(g), vec2f(1.6)) * grid.worldSize * 0.5;
-  let h = textureSampleLevel(tTerrain, sLinearClamp, terrainUv(xz), 0.0).r;
-  return frame.shadowViewProj * vec4f(xz.x, h, xz.y, 1.0);
+fn vsShadow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> @builtin(position) vec4f {
+  return frame.shadowViewProj * vec4f(chunkWorld(vi, ii), 1.0);
 }
 `;
 
 export interface TerrainRenderer {
+  /** Picks visible chunks and their detail levels for this frame. */
+  update(view: CullView): void;
   draw(pass: GPURenderPassEncoder): void;
   drawShadow(pass: GPURenderPassEncoder): void;
 }
@@ -680,6 +713,7 @@ export async function createTerrainRenderer(
   },
   gridCount: number,
   worldSize: number,
+  heightAt: (x: number, z: number) => number,
 ): Promise<TerrainRenderer> {
   const module = createShader(device, 'terrain:render-shader', renderShader);
   const localLayout = device.createBindGroupLayout({
@@ -689,6 +723,11 @@ export async function createTerrainRenderer(
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
         buffer: {type: 'uniform', minBindingSize: 8},
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {type: 'read-only-storage'},
       },
     ],
   });
@@ -733,45 +772,224 @@ export async function createTerrainRenderer(
   new Uint32Array(gridData, 0, 1)[0] = gridCount;
   new Float32Array(gridData, 4, 1)[0] = worldSize;
   device.queue.writeBuffer(gridBuf, 0, gridData);
+
+  // --- Chunks ---
+  // The grid is split into square chunks; each is drawn at one of several
+  // detail levels (cell steps 1, 2, 4, 8) as an instance of that level's
+  // shared index buffer.
+  const CHUNK = Math.min(32, gridCount);
+  const perSide = Math.ceil(gridCount / CHUNK);
+  const steps = [1, 2, 4, 8].filter(st => st <= CHUNK);
+  const warp = (g: number) => Math.sign(g) * Math.pow(Math.abs(g), 1.6);
+  const chunkInfo: {
+    ix: number;
+    iz: number;
+    cells: number;
+    min: [number, number, number];
+    max: [number, number, number];
+  }[] = [];
+  for (let cz = 0; cz < perSide; cz++) {
+    for (let cx = 0; cx < perSide; cx++) {
+      const ix = cx * CHUNK;
+      const iz = cz * CHUNK;
+      const cells = Math.min(CHUNK, gridCount - ix, gridCount - iz);
+      const x0 = warp((ix / gridCount) * 2 - 1) * worldSize * 0.5;
+      const x1 = warp(((ix + cells) / gridCount) * 2 - 1) * worldSize * 0.5;
+      const z0 = warp((iz / gridCount) * 2 - 1) * worldSize * 0.5;
+      const z1 = warp(((iz + cells) / gridCount) * 2 - 1) * worldSize * 0.5;
+      let hMin = Infinity;
+      let hMax = -Infinity;
+      for (let sz = 0; sz <= 8; sz++) {
+        for (let sx = 0; sx <= 8; sx++) {
+          const h = heightAt(
+            x0 + ((x1 - x0) * sx) / 8,
+            z0 + ((z1 - z0) * sz) / 8,
+          );
+          hMin = Math.min(hMin, h);
+          hMax = Math.max(hMax, h);
+        }
+      }
+      chunkInfo.push({
+        ix,
+        iz,
+        cells,
+        // Margin for peaks between samples and the skirts.
+        min: [Math.min(x0, x1), hMin - 3.5, Math.min(z0, z1)],
+        max: [Math.max(x0, x1), hMax + 1, Math.max(z0, z1)],
+      });
+    }
+  }
+
+  // One index buffer per level (a full chunk of CHUNK cells), with skirts.
+  const levelIndex: {buf: GPUBuffer; count: number; cells: number}[] =
+    steps.map(step => {
+      const cells = CHUNK / step;
+      const n = cells + 1;
+      const idx: number[] = [];
+      for (let z = 0; z < cells; z++) {
+        for (let x = 0; x < cells; x++) {
+          const i0 = z * n + x;
+          const i1 = i0 + 1;
+          const i2 = i0 + n;
+          const i3 = i2 + 1;
+          // Counter-clockwise when seen from above (+y).
+          idx.push(i0, i2, i1, i1, i2, i3);
+        }
+      }
+      const m = cells;
+      const ringTop = (k: number) => {
+        k %= 4 * m;
+        if (k < m) return k;
+        if (k < 2 * m) return (k - m) * n + m;
+        if (k < 3 * m) return m * n + (m - (k - 2 * m));
+        return (m - (k - 3 * m)) * n;
+      };
+      for (let k = 0; k < 4 * m; k++) {
+        const a = ringTop(k);
+        const b = ringTop(k + 1);
+        const aDown = n * n + k;
+        const bDown = n * n + ((k + 1) % (4 * m));
+        // Both windings: skirts are seen from either side.
+        idx.push(a, aDown, b, b, aDown, bDown, a, b, aDown, b, bDown, aDown);
+      }
+      const data = new Uint32Array(idx);
+      const buf = device.createBuffer({
+        label: `terrain:index-buffer-step${step}`,
+        size: data.byteLength,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(buf, 0, data);
+      return {buf, count: data.length, cells};
+    });
+
+  const maxChunks = chunkInfo.length * 2;
+  const chunkData = new Float32Array(maxChunks * 4);
+  const chunkBuf = device.createBuffer({
+    label: 'terrain:chunks',
+    size: chunkData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
   const localBindGroup = device.createBindGroup({
     label: 'terrain:local-bind-group',
     layout: localLayout,
-    entries: [{binding: 0, resource: {buffer: gridBuf}}],
+    entries: [
+      {binding: 0, resource: {buffer: gridBuf}},
+      {binding: 1, resource: {buffer: chunkBuf}},
+    ],
   });
 
-  const n = gridCount + 1;
-  const indices = new Uint32Array(gridCount * gridCount * 6);
-  let k = 0;
-  for (let z = 0; z < gridCount; z++) {
-    for (let x = 0; x < gridCount; x++) {
-      const i0 = z * n + x;
-      const i1 = i0 + 1;
-      const i2 = i0 + n;
-      const i3 = i2 + 1;
-      // Counter-clockwise when seen from above (+y).
-      indices.set([i0, i2, i1, i1, i2, i3], k);
-      k += 6;
+  // Per pass and level: a contiguous run of instances in the chunk buffer.
+  // Edge chunks with fewer cells are drawn at a level whose cell count fits.
+  type Run = {first: number; count: number};
+  const camRuns: Run[] = steps.map(() => ({first: 0, count: 0}));
+  const shadowRuns: Run[] = steps.map(() => ({first: 0, count: 0}));
+  const lists: number[][] = steps.map(() => []);
+  const shadowLists: number[][] = steps.map(() => []);
+
+  const outsideClip = (
+    m: Float32Array,
+    min: readonly number[],
+    max: readonly number[],
+    ortho: boolean,
+  ) => {
+    // True if all 8 corners are beyond the same clip plane.
+    let left = 0;
+    let right = 0;
+    let bottom = 0;
+    let top = 0;
+    let behind = 0;
+    for (let c = 0; c < 8; c++) {
+      const x = c & 1 ? max[0] : min[0];
+      const y = c & 2 ? max[1] : min[1];
+      const z = c & 4 ? max[2] : min[2];
+      const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+      const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+      const cw = ortho ? 1 : m[3] * x + m[7] * y + m[11] * z + m[15];
+      if (cx < -cw) left++;
+      if (cx > cw) right++;
+      if (cy < -cw) bottom++;
+      if (cy > cw) top++;
+      if (cw < 0) behind++;
     }
-  }
-  const indexBuf = device.createBuffer({
-    label: 'terrain:index-buffer',
-    size: indices.byteLength,
-    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(indexBuf, 0, indices);
+    return (
+      left === 8 || right === 8 || bottom === 8 || top === 8 || behind === 8
+    );
+  };
 
   return {
+    update(view: CullView) {
+      const cp = view.camPos;
+      lists.forEach(l => (l.length = 0));
+      shadowLists.forEach(l => (l.length = 0));
+      chunkInfo.forEach((c, i) => {
+        // Distance from the camera to the chunk's box.
+        const dx = Math.max(c.min[0] - cp[0], 0, cp[0] - c.max[0]);
+        const dy = Math.max(c.min[1] - cp[1], 0, cp[1] - c.max[1]);
+        const dz = Math.max(c.min[2] - cp[2], 0, cp[2] - c.max[2]);
+        const dist = Math.hypot(dx, dy, dz);
+        // Coarser while one cell stays under ~1/40 of the distance (a few pixels).
+        const cellWorld = (c.max[0] - c.min[0]) / c.cells;
+        const pick = (tolerance: number) => {
+          let level = 0;
+          while (
+            level < steps.length - 1 &&
+            c.cells % steps[level + 1] === 0 &&
+            cellWorld * steps[level + 1] < Math.max(dist, 0.5) * tolerance
+          ) {
+            level++;
+          }
+          return level;
+        };
+        if (!outsideClip(view.viewProj, c.min, c.max, false)) {
+          lists[pick(0.025)].push(i);
+        }
+        if (!outsideClip(view.shadowViewProj, c.min, c.max, true)) {
+          shadowLists[pick(0.08)].push(i);
+        }
+      });
+      let cursor = 0;
+      const pack = (src: number[][], runs: Run[]) => {
+        src.forEach((list, level) => {
+          runs[level].first = cursor;
+          runs[level].count = 0;
+          for (const i of list) {
+            const c = chunkInfo[i];
+            const cellsAtLevel = c.cells / steps[level];
+            // Partial edge chunks: only draw if they tile the level's grid.
+            if (cellsAtLevel !== levelIndex[level].cells) {
+              continue;
+            }
+            chunkData.set([c.ix, c.iz, steps[level], cellsAtLevel], cursor * 4);
+            cursor++;
+            runs[level].count++;
+          }
+        });
+      };
+      pack(lists, camRuns);
+      pack(shadowLists, shadowRuns);
+      if (cursor) {
+        device.queue.writeBuffer(chunkBuf, 0, chunkData, 0, cursor * 4);
+      }
+    },
     draw(pass) {
       pass.setPipeline(pipeline);
       pass.setBindGroup(1, localBindGroup);
-      pass.setIndexBuffer(indexBuf, 'uint32');
-      pass.drawIndexed(indices.length);
+      camRuns.forEach((r, level) => {
+        if (r.count) {
+          pass.setIndexBuffer(levelIndex[level].buf, 'uint32');
+          pass.drawIndexed(levelIndex[level].count, r.count, 0, 0, r.first);
+        }
+      });
     },
     drawShadow(pass) {
       pass.setPipeline(shadowPipeline);
       pass.setBindGroup(1, localBindGroup);
-      pass.setIndexBuffer(indexBuf, 'uint32');
-      pass.drawIndexed(indices.length);
+      shadowRuns.forEach((r, level) => {
+        if (r.count) {
+          pass.setIndexBuffer(levelIndex[level].buf, 'uint32');
+          pass.drawIndexed(levelIndex[level].count, r.count, 0, 0, r.first);
+        }
+      });
     },
   };
 }

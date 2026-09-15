@@ -23,6 +23,7 @@ Other scripts:
 | `npm test` | Build, unit tests, and the puppeteer smoke test |
 | `npm run shots` | Screenshots for visual review (`--help` for options) |
 | `node test/perf.mjs` | GPU/CPU frame times at 1080p across `--seeds` and `--cameras` |
+| `node test/bench.mjs` | Uncapped cost per render, and per system (disables them one at a time) |
 
 ## Controls
 

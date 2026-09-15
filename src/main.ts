@@ -159,6 +159,7 @@ async function main() {
         targetsFormats,
         quality.terrainGrid,
         desc.terrain.worldSize,
+        (x, z) => terrain.cpu.heightAt(x, z),
       ),
       createBackground(device, renderer.globals.layout),
       createPresent(device, renderer.globals.layout, gpu.format),
@@ -170,6 +171,7 @@ async function main() {
     caustics,
     {
       name: 'terrain',
+      update: ctx => terrainRenderer.update(ctx.view),
       drawOpaque: p => terrainRenderer.draw(p),
       drawShadow: p => terrainRenderer.drawShadow(p),
     },
@@ -286,6 +288,22 @@ async function main() {
   window.__aquarium.step = (seconds: number, frames: number) =>
     clock.step(seconds, frames);
   window.__aquarium.pause = (p: boolean) => (clock.paused = p);
+  // Benchmark: renders the current view `frames` times back-to-back (no
+  // vsync), waiting for the GPU after each; resolves to ms per frame.
+  window.__aquarium.bench = async (frames: number) => {
+    // Skip presenting to the canvas: that would pace the loop to the display.
+    const present = renderer.present;
+    renderer.present = null;
+    await device.queue.onSubmittedWorkDone();
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) {
+      renderer.render(clock.time, 1 / 60);
+      await device.queue.onSubmittedWorkDone();
+    }
+    const ms = (performance.now() - t0) / frames;
+    renderer.present = present;
+    return ms;
+  };
   window.__aquarium.info = {
     seed,
     tier,
@@ -452,6 +470,17 @@ async function main() {
     fish.setCamera(pose.pos, forward);
     const cpuStart = performance.now();
     renderer.render(clock.time, dt);
+    // Benchmark load (window.__aquarium.extraRenders): render the frame again
+    // without presenting, so the GPU cost shows up as a lower frame rate.
+    const extra = (window.__aquarium.extraRenders as number | undefined) ?? 0;
+    if (extra > 0) {
+      const present = renderer.present;
+      renderer.present = null;
+      for (let i = 0; i < extra; i++) {
+        renderer.render(clock.time, 0);
+      }
+      renderer.present = present;
+    }
     if (focusSampled) {
       focusSampled = false;
       autoFocus.read();

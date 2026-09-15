@@ -421,6 +421,9 @@ export async function createRocks(
     cullMode: 'back',
     contact: {radius: 0.62, height: 0.7},
     lod: {chains: lod.chains},
+    // Pebbles and rubble fade within ~15-30 m; boulders stay.
+    fadeDistance: (_, r) =>
+      r > 1.5 ? 1e6 : Math.min(80, Math.max(12, r * 60)),
     shadowMinRadius: 0.35,
   });
 }

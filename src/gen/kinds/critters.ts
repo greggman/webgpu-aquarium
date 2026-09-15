@@ -690,6 +690,8 @@ export async function createCritters(
     wgsl: materialWgsl,
     castShadows: true,
     lod: {chains: lod.chains},
+    // Shells, starfish and urchins are gone by ~20-35 m; anemone beds last longer.
+    fadeDistance: (_, r) => Math.min(80, Math.max(16, r * 70)),
     // Shells and small starfish are too small to cast a visible shadow.
     shadowMinRadius: 0.4,
     contact: {radius: 0.45, height: 0.3},

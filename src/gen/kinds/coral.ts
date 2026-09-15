@@ -961,6 +961,8 @@ export async function createCoral(
     instances,
     wgsl: materialWgsl,
     lod: {chains: lod.chains, pixels: [110, 34]},
+    // The small carpet pieces thin out with distance; big heads stay.
+    fadeDistance: (_, r) => Math.min(80, Math.max(22, r * 55)),
     shadowMinRadius: 0.8,
     contact: {radius: 0.55, height: 0.6},
   });

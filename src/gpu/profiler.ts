@@ -140,6 +140,8 @@ export class GpuProfiler {
   }
 
   private frames = 0;
+  /** Smoothed GPU time from the first pass start to the last pass end. */
+  frameMs = 0;
 
   /** Call once per frame after the frame's command buffers are submitted. */
   endFrame() {
@@ -172,6 +174,19 @@ export class GpuProfiler {
     void staging.mapAsync(GPUMapMode.READ, 0, count * 8).then(() => {
       const times = new BigInt64Array(staging.getMappedRange(0, count * 8));
       const frame = new Map<string, number>();
+      // Whole-frame GPU span: first pass start to last pass end. Unlike the
+      // per-pass numbers this is meaningful on tile-based GPUs too.
+      let first = Infinity;
+      let last = -Infinity;
+      for (let i = 0; i < count; i += 2) {
+        if (times[i + 1] > times[i]) {
+          first = Math.min(first, Number(times[i]));
+          last = Math.max(last, Number(times[i + 1]));
+        }
+      }
+      if (last > first) {
+        this.frameMs += ((last - first) / 1e6 - this.frameMs) * 0.1;
+      }
       for (let i = 0; i < count; i += 2) {
         const ns = Number(times[i + 1] - times[i]);
         if (ns >= 0 && ns < 1e9) {
@@ -200,7 +215,7 @@ export class GpuProfiler {
       .sort((a, b) => b[1].ms - a[1].ms);
     const total = rows.reduce((n, [, s]) => n + s.ms, 0);
     return [
-      `gpu passes: ${total.toFixed(1)} ms`,
+      `gpu frame span: ${this.frameMs.toFixed(1)} ms (sum of passes ${total.toFixed(1)} ms)`,
       ...rows.map(
         ([k, s]) =>
           `${s.ms.toFixed(2).padStart(6)} ms  ${(s.triangles / 1e3).toFixed(0).padStart(6)}k tris ${s.draws.toFixed(0).padStart(4)} draws  ${k}`,

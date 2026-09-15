@@ -26,6 +26,8 @@ export const InstanceStruct = defineStruct('Instance', {
   color: 'vec4f',
   /** free parameters (phase, sway strength, ...) */
   params: 'vec4f',
+  /** x: distance at which the instance has fully faded out (detail fade), yzw unused */
+  fade: 'vec4f',
 });
 export const INSTANCE_SIZE = InstanceStruct.size;
 
@@ -77,12 +79,19 @@ const propShader = (kindWgsl: string) => /* wgsl */ `
 ${propCommonWgsl}
 ${kindWgsl}
 
+fn detailFade(inst: Instance) -> f32 {
+  let end = inst.fade.x;
+  return smoothstep(end, end * 0.78, distance(inst.posScale.xyz, frame.camPos));
+}
+
 @vertex
 fn vs(v: VIn) -> VOut {
   let inst = instances[v.instance];
   let d = deform(v.position.xyz, v.normal.xyz, v.uv, inst, frame.time);
   let dPrev = deform(v.position.xyz, v.normal.xyz, v.uv, inst, frame.time - frame.misc.x);
-  let s = inst.posScale.w;
+  // Detail fade: small things shrink away into the seabed before they're
+  // culled, instead of popping.
+  let s = inst.posScale.w * detailFade(inst);
   let world = quatRotate(inst.rot, d.pos * s) + inst.posScale.xyz;
   let prevWorld = quatRotate(inst.rot, dPrev.pos * s) + inst.posScale.xyz;
   var o: VOut;
@@ -138,7 +147,7 @@ struct SOut {
 fn vsShadow(v: VIn) -> SOut {
   let inst = instances[v.instance];
   let d = deform(v.position.xyz, v.normal.xyz, v.uv, inst, frame.time);
-  let world = quatRotate(inst.rot, d.pos * inst.posScale.w) + inst.posScale.xyz;
+  let world = quatRotate(inst.rot, d.pos * inst.posScale.w * detailFade(inst)) + inst.posScale.xyz;
   var o: SOut;
   o.pos = frame.shadowViewProj * vec4f(world, 1.0);
   o.uv = v.uv;
@@ -179,13 +188,22 @@ export interface PropKindOptions {
   /** Instances smaller than this (world radius) don't cast shadows. */
   shadowMinRadius?: number;
   /**
+   * Detail fade: distance (m) by which an instance has shrunk away and is no
+   * longer drawn, typically proportional to its size. Omit to draw to the
+   * view distance.
+   */
+  fadeDistance?: (inst: Instance, radius: number) => number;
+  /**
    * Contact occlusion footprint as multiples of the instance's bounding
    * radius (see render/contact.ts); omit for things that don't block the sky.
    */
   contact?: {radius: number; height: number};
 }
 
-export function packInstances(list: Instance[]): {
+export function packInstances(
+  list: Instance[],
+  fadeOf: (inst: Instance) => number = () => 1e6,
+): {
   data: Float32Array;
   ranges: {first: number; count: number}[];
 } {
@@ -195,9 +213,19 @@ export function packInstances(list: Instance[]): {
   );
   const ranges: {first: number; count: number}[] = [];
   sorted.forEach((inst, i) => {
-    const o = i * 16;
+    const o = i * (INSTANCE_SIZE / 4);
     data.set(
-      [...inst.pos, inst.scale, ...inst.rot, ...inst.color, ...inst.params],
+      [
+        ...inst.pos,
+        inst.scale,
+        ...inst.rot,
+        ...inst.color,
+        ...inst.params,
+        fadeOf(inst),
+        0,
+        0,
+        0,
+      ],
       o,
     );
     while (ranges.length <= inst.variant) {
@@ -285,7 +313,14 @@ export async function createPropKind(
   // Instances are kept on the CPU, sorted by variant. Each frame the ones the
   // camera or the shadow map can see are copied into the GPU buffer: first the
   // camera-visible set, then the shadow-visible set, each grouped by variant.
-  const {data, ranges} = packInstances(o.instances);
+  const {data, ranges} = packInstances(o.instances, inst =>
+    o.fadeDistance
+      ? o.fadeDistance(
+          inst,
+          (o.mesh.variants[inst.variant]?.radius ?? 1) * inst.scale,
+        )
+      : 1e6,
+  );
   // Every mesh variant gets a range (LOD stand-ins may have no instances of their own).
   while (ranges.length < o.mesh.variants.length) {
     ranges.push({first: o.instances.length, count: 0});
@@ -375,6 +410,11 @@ export async function createPropKind(
         const dy = y - cp[1];
         const dz = z - cp[2];
         const d2 = dx * dx + dy * dy + dz * dz;
+        // Faded out entirely: skip for the camera and the shadow map alike.
+        const fadeEnd = data[b + 16];
+        if (d2 > fadeEnd * fadeEnd) {
+          continue;
+        }
         const px = (rad * focal) / Math.max(Math.sqrt(d2), 0.1);
         const level = levelFor(px, chain.length);
 
@@ -399,13 +439,19 @@ export async function createPropKind(
           }
         }
 
-        // Shadow: inside the orthographic shadow box, one level coarser.
-        if (castShadows && rad >= shadowMinRadius) {
+        // Shadow: inside the orthographic shadow box, at the coarsest level
+        // (the shadow map is soft; silhouettes at a few cm per texel).
+        // Small casters stop shadowing a little before they fade.
+        if (
+          castShadows &&
+          rad >= shadowMinRadius &&
+          d2 < fadeEnd * fadeEnd * 0.6
+        ) {
           const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
           const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
           const pad = rad * Math.abs(sm[0]) * 1.5;
           if (Math.abs(sx) <= 1 + pad && Math.abs(sy) <= 1 + pad) {
-            const w = chain[Math.min(chain.length - 1, Math.max(level, 1))];
+            const w = chain[chain.length - 1];
             shadowScratch.set(
               data.subarray(b, b + FLOATS),
               (scratchOffset[w] + shadowFill[w]++) * FLOATS,
