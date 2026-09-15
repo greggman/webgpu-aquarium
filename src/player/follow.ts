@@ -1,6 +1,9 @@
 // Creature-following auto camera: swims alongside one animal (a fish, a
 // school's leader, a ray or a jellyfish), keeping it framed, and every 10-15
-// seconds picks another one nearby and glides over to it.
+// seconds picks another one nearby and glides over to it. Changing subject is
+// a crossfade: both animals are tracked while the camera's position and aim
+// blend from one to the other over a few seconds, and the camera turns like
+// an operator would (eased, rate-limited), so it never snaps.
 //
 // Fish positions live on the GPU. They are read back asynchronously and never
 // waited on: the frame loop keeps using the most recent answer, extrapolated
@@ -48,6 +51,72 @@ const INTEREST: Record<string, number> = {
   jelly: 1.1,
 };
 
+/** Follows one subject: its latest position sample and a velocity estimate. */
+class Tracker {
+  readonly subject: Subject;
+  sample: Sample | null = null;
+  private prev: Sample | null = null;
+  vel: Vec3 = [0, 0, 0];
+  pending = false;
+  lost = false;
+  /** Which side of the subject the camera sits on (chosen on first sight). */
+  side = 0;
+  /** Smoothed heading of the subject. */
+  heading: Vec3 = [0, 0, 1];
+
+  constructor(subject: Subject) {
+    this.subject = subject;
+  }
+
+  accept(pos: Vec3, fwd: Vec3, time: number) {
+    this.prev = this.sample;
+    if (!this.sample) {
+      this.heading = vec3.normalize([fwd[0], fwd[1] * 0.3, fwd[2]]);
+    }
+    this.sample = {pos, fwd, time};
+    const prev = this.prev;
+    if (prev && time > prev.time + 1e-3) {
+      const v = vec3.scale(vec3.sub(pos, prev.pos), 1 / (time - prev.time));
+      // Low-pass: readback timing jitters.
+      this.vel = vec3.add(vec3.scale(this.vel, 0.6), vec3.scale(v, 0.4));
+    }
+  }
+
+  /** Position now: the last sample moved along by its velocity. */
+  estimate(time: number): Vec3 | null {
+    if (!this.sample) {
+      return null;
+    }
+    const age = Math.min(time - this.sample.time, 0.5);
+    return vec3.add(this.sample.pos, vec3.scale(this.vel, age));
+  }
+
+  updateHeading(dt: number) {
+    if (!this.sample) {
+      return;
+    }
+    const f = this.sample.fwd;
+    const k = 1 - Math.exp(-dt * 0.8);
+    this.heading = vec3.normalize(
+      vec3.add(
+        vec3.scale(this.heading, 1 - k),
+        vec3.scale([f[0], f[1] * 0.3, f[2]], k),
+      ),
+    );
+  }
+}
+
+const smoothstep = (x: number) => {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+};
+
+const wrapAngle = (a: number) => {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+};
+
 export class CreatureCam {
   private nav: NavVolume;
   private fish: FishSystem;
@@ -57,17 +126,20 @@ export class CreatureCam {
   private time = 0;
   private pos: Vec3 = [0, 0, 0];
   private vel: Vec3 = [0, 0, 0];
+  /** Point the camera aims at (smoothed). */
   private look: Vec3 = [0, 0, 1];
-  private heading: Vec3 = [0, 0, 1];
-  private subject: Subject | null = null;
-  private sample: Sample | null = null;
-  private prevSample: Sample | null = null;
-  private subjectVel: Vec3 = [0, 0, 0];
+  private yaw = 0;
+  private pitch = 0;
+  private yawRate = 0;
+  private pitchRate = 0;
+  /** Subject being followed, and the one being left during a transition. */
+  private current: Tracker | null = null;
+  private previous: Tracker | null = null;
+  /** Time the current subject was first seen (transition start). */
+  private blendStart = 0;
+  private readonly blendTime = 4.5;
   private switchAt = 0;
-  /** Side of the subject the camera sits on, and a slow orbit around it. */
-  private side = 1;
   private orbitPhase = 0;
-  private readPending = false;
   private scanPending = false;
   private nextScan = 0;
   /** Recently scanned candidate positions. */
@@ -88,18 +160,23 @@ export class CreatureCam {
 
   /** What is being followed, for debugging (e.g. "bait #1234"). */
   get subjectName(): string {
-    return this.subject ? `${this.subject.species} #${this.subject.index}` : '';
+    const s = this.current?.subject;
+    return s ? `${s.species} #${s.index}` : '';
   }
 
   /** True once there is something to follow (until then use another camera). */
   get ready(): boolean {
-    return this.subject !== null && this.sample !== null;
+    return !!this.current?.sample;
   }
 
   /** Moves the camera to a pose without restarting the search for a subject. */
   syncPose(pose: CameraPose) {
     this.pos = vec3.clone(pose.pos);
     this.vel = [0, 0, 0];
+    this.yaw = pose.yaw;
+    this.pitch = pose.pitch;
+    this.yawRate = 0;
+    this.pitchRate = 0;
     const f: Vec3 = [
       -Math.sin(pose.yaw) * Math.cos(pose.pitch),
       Math.sin(pose.pitch),
@@ -111,43 +188,92 @@ export class CreatureCam {
   /** Starts following from the given pose (e.g. where the user left off). */
   begin(pose: CameraPose) {
     this.syncPose(pose);
-    this.subject = null;
-    this.sample = null;
-    this.prevSample = null;
+    this.current = null;
+    this.previous = null;
     this.scanned = [];
     this.nextScan = 0;
+    this.switchAt = 0;
     this.generation++;
   }
 
   update(dt: number): CameraPose {
     this.time += dt;
     this.scan();
-    if (!this.subject || this.time >= this.switchAt) {
+    if (!this.current || this.current.lost || this.time >= this.switchAt) {
       this.pickSubject();
     }
-    this.refreshSubject();
+    this.refresh(this.current);
+    this.refresh(this.previous);
+    this.orbitPhase += dt * 0.08;
+    this.current?.updateHeading(dt);
+    this.previous?.updateHeading(dt);
 
-    const s = this.subject;
-    const current = this.estimate();
-    if (s && current) {
-      // Smooth the subject's heading so the camera doesn't swing each time
-      // the fish flicks its tail.
-      const k = 1 - Math.exp(-dt * 0.8);
-      this.heading = vec3.normalize(
-        vec3.add(
-          vec3.scale(this.heading, 1 - k),
-          vec3.scale([current.fwd[0], current.fwd[1] * 0.3, current.fwd[2]], k),
-        ),
+    const framing = this.framing();
+    if (framing) {
+      // Critically damped spring toward the desired spot, speed-limited so
+      // moving between subjects is a glide.
+      const omega = 1.0;
+      for (let i = 0; i < 3; i++) {
+        const x = this.pos[i] - framing.cameraAt[i];
+        this.vel[i] += (-omega * omega * x - 2 * omega * this.vel[i]) * dt;
+      }
+      const speed = vec3.length(this.vel);
+      const maxSpeed = 2.6;
+      if (speed > maxSpeed) {
+        this.vel = vec3.scale(this.vel, maxSpeed / speed);
+      }
+      this.pos = vec3.add(this.pos, vec3.scale(this.vel, dt));
+      this.nav.constrain(this.pos, this.vel, dt);
+      const la = 1 - Math.exp(-dt * 1.6);
+      this.look = vec3.add(
+        vec3.scale(this.look, 1 - la),
+        vec3.scale(framing.aim, la),
       );
-      const fwd = this.heading;
+    }
+
+    // Turn toward the aim point like a camera operator: accelerate and
+    // decelerate smoothly, and never faster than a gentle maximum rate.
+    const dir = vec3.sub(this.look, this.pos);
+    const want = anglesFromDirection(
+      vec3.length(dir) > 1e-3 ? dir : [0, 0, -1],
+    );
+    const wantPitch = Math.max(-1.1, Math.min(1.1, want.pitch));
+    const turn = (angle: number, rate: number, target: number) => {
+      const err = wrapAngle(target - angle);
+      const omega = 2.2;
+      let r = rate + (err * omega * omega - 2 * omega * rate) * dt;
+      const maxRate = 0.7;
+      r = Math.max(-maxRate, Math.min(maxRate, r));
+      return [angle + r * dt, r];
+    };
+    [this.yaw, this.yawRate] = turn(this.yaw, this.yawRate, want.yaw);
+    [this.pitch, this.pitchRate] = turn(this.pitch, this.pitchRate, wantPitch);
+    this.yaw = wrapAngle(this.yaw);
+    // A touch of banking into turns.
+    const roll = Math.max(-0.08, Math.min(0.08, -this.yawRate * 0.12));
+    return {pos: vec3.clone(this.pos), yaw: this.yaw, pitch: this.pitch, roll};
+  }
+
+  /**
+   * Where the camera wants to be and look, blending from the previous subject
+   * to the current one over a few seconds once the new one has been seen.
+   */
+  private framing(): {cameraAt: Vec3; aim: Vec3} | null {
+    const one = (t: Tracker) => {
+      const p = t.estimate(this.time);
+      if (!p) {
+        return null;
+      }
+      const fwd = t.heading;
       const right = vec3.normalize(vec3.cross([0, 1, 0], fwd));
-      // Sit behind and to one side, a little above, slowly orbiting.
-      this.orbitPhase += dt * 0.08;
-      const angle = this.side * (0.9 + Math.sin(this.orbitPhase) * 0.5);
-      const d = s.distance;
+      if (t.side === 0) {
+        // Stay on whichever side of it the camera already is: least movement.
+        t.side = vec3.dot(vec3.sub(this.pos, p), right) >= 0 ? 1 : -1;
+      }
+      const d = t.subject.distance;
       // (floorAt already includes the camera's clearance above the ground.)
-      const nearBottom =
-        current.pos[1] - this.nav.floorAt(current.pos[0], current.pos[2]) < 1.2;
+      const nearBottom = p[1] - this.nav.floorAt(p[0], p[2]) < 1.2;
+      const angle = t.side * (0.9 + Math.sin(this.orbitPhase) * 0.5);
       const offset = vec3.add(
         vec3.add(
           vec3.scale(fwd, -Math.cos(angle) * d),
@@ -157,87 +283,59 @@ export class CreatureCam {
         // over the reef at them instead of pushing through it.
         [0, d * (nearBottom ? 0.6 : 0.28), 0],
       );
-      const desired = vec3.add(current.pos, offset);
-      // Critically damped spring toward the desired spot, speed-limited so
-      // switching subjects is a glide, not a jump.
-      const omega = 1.3;
-      for (let i = 0; i < 3; i++) {
-        const x = this.pos[i] - desired[i];
-        const a = -omega * omega * x - 2 * omega * this.vel[i];
-        this.vel[i] += a * dt;
-      }
-      const speed = vec3.length(this.vel);
-      const maxSpeed = 3.2;
-      if (speed > maxSpeed) {
-        this.vel = vec3.scale(this.vel, maxSpeed / speed);
-      }
-      this.pos = vec3.add(this.pos, vec3.scale(this.vel, dt));
-      this.nav.constrain(this.pos, this.vel, dt);
-      // Aim a little ahead of the subject, eased.
-      const aim = vec3.add(current.pos, vec3.scale(fwd, d * 0.15));
-      const la = 1 - Math.exp(-dt * 2.2);
-      this.look = vec3.add(vec3.scale(this.look, 1 - la), vec3.scale(aim, la));
+      return {
+        cameraAt: vec3.add(p, offset),
+        aim: vec3.add(p, vec3.scale(fwd, d * 0.15)),
+      };
+    };
+    const cur = this.current ? one(this.current) : null;
+    const prev = this.previous ? one(this.previous) : null;
+    if (!cur) {
+      return prev;
     }
-    const dir = vec3.sub(this.look, this.pos);
-    const {yaw, pitch} = anglesFromDirection(
-      vec3.length(dir) > 1e-3 ? dir : [0, 0, -1],
-    );
-    // A touch of banking from sideways motion.
-    const right: Vec3 = [Math.cos(yaw), 0, -Math.sin(yaw)];
-    const roll = Math.max(
-      -0.08,
-      Math.min(0.08, -vec3.dot(this.vel, right) * 0.03),
-    );
+    if (!prev) {
+      return cur;
+    }
+    const w = smoothstep((this.time - this.blendStart) / this.blendTime);
+    if (w >= 1) {
+      this.previous = null;
+    }
     return {
-      pos: vec3.clone(this.pos),
-      yaw,
-      pitch: Math.max(-1.1, Math.min(1.1, pitch)),
-      roll,
+      cameraAt: vec3.lerp(prev.cameraAt, cur.cameraAt, w),
+      aim: vec3.lerp(prev.aim, cur.aim, w),
     };
   }
 
-  /** Subject position now: the last sample moved along by its velocity. */
-  private estimate(): {pos: Vec3; fwd: Vec3} | null {
-    if (!this.sample) {
-      return null;
-    }
-    const age = Math.min(this.time - this.sample.time, 0.5);
-    return {
-      pos: vec3.add(this.sample.pos, vec3.scale(this.subjectVel, age)),
-      fwd: this.sample.fwd,
-    };
-  }
-
-  /** Requests the subject's position if no request is in flight. */
-  private refreshSubject() {
-    const s = this.subject;
-    if (!s) {
+  /** Updates a tracker's position (fish: async readback, never waited on). */
+  private refresh(t: Tracker | null) {
+    if (!t) {
       return;
     }
+    const s = t.subject;
     if (s.kind === 'jelly') {
       const j = this.jellyfish.jellies()[s.index];
       if (j) {
-        this.accept([j.pos[0], j.pos[1], j.pos[2]], [0, 1, 0], this.time);
+        this.accepted(t, [j.pos[0], j.pos[1], j.pos[2]], [0, 1, 0], this.time);
       }
       return;
     }
-    if (this.readPending) {
+    if (t.pending) {
       return;
     }
-    this.readPending = true;
+    t.pending = true;
     const asked = this.time;
     const generation = this.generation;
-    const subject = s;
     void this.fish.readFish([s.index]).then(r => {
-      this.readPending = false;
-      if (generation !== this.generation || subject !== this.subject) {
+      t.pending = false;
+      if (generation !== this.generation) {
         return;
       }
       if (r[3] <= 0) {
-        this.subject = null;
+        t.lost = true;
         return;
       }
-      this.accept(
+      this.accepted(
+        t,
         [r[0], r[1], r[2]],
         quatForward(r[4], r[5], r[6], r[7]),
         asked,
@@ -245,21 +343,16 @@ export class CreatureCam {
     });
   }
 
-  private accept(pos: Vec3, fwd: Vec3, time: number) {
-    this.prevSample = this.sample;
-    this.sample = {pos, fwd, time};
-    const prev = this.prevSample;
-    if (prev && time > prev.time + 1e-3) {
-      const v = vec3.scale(vec3.sub(pos, prev.pos), 1 / (time - prev.time));
-      // Low-pass: readback timing jitters.
-      this.subjectVel = vec3.add(
-        vec3.scale(this.subjectVel, 0.6),
-        vec3.scale(v, 0.4),
-      );
+  private accepted(t: Tracker, pos: Vec3, fwd: Vec3, time: number) {
+    const first = !t.sample;
+    t.accept(pos, fwd, time);
+    if (first && t === this.current) {
+      // The transition starts once the new subject has actually been seen.
+      this.blendStart = this.time;
     }
-    // Lost it: it swam somewhere the camera can't follow, or far away.
-    if (vec3.distance(pos, this.pos) > 30) {
-      this.subject = null;
+    // Lost it: it swam somewhere far out of reach.
+    if (vec3.distance(pos, this.pos) > 32) {
+      t.lost = true;
     }
   }
 
@@ -296,7 +389,9 @@ export class CreatureCam {
   }
 
   private pickSubject() {
-    const from = this.sample?.pos ?? this.look;
+    const currentPos = this.current?.estimate(this.time) ?? null;
+    const from = currentPos ?? this.look;
+    const currentSubject = this.current?.subject;
     const options: {s: Subject; score: number}[] = [];
     const consider = (s: Subject, pos: Readonly<Vec3>) => {
       const d = vec3.distance(pos, from);
@@ -311,15 +406,28 @@ export class CreatureCam {
       ) {
         return;
       }
-      // Nearby but not the same spot: ideally 5-15 m on.
-      const near = Math.exp(-Math.pow((d - 9) / 8, 2));
-      const same = this.subject && s.species === this.subject.species ? 0.5 : 1;
+      // Nearby but not the same spot: ideally 5-12 m on.
+      const near = Math.exp(-Math.pow((d - 8) / 6, 2));
+      const same =
+        currentSubject && s.species === currentSubject.species ? 0.5 : 1;
+      // Prefer ones roughly ahead of the camera: less turning.
+      const toIt = vec3.normalize(vec3.sub(pos, this.pos));
+      const ahead: Vec3 = [
+        -Math.sin(this.yaw) * Math.cos(this.pitch),
+        Math.sin(this.pitch),
+        -Math.cos(this.yaw) * Math.cos(this.pitch),
+      ];
+      const facing = 0.4 + 0.6 * Math.max(0, vec3.dot(toIt, ahead));
       const score =
-        (INTEREST[s.species] ?? 1) * near * same * this.rng.range(0.6, 1.4);
+        (INTEREST[s.species] ?? 1) *
+        near *
+        same *
+        facing *
+        this.rng.range(0.6, 1.4);
       options.push({s, score});
     };
     for (const {c, pos} of this.scanned) {
-      if (this.subject?.kind === 'fish' && c.index === this.subject.index) {
+      if (currentSubject?.kind === 'fish' && c.index === currentSubject.index) {
         continue;
       }
       consider(
@@ -356,12 +464,13 @@ export class CreatureCam {
     }
     options.sort((a, b) => b.score - a.score);
     const choice = options[this.rng.int(0, Math.min(2, options.length - 1))].s;
-    this.subject = choice;
-    this.sample = null;
-    this.prevSample = null;
-    this.subjectVel = [0, 0, 0];
-    this.side = this.rng.bool() ? 1 : -1;
-    this.switchAt = this.time + this.rng.range(10, 15);
+    // Keep tracking the old subject during the transition (unless it was lost
+    // or never seen), so the view pans from one to the other.
+    const old = this.current;
+    this.previous = old && !old.lost && old.sample ? old : this.previous;
+    this.current = new Tracker(choice);
+    this.blendStart = Infinity;
+    this.switchAt = this.time + this.rng.range(11, 16);
   }
 }
 

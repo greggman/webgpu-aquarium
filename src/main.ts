@@ -363,6 +363,7 @@ async function main() {
         following = following || follow.ready;
         pose = following ? followPose : tourPose;
         lastAutoPose = pose;
+        window.__aquarium.autoPose = pose;
       }
     } else {
       camera.update(inputState, clock.paused && dt === 0 ? 0 : realDt, nav);
