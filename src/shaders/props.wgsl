@@ -8,6 +8,34 @@ fn triplanarDetail(p: vec3f, n: vec3f, scale: f32) -> vec4f {
     textureSample(tDetail, sLinearRepeat, p.xy * scale) * w.z;
 }
 
+/**
+ * Detail texture lookup with a quality level, usable inside branches (explicit
+ * mip level from a precomputed world-space pixel footprint `fw`):
+ * level 2 = full triplanar (3 samples), 1 = dominant axis only (1 sample),
+ * 0 = skipped (mid-grey). Distant surfaces drop to cheaper levels.
+ */
+fn detailSample(p: vec3f, n: vec3f, scale: f32, fw: f32, level: u32) -> vec4f {
+  if (level == 0u) {
+    return vec4f(0.5);
+  }
+  let lod = log2(max(fw * scale * 512.0, 1.0));
+  let a = abs(n);
+  if (level == 1u) {
+    if (a.y >= a.x && a.y >= a.z) {
+      return textureSampleLevel(tDetail, sLinearRepeat, p.xz * scale, lod);
+    }
+    if (a.x >= a.z) {
+      return textureSampleLevel(tDetail, sLinearRepeat, p.zy * scale, lod);
+    }
+    return textureSampleLevel(tDetail, sLinearRepeat, p.xy * scale, lod);
+  }
+  var w = pow(a, vec3f(4.0));
+  w /= (w.x + w.y + w.z);
+  return textureSampleLevel(tDetail, sLinearRepeat, p.zy * scale, lod) * w.x +
+    textureSampleLevel(tDetail, sLinearRepeat, p.xz * scale, lod) * w.y +
+    textureSampleLevel(tDetail, sLinearRepeat, p.xy * scale, lod) * w.z;
+}
+
 /** Perturbs a normal by a 3D noise-like vector, keeping it on the hemisphere. */
 fn bumpNormal(n: vec3f, pert: vec3f) -> vec3f {
   return normalize(n + pert - n * dot(pert, n));

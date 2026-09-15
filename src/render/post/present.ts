@@ -19,7 +19,8 @@ struct Grade {
   grain: f32,
   renderScale: f32,
   bloomStrength: f32,
-  pad: f32,
+  /** Sharpening after upscaling (0 at native resolution). */
+  sharpen: f32,
 };
 @group(1) @binding(0) var tScene: texture_2d<f32>;
 @group(1) @binding(1) var<uniform> grade: Grade;
@@ -65,10 +66,62 @@ fn linearToSrgb(c: vec3f) -> vec3f {
   return select(hi, lo, c <= vec3f(0.0031308));
 }
 
+// Compress HDR for filtering so a few very bright pixels don't ring.
+fn tmw(c: vec3f) -> vec3f {
+  return c / (1.0 + max(max(c.r, c.g), c.b));
+}
+fn itmw(c: vec3f) -> vec3f {
+  return c / max(1.0 - max(max(c.r, c.g), c.b), 1e-4);
+}
+
+/**
+ * Upscale from the (smaller) render resolution: 5-tap Catmull-Rom (sharper
+ * than bilinear), then contrast-adaptive sharpening that restores edge detail
+ * without halos (the result stays within the local min/max).
+ */
+fn upscale(uv: vec2f, size: vec2f) -> vec3f {
+  let pos = uv * size;
+  let tc = floor(pos - 0.5) + 0.5;
+  let f = pos - tc;
+  let w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  let w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  let w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  let w3 = f * f * (-0.5 + 0.5 * f);
+  let w12 = w1 + w2;
+  let tc0 = (tc - 1.0) / size;
+  let tc3 = (tc + 2.0) / size;
+  let tc12 = (tc + w2 / w12) / size;
+  var c = vec3f(0.0);
+  c += tmw(textureSampleLevel(tScene, sLinearClamp, vec2f(tc12.x, tc0.y), 0.0).rgb) * (w12.x * w0.y);
+  c += tmw(textureSampleLevel(tScene, sLinearClamp, vec2f(tc0.x, tc12.y), 0.0).rgb) * (w0.x * w12.y);
+  c += tmw(textureSampleLevel(tScene, sLinearClamp, vec2f(tc12.x, tc12.y), 0.0).rgb) * (w12.x * w12.y);
+  c += tmw(textureSampleLevel(tScene, sLinearClamp, vec2f(tc3.x, tc12.y), 0.0).rgb) * (w3.x * w12.y);
+  c += tmw(textureSampleLevel(tScene, sLinearClamp, vec2f(tc12.x, tc3.y), 0.0).rgb) * (w12.x * w3.y);
+  let wsum = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+  c /= wsum;
+
+  // Contrast-adaptive sharpening on the source-pixel cross around the sample.
+  let px = vec2i(clamp(pos, vec2f(0.0), size - 1.0));
+  let maxP = vec2i(size) - 1;
+  let n = tmw(textureLoad(tScene, clamp(px + vec2i(0, -1), vec2i(0), maxP), 0).rgb);
+  let sx = tmw(textureLoad(tScene, clamp(px + vec2i(0, 1), vec2i(0), maxP), 0).rgb);
+  let e = tmw(textureLoad(tScene, clamp(px + vec2i(1, 0), vec2i(0), maxP), 0).rgb);
+  let wv = tmw(textureLoad(tScene, clamp(px + vec2i(-1, 0), vec2i(0), maxP), 0).rgb);
+  let mid = tmw(textureLoad(tScene, px, 0).rgb);
+  let mn = min(mid, min(min(n, sx), min(e, wv)));
+  let mx = max(mid, max(max(n, sx), max(e, wv)));
+  // Less sharpening where local contrast is already high.
+  let amount = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3f(1e-4)), vec3f(0.0), vec3f(1.0)));
+  let k = amount * grade.sharpen;
+  let blur = (n + sx + e + wv) * 0.25;
+  c = clamp(c + (c - blur) * k, mn, mx);
+  return itmw(max(c, vec3f(0.0)));
+}
+
 @fragment
 fn fs(i: FSOut) -> @location(0) vec4f {
   let size = vec2f(textureDimensions(tScene));
-  var hdr = textureSampleLevel(tScene, sLinearClamp, i.uv, 0.0).rgb;
+  var hdr = upscale(i.uv, size);
   let bloom = textureSampleLevel(tBloom, sLinearClamp, i.uv, 0.0).rgb;
   hdr = mix(hdr, bloom, grade.bloomStrength);
   hdr *= frame.exposure;
@@ -149,6 +202,7 @@ export async function createPresent(
   let bindGroup: GPUBindGroup | null = null;
   let boundTexture: GPUTexture | null = null;
   let boundBloom: GPUTexture | null = null;
+  let lastSharpen = -1;
 
   return {
     setGrade(g: GradeSettings) {
@@ -161,6 +215,7 @@ export async function createPresent(
       f[11] = g.vignette;
       f[12] = g.grain;
       f[14] = g.bloom;
+      f[15] = Math.max(lastSharpen, 0);
       device.queue.writeBuffer(gradeBuf, 0, f);
     },
     run(
@@ -169,6 +224,13 @@ export async function createPresent(
       bloom: GPUTexture,
       view: GPUTexture,
     ) {
+      // Sharpen in proportion to how much the image is being upscaled.
+      const scale = input.width / view.width;
+      const sharpen = Math.min(0.9, Math.max(0, (1 - scale) * 2.5));
+      if (sharpen !== lastSharpen) {
+        lastSharpen = sharpen;
+        device.queue.writeBuffer(gradeBuf, 60, new Float32Array([sharpen]));
+      }
       if (boundTexture !== input || boundBloom !== bloom) {
         boundTexture = input;
         boundBloom = bloom;

@@ -260,13 +260,21 @@ async function main() {
 
   const clock = new Clock(numParam('time') ?? 0, params.get('paused') === '1');
   const dynres = new DynamicResolution(quality);
+  // ?scale=0.8 fixes the render scale (and turns dynamic resolution off).
+  const fixedScale = numParam('scale');
+  if (fixedScale !== null) {
+    dynres.scale = Math.min(1, Math.max(0.25, fixedScale));
+  }
 
   // Canvas sizing.
   let canvasW = 1;
   let canvasH = 1;
-  const resize = (cssW: number, cssH: number, dpr: number) => {
-    let w = cssW * dpr;
-    let h = cssH * dpr;
+  // Render in CSS pixels (devicePixelRatio deliberately ignored: on high-DPI
+  // screens it multiplies the pixel count for detail TAA and the water blur
+  // away anyway), capped by the tier's pixel budget.
+  const resize = (cssW: number, cssH: number) => {
+    let w = cssW;
+    let h = cssH;
     const pixels = w * h;
     if (pixels > quality.maxCanvasPixels) {
       const s = Math.sqrt(quality.maxCanvasPixels / pixels);
@@ -276,10 +284,10 @@ async function main() {
     canvasW = Math.max(1, Math.round(w));
     canvasH = Math.max(1, Math.round(h));
   };
-  resize(canvas.clientWidth, canvas.clientHeight, devicePixelRatio);
+  resize(canvas.clientWidth, canvas.clientHeight);
   new ResizeObserver(entries => {
     for (const e of entries) {
-      resize(e.contentRect.width, e.contentRect.height, devicePixelRatio);
+      resize(e.contentRect.width, e.contentRect.height);
     }
   }).observe(canvas);
 
@@ -354,7 +362,9 @@ async function main() {
     lastFrameStart = now;
     if (!firstFrame && frameMs > 0) {
       fpsAvg = fpsAvg * 0.95 + (1000 / frameMs) * 0.05;
-      dynres.update(frameMs);
+      if (fixedScale === null) {
+        dynres.update(frameMs);
+      }
     }
     clock.tick(now);
     const dt = clock.dt;

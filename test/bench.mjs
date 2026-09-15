@@ -18,7 +18,7 @@ const extra = Number(process.argv[6] ?? 5);
 const ctx = await launch();
 for (const d of runs) {
   const dis = d.replaceAll('|', ',');
-  const params = {seed, camera, paused: '1', hud: '0'};
+  const params = {seed, camera, paused: '1', hud: '0', scale: process.env.SCALE ?? '0.8'};
   if (dis) params.disable = dis;
   const {page} = await openAquarium(ctx, params, {
     width: size[0],

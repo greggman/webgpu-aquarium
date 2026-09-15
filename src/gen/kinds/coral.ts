@@ -180,11 +180,18 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let tint = inst.color.rgb;
   let accent = palette(inst.color.a, vec3f(0.6), vec3f(0.4), vec3f(1.0), vec3f(0.0, 0.33, 0.67));
   let lp = i.local * inst.posScale.w;
-  let fine = triplanarDetail(lp + inst.params.x, nIn, 1.4);
+  // Shading level of detail: close coral gets full triplanar detail; further
+  // away single-axis lookups, and the tiny polyp texture is skipped entirely
+  // once it is smaller than a pixel.
+  let camDist = length(frame.camPos - i.world);
+  let fw = max(length(dpdxFine(i.world)), length(dpdyFine(i.world)));
+  let detailLevel = select(select(0u, 1u, camDist < 30.0), 2u, camDist < 12.0);
+  let polypLevel = select(0u, select(1u, 2u, camDist < 5.0), camDist < 10.0);
+  let fine = detailSample(lp + inst.params.x, nIn, 1.4, fw, max(detailLevel, 1u));
   // Polyp cups and corallite texture as a height field (before any branching,
   // so the derivatives stay in uniform control flow).
-  let polyps = triplanarDetail(lp * 1.0 + inst.params.x, nIn, 9.0);
-  let broad = triplanarDetail(lp, nIn, 0.6);
+  let polyps = detailSample(lp * 1.0 + inst.params.x, nIn, 9.0, fw, polypLevel);
+  let broad = detailSample(lp, nIn, 0.6, fw, max(detailLevel, 1u));
   let cup = smoothstep(0.02, 0.3, polyps.g);
   let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
   // Thin branches get only a faint bump: stretched along a narrow tube the
@@ -296,7 +303,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   // - hue drifting slowly across the colony,
   // - older, shaded lower parts duller and browner; growing upper parts brighter,
   // - fine speckle of individual polyps.
-  let patchField = triplanarDetail(lp * 0.9 + inst.params.x * 3.1, nIn, 0.55).r;
+  let patchField = detailSample(lp * 0.9 + inst.params.x * 3.1, nIn, 0.55, fw, max(detailLevel, 1u)).r;
   let secondTone = smoothstep(0.45, 0.62, patchField + (inst.params.y - 0.5) * 0.3);
   let lum = max(dot(s.albedo, vec3f(0.3, 0.55, 0.15)), 1e-3);
   let accentAtLum = accent * (lum / max(dot(accent, vec3f(0.3, 0.55, 0.15)), 1e-3));

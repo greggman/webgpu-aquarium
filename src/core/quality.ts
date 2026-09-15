@@ -28,9 +28,11 @@ export interface Quality {
 
 const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
   mobile: {
-    renderScale: 0.75,
-    minRenderScale: 0.5,
-    maxRenderScale: 0.9,
+    // Phones render in CSS pixels (a third to a quarter of their device
+    // pixels) already, so no further scaling unless the frame rate needs it.
+    renderScale: 1,
+    minRenderScale: 0.6,
+    maxRenderScale: 1,
     maxCanvasPixels: 1600 * 900,
     terrainGrid: 256,
     shadowSize: 1024,
@@ -62,9 +64,11 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     targetFrameMs: 1000 / 60,
   },
   high: {
-    renderScale: 1,
+    // Rendered below native and upscaled (TAA plus sharpening), as games do:
+    // most of the frame cost is per pixel.
+    renderScale: 0.8,
     minRenderScale: 0.6,
-    maxRenderScale: 1,
+    maxRenderScale: 0.85,
     maxCanvasPixels: 1920 * 1080,
     terrainGrid: 512,
     shadowSize: 2048,
@@ -79,7 +83,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     targetFrameMs: 1000 / 60,
   },
   ultra: {
-    renderScale: 1,
+    renderScale: 0.9,
     minRenderScale: 0.7,
     maxRenderScale: 1,
     maxCanvasPixels: 2560 * 1440,
