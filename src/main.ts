@@ -46,6 +46,22 @@ const numParam = (name: string) =>
 async function main() {
   const canvas = document.getElementById('screen') as HTMLCanvasElement;
   const hud = document.getElementById('hud')!;
+  // New ocean: reload with a fresh seed, keeping any other URL options.
+  const regen = document.getElementById('regenerate') as HTMLButtonElement;
+  if (params.get('hud') === '0') {
+    regen.hidden = true;
+  }
+  regen.addEventListener('click', e => {
+    e.stopPropagation();
+    regen.disabled = true;
+    const next = new URLSearchParams(location.search);
+    next.set('seed', String(Math.floor(Math.random() * 1e9)));
+    location.search = next.toString();
+  });
+  // Don't let presses on the button count as camera input.
+  for (const type of ['pointerdown', 'mousedown', 'touchstart']) {
+    regen.addEventListener(type, e => e.stopPropagation());
+  }
   const loading = document.getElementById('loading')!;
 
   const gpu = await initGPU(canvas);

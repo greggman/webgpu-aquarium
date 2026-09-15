@@ -47,6 +47,7 @@ function advice(reason: UnavailableReason): string[] {
 export function showUnsupported(reason: UnavailableReason) {
   document.getElementById('loading')?.remove();
   document.getElementById('screen')?.remove();
+  document.getElementById('regenerate')?.remove();
   const panel = document.createElement('div');
   panel.id = 'unsupported';
   const h = document.createElement('h1');

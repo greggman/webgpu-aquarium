@@ -44,6 +44,40 @@
         opacity: 0;
         transition: opacity 1.5s;
       }
+      #regenerate {
+        position: fixed;
+        top: max(12px, env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 50%;
+        background: rgba(2, 16, 26, 0.35);
+        color: #e6f6fb;
+        cursor: pointer;
+        opacity: 0.7;
+        z-index: 5;
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        transition:
+          opacity 0.2s,
+          transform 0.4s;
+      }
+      #regenerate:hover,
+      #regenerate:focus-visible {
+        opacity: 1;
+      }
+      #regenerate:active {
+        transform: rotate(180deg);
+      }
+      #regenerate[disabled] {
+        opacity: 0.35;
+        cursor: default;
+      }
       #loading {
         position: fixed;
         inset: 0;
@@ -133,6 +167,18 @@
     <canvas id="screen"></canvas>
     <div id="loading">generating ocean…</div>
     <div id="hud"></div>
+    <button id="regenerate" type="button" title="Generate a new ocean" aria-label="Generate a new ocean">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path
+          d="M20 12a8 8 0 1 1-2.34-5.66"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+        />
+        <path d="M20 3.5v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
     <pre id="errors" hidden></pre>
     <script type="module" src="main.js"></script>
   </body>
