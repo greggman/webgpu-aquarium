@@ -30,6 +30,7 @@ import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
 import {createGenContext} from './world/layout.ts';
+import {buildVoxelTerrain, createVoxelRenderer} from './gen/voxel.ts';
 import {createRocks} from './gen/kinds/rocks.ts';
 import {createCoral} from './gen/kinds/coral.ts';
 import {createCritters} from './gen/kinds/critters.ts';
@@ -175,13 +176,46 @@ async function main() {
       createTaa(device),
       bloom.init(),
     ]);
+  // ?terrain=voxel meshes the seabed from a 3D density field instead of the
+  // height map, so it can undercut and be tunnelled through.
+  const voxel =
+    params.get('terrain') === 'voxel'
+      ? await (async () => {
+          const t0 = performance.now();
+          const mesh = await buildVoxelTerrain(
+            device,
+            terrain.texture,
+            terrain.cpu,
+            {
+              worldSize: desc.terrain.worldSize,
+              cellSize: numParam('cell') ?? 0.75,
+              minY: desc.terrain.floorDepth - 40,
+              maxY: desc.surfaceY - 3,
+              seed: desc.seed,
+              relief: numParam('relief') ?? 1,
+            },
+          );
+          console.log(
+            `[voxel] ${(mesh.indexCount / 3e3).toFixed(0)}k triangles, ` +
+              `${mesh.chunks.filter(c => c.count).length} chunks, ` +
+              `${(performance.now() - t0).toFixed(0)} ms`,
+          );
+          return createVoxelRenderer(
+            device,
+            renderer.globals.layout,
+            targetsFormats,
+            mesh,
+          );
+        })()
+      : null;
+  const ground = voxel ?? terrainRenderer;
   renderer.systems.push(
     caustics,
     {
       name: 'terrain',
-      update: ctx => terrainRenderer.update(ctx.view),
-      drawOpaque: p => terrainRenderer.draw(p),
-      drawShadow: p => terrainRenderer.drawShadow(p),
+      update: ctx => ground.update(ctx.view),
+      drawOpaque: p => ground.draw(p),
+      drawShadow: p => ground.drawShadow(p),
     },
     // Alpha-tested kinds (fish fins, fan lattices) draw last: a pipeline that
     // can discard makes tile-based GPUs shade every fragment drawn before it

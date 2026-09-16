@@ -553,80 +553,7 @@ export async function generateTerrain(
 // ---------------------------------------------------------------------------
 // Rendering
 
-const renderShader = /* wgsl */ `
-${surfaceLib}
-${propsWgsl}
-
-struct Grid { count: u32, worldSize: f32 };
-@group(1) @binding(0) var<uniform> grid: Grid;
-/**
- * Visible terrain chunks: xy = first grid cell, z = cell step (detail level),
- * w = cells per chunk side at that step.
- */
-@group(1) @binding(1) var<storage, read> chunks: array<vec4f>;
-
-/** Grid position (0..1 across the whole grid) and skirt flag for a chunk vertex. */
-fn chunkVertex(vi: u32, ii: u32) -> vec3f {
-  let c = chunks[ii];
-  let cells = u32(c.w);
-  let n = cells + 1u;
-  var lx: u32;
-  var lz: u32;
-  var skirt = 0.0;
-  if (vi < n * n) {
-    lx = vi % n;
-    lz = vi / n;
-  } else {
-    // Skirt: a copy of the edge ring, dropped down to hide cracks between
-    // neighbouring chunks at different detail levels.
-    let k = vi - n * n;
-    let m = cells;
-    if (k < m) { lx = k; lz = 0u; }
-    else if (k < 2u * m) { lx = m; lz = k - m; }
-    else if (k < 3u * m) { lx = m - (k - 2u * m); lz = m; }
-    else { lx = 0u; lz = m - (k - 3u * m); }
-    skirt = 1.0;
-  }
-  let gx = (c.x + f32(lx) * c.z) / f32(grid.count);
-  let gz = (c.y + f32(lz) * c.z) / f32(grid.count);
-  return vec3f(gx, gz, skirt * c.z);
-}
-
-/** World position of a chunk vertex (the grid is denser near the middle). */
-fn chunkWorld(vi: u32, ii: u32) -> vec3f {
-  let cv = chunkVertex(vi, ii);
-  let g = cv.xy * 2.0 - 1.0;
-  let warped = sign(g) * pow(abs(g), vec2f(1.6));
-  let xz = warped * grid.worldSize * 0.5;
-  let h = textureSampleLevel(tTerrain, sLinearClamp, xz / frame.terrain.x + 0.5, 0.0).r;
-  return vec3f(xz.x, h - cv.z * 0.35, xz.y);
-}
-
-struct VOut {
-  @builtin(position) pos: vec4f,
-  @location(0) world: vec3f,
-  @location(1) uv: vec2f,
-  @location(2) prevClip: vec4f,
-  @location(3) curClip: vec4f,
-};
-
-fn terrainUv(xz: vec2f) -> vec2f {
-  return xz / frame.terrain.x + 0.5;
-}
-
-@vertex
-fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
-  let world = chunkWorld(vi, ii);
-  let uv = terrainUv(world.xz);
-  var o: VOut;
-  o.pos = frame.viewProj * vec4f(world, 1.0);
-  o.world = world;
-  o.uv = uv;
-  o.curClip = frame.viewProjNoJitter * vec4f(world, 1.0);
-  o.prevClip = frame.prevViewProjNoJitter * vec4f(world, 1.0);
-  return o;
-}
-
+export const terrainMaterialWgsl = /* wgsl */ `
 fn triplanar(p: vec3f, n: vec3f, scale: f32) -> vec4f {
   var w = pow(abs(n), vec3f(4.0));
   w /= (w.x + w.y + w.z);
@@ -681,13 +608,14 @@ struct FOut {
   @location(1) velocity: vec2f,
 };
 
-@fragment
-fn fs(i: VOut) -> FOut {
-  let t = textureSample(tTerrain, sLinearClamp, i.uv);
-  let m = textureSample(tTerrainMask, sLinearClamp, i.uv);
-  var n = normalize(vec3f(t.g, sqrt(max(1.0 - t.g * t.g - t.b * t.b, 0.0)), t.b));
-  let p = i.world;
-
+/**
+ * The seabed surface at a point: sand, rock, reef rubble and growth, blended
+ * from the terrain masks and the detail texture. Shared by the height-map
+ * terrain and the volumetric one, which differ only in where the geometry and
+ * the normal come from.
+ */
+fn terrainSurface(p: vec3f, nIn: vec3f, m: vec4f, aoIn: f32) -> Surface {
+  var n = nIn;
   let rockAmt = m.r;
   let mossAmt = m.a;
 
@@ -771,8 +699,96 @@ fn fs(i: VOut) -> FOut {
   s.albedo = mix(sandCol, rockCol, rockW);
   s.roughness = mix(0.92, 0.75, rockW);
   s.normal = n;
-  s.ao = t.a * mix(1.0, 0.6 + 0.4 * smoothstep(0.2, 0.7, tri.r), rockW);
+  s.ao = aoIn * mix(1.0, 0.6 + 0.4 * smoothstep(0.2, 0.7, tri.r), rockW);
   s.f0 = 0.03;
+  return s;
+}
+`;
+
+const renderShader = /* wgsl */ `
+${surfaceLib}
+${propsWgsl}
+
+struct Grid { count: u32, worldSize: f32 };
+@group(1) @binding(0) var<uniform> grid: Grid;
+/**
+ * Visible terrain chunks: xy = first grid cell, z = cell step (detail level),
+ * w = cells per chunk side at that step.
+ */
+@group(1) @binding(1) var<storage, read> chunks: array<vec4f>;
+
+/** Grid position (0..1 across the whole grid) and skirt flag for a chunk vertex. */
+fn chunkVertex(vi: u32, ii: u32) -> vec3f {
+  let c = chunks[ii];
+  let cells = u32(c.w);
+  let n = cells + 1u;
+  var lx: u32;
+  var lz: u32;
+  var skirt = 0.0;
+  if (vi < n * n) {
+    lx = vi % n;
+    lz = vi / n;
+  } else {
+    // Skirt: a copy of the edge ring, dropped down to hide cracks between
+    // neighbouring chunks at different detail levels.
+    let k = vi - n * n;
+    let m = cells;
+    if (k < m) { lx = k; lz = 0u; }
+    else if (k < 2u * m) { lx = m; lz = k - m; }
+    else if (k < 3u * m) { lx = m - (k - 2u * m); lz = m; }
+    else { lx = 0u; lz = m - (k - 3u * m); }
+    skirt = 1.0;
+  }
+  let gx = (c.x + f32(lx) * c.z) / f32(grid.count);
+  let gz = (c.y + f32(lz) * c.z) / f32(grid.count);
+  return vec3f(gx, gz, skirt * c.z);
+}
+
+/** World position of a chunk vertex (the grid is denser near the middle). */
+fn chunkWorld(vi: u32, ii: u32) -> vec3f {
+  let cv = chunkVertex(vi, ii);
+  let g = cv.xy * 2.0 - 1.0;
+  let warped = sign(g) * pow(abs(g), vec2f(1.6));
+  let xz = warped * grid.worldSize * 0.5;
+  let h = textureSampleLevel(tTerrain, sLinearClamp, xz / frame.terrain.x + 0.5, 0.0).r;
+  return vec3f(xz.x, h - cv.z * 0.35, xz.y);
+}
+
+struct VOut {
+  @builtin(position) pos: vec4f,
+  @location(0) world: vec3f,
+  @location(1) uv: vec2f,
+  @location(2) prevClip: vec4f,
+  @location(3) curClip: vec4f,
+};
+
+fn terrainUv(xz: vec2f) -> vec2f {
+  return xz / frame.terrain.x + 0.5;
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+  let world = chunkWorld(vi, ii);
+  let uv = terrainUv(world.xz);
+  var o: VOut;
+  o.pos = frame.viewProj * vec4f(world, 1.0);
+  o.world = world;
+  o.uv = uv;
+  o.curClip = frame.viewProjNoJitter * vec4f(world, 1.0);
+  o.prevClip = frame.prevViewProjNoJitter * vec4f(world, 1.0);
+  return o;
+}
+
+${terrainMaterialWgsl}
+
+@fragment
+fn fs(i: VOut) -> FOut {
+  let t = textureSample(tTerrain, sLinearClamp, i.uv);
+  let m = textureSample(tTerrainMask, sLinearClamp, i.uv);
+  var n = normalize(vec3f(t.g, sqrt(max(1.0 - t.g * t.g - t.b * t.b, 0.0)), t.b));
+  let p = i.world;
+
+  let s = terrainSurface(p, n, m, t.a);
 
   let lit = shadeSurface(s, p, -1.0);
   var o: FOut;
