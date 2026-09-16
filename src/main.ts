@@ -13,7 +13,11 @@ import {Renderer} from './render/renderer.ts';
 import {createBackground} from './render/background.ts';
 import {createPresent} from './render/post/present.ts';
 import {createDetailTexture} from './gen/textures.ts';
-import {generateTerrain, createTerrainRenderer} from './gen/terrain.ts';
+import {
+  generateTerrain,
+  createTerrainRenderer,
+  verifyHeightTexture,
+} from './gen/terrain.ts';
 import {describeWorld, buildNavVolume, cameraSpots} from './world/world.ts';
 import {Input} from './player/input.ts';
 import {SwimCamera, viewMatrix, type CameraPose} from './player/camera.ts';
@@ -399,6 +403,15 @@ async function main() {
   window.__aquarium.camera = camera;
   window.__aquarium.follow = follow;
   window.__aquarium.jellyfish = jellyfish;
+  window.__aquarium.terrainStats = ground.stats;
+  // With ?where=1, check that what is drawn from and what is placed from agree.
+  let heightCheck = '';
+  if (params.get('where') === '1') {
+    verifyHeightTexture(device, terrain.texture, terrain.cpu).then(r => {
+      heightCheck = r;
+      console.log(`[aquarium] ${r}`);
+    });
+  }
   window.__aquarium.obstacles = gen.obstacles;
   window.__aquarium.clearings = gen.clearings;
   window.__aquarium.clusters = gen.clusters;
@@ -603,6 +616,7 @@ async function main() {
         `terrain ${ground.stats.chunks} chunks · ` +
         `${(ground.stats.triangles / 1000).toFixed(0)}k triangles\n` +
         // The query string that reproduces this exact view elsewhere.
+        `${heightCheck}\n` +
         `?seed=${seed}&quality=${tier}&pos=${p.map(v => v.toFixed(1)).join(',')}` +
         `&look=${((pose.yaw * 180) / Math.PI).toFixed(0)},${((pose.pitch * 180) / Math.PI).toFixed(0)}`;
     }

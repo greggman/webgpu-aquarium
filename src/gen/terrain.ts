@@ -595,6 +595,86 @@ export async function generateTerrain(
   };
 }
 
+/**
+ * Reads the height texture back through the GPU and compares it with the CPU
+ * copy the world was built from.
+ *
+ * Everything is placed from the CPU copy and drawn from the texture, so if a
+ * device wrote one and not the other, props would stand in mid-water over a
+ * seabed that is somewhere else entirely — and nothing would say so.
+ */
+export async function verifyHeightTexture(
+  device: GPUDevice,
+  texture: GPUTexture,
+  cpu: TerrainData,
+): Promise<string> {
+  const n = 32;
+  const shader = createShader(
+    device,
+    'terrain:verify-shader',
+    /* wgsl */ `
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (any(id.xy >= vec2u(${n}u))) {
+    return;
+  }
+  let size = textureDimensions(tex, 0);
+  let c = vec2u((id.xy * size) / ${n}u);
+  out[id.y * ${n}u + id.x] = textureLoad(tex, c, 0).r;
+}
+`,
+  );
+  const pipeline = await device.createComputePipelineAsync({
+    label: 'terrain:verify-pipeline',
+    layout: 'auto',
+    compute: {module: shader, entryPoint: 'main'},
+  });
+  const buf = device.createBuffer({
+    label: 'terrain:verify',
+    size: n * n * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  const enc = device.createCommandEncoder({label: 'terrain:verify-encoder'});
+  const pass = enc.beginComputePass({label: 'terrain:verify-pass'});
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(
+    0,
+    device.createBindGroup({
+      label: 'terrain:verify-bind-group',
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        {
+          binding: 0,
+          resource: texture.createView({label: 'terrain:verify-view'}),
+        },
+        {binding: 1, resource: {buffer: buf}},
+      ],
+    }),
+  );
+  pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8));
+  pass.end();
+  device.queue.submit([enc.finish({label: 'terrain:verify'})]);
+  const got = new Float32Array(await readBuffer(device, buf));
+  buf.destroy();
+  let worst = 0;
+  let zeros = 0;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const texel = Math.floor((i * cpu.size) / n);
+      const texelZ = Math.floor((j * cpu.size) / n);
+      const want = cpu.data[(texelZ * cpu.size + texel) * 4];
+      const have = got[j * n + i];
+      worst = Math.max(worst, Math.abs(have - want));
+      if (have === 0) {
+        zeros++;
+      }
+    }
+  }
+  return `height texture: worst ${worst.toFixed(2)} m, ${zeros}/${n * n} zero`;
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 
