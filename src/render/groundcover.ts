@@ -69,14 +69,23 @@ fn noise2(p: vec2f) -> f32 {
 /**
  * Where there is meadow at all, 0 to 1.
  *
- * Stretched and warped rather than round: seagrass grows in drifts and runs
- * that follow the sand, so the field is sampled in a space squashed along one
- * axis and bent by a slower noise. Even, round patches read as spray paint.
+ * Bands, not blobs. Thresholding noise gives round patches with fat middles and
+ * ragged edges, which reads as spray paint; seagrass grows in runs. Taking the
+ * level sets instead — pushing a warped noise field through a sine — gives
+ * meandering bands of roughly even width, the labyrinth pattern, with clear
+ * sand between them. A slower field decides where there are any bands at all,
+ * so whole stretches of floor stay bare.
  */
 fn meadowAt(xz: vec2f) -> f32 {
-  let bend = noise2(xz * 0.012) * 9.0;
-  let q = vec2f(xz.x * 0.055 + bend, xz.y * 0.017 - bend * 0.3);
-  return smoothstep(0.3, 0.62, noise2(q) * 0.75 + noise2(q * 2.7) * 0.25);
+  // Band width follows from how fast the field turns: a swing of A radians over
+  // a lattice of k per metre puts a cycle every 2*pi/(A*k) metres, and a band
+  // is half of that. A = 17 at k = 0.12 gives runs two or three metres across.
+  let warp = vec2f(noise2(xz * 0.04 + 4.0), noise2(xz * 0.04 + 19.0)) - 0.5;
+  let p = xz * 0.12 + warp * 1.6;
+  let field = (noise2(p) - 0.5) * 17.0 + (noise2(p * 2.6) - 0.5) * 4.0;
+  let band = smoothstep(-0.25, 0.4, sin(field));
+  let region = smoothstep(0.35, 0.62, noise2(xz * 0.013 + 51.0));
+  return band * region;
 }
 
 fn hashCell(c: vec2i) -> vec4f {
