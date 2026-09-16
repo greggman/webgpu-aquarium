@@ -11,6 +11,18 @@ import {
 } from './renderer.ts';
 import type {GenContext} from '../world/layout.ts';
 
+/**
+ * The dust lattice: cells per side and metres per cell, close in and further
+ * out. These are the only numbers the dust needs; everything else it works out
+ * from the instance index, the camera and the clock.
+ */
+const NEAR = 10;
+const NEAR_CELL = 0.55;
+const FAR = 12;
+const FAR_CELL = 2.2;
+/** Motes drawn: one per cell of each lattice. */
+export const SNOW_COUNT = NEAR ** 3 + FAR ** 3;
+
 const shader = /* wgsl */ `
 ${surfaceLib}
 
@@ -53,57 +65,73 @@ fn billboard(center: vec3f, size: f32, corner: vec2f) -> vec4f {
 
 @vertex
 fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
-  let h = hash3u(ii);
-  // Two layers. Spread evenly through a 24 m box, particles are almost never
-  // within touching distance of the lens, which is exactly where they read as
-  // motion: what you notice moving through water is the mote that passes your
-  // mask, not the haze twenty metres off. A third of them wrap in a box a few
-  // metres across instead, so there is always something close going by.
-  let near = ii % 3u == 0u;
-  let box = select(params.box, 5.5, near);
-  // Slow drift with the current and a gentle sink; wrap in a box around the
-  // camera.
-  let drift = vec3f(0.12, -0.03 - h.y * 0.05, 0.05) * frame.time +
-    vec3f(sin(frame.time * 0.3 + h.x * 20.0), cos(frame.time * 0.23 + h.z * 20.0), sin(frame.time * 0.27 + h.y * 20.0)) * 0.15;
-  // Centred ahead of the lens rather than on it. A box centred on the camera
-  // spends half its motes behind the viewer, where they cost a vertex each and
-  // are never seen; pushed forward, nearly all of them are in front. The wrap
-  // is still in world space, so they hold still as the camera moves and only
-  // teleport at the box edge, where they have already faded out.
+  // One mote per cell of a lattice that follows the camera.
+  //
+  // Scattering motes at random through a box wastes them: the spacing clumps
+  // and gaps, so it takes thousands before the water looks evenly dusty, and
+  // half of any box centred on the camera is behind the viewer. A lattice
+  // spends one mote per cell, which is as even as it gets, and lets a few
+  // hundred do the work of thousands. The cell's own integer coordinates are
+  // what gets hashed, so a mote keeps its place in the world as the lattice
+  // slides under the camera, and only the cells at the edge ever change hands.
+  //
+  // Two lattices: a fine one close in, where a passing mote reads as motion,
+  // and a coarse one for the haze further out.
+  let near = ii < ${NEAR ** 3}u;
+  let side = select(${FAR}u, ${NEAR}u, near);
+  let cellSize = select(${FAR_CELL}, ${NEAR_CELL}, near);
+  let idx = select(ii - ${NEAR ** 3}u, ii, near);
+  let gx = i32(idx % side);
+  let gy = i32((idx / side) % side);
+  let gz = i32((idx / (side * side)) % side);
+
+  // Centred a little ahead of the lens, so the lattice covers what is in view
+  // rather than what is behind the viewer.
   let fwd = -vec3f(frame.view[0][2], frame.view[1][2], frame.view[2][2]);
-  let centre = frame.camPos + fwd * box * 0.32;
-  let rel0 = fract((h * box + drift - centre) / box) * box - box * 0.5 +
-    (centre - frame.camPos);
-  // The swell's surge sloshes the whole water column back and forth (the same
-  // rhythm the seabed sways to), which makes the water itself feel alive.
-  let world0 = frame.camPos + rel0;
-  let sk = dot(world0.xz, normalize(vec2f(1.0, 0.35))) * 0.11;
-  let slosh = sin(frame.time * 0.9 - sk) + 0.25 * sin(2.0 * (frame.time * 0.9 - sk) + 0.6);
-  let rel = rel0 + vec3f(0.94, 0.05 * sin(frame.time * 1.3 + h.x * 6.0), 0.33) * slosh * 0.32;
-  let p = frame.camPos + rel;
+  let focus = frame.camPos + fwd * f32(side) * cellSize * 0.3;
+  let home = vec3i(floor(focus / cellSize)) + vec3i(gx, gy, gz) - i32(side / 2u);
+  let h = vec3f(pcg3d(bitcast<vec3u>(home + vec3i(8192)))) / 4294967295.0;
+
+  // Adrift inside its own cell: a slow circle plus the swell's surge, all of it
+  // bounded, so a mote never wanders out of the cell that owns it.
+  let t = frame.time;
+  let wander = vec3f(
+    sin(t * 0.31 + h.x * 31.0),
+    sin(t * 0.23 + h.y * 27.0) * 0.6,
+    cos(t * 0.27 + h.z * 23.0),
+  ) * 0.22;
+  let sk = dot(vec2f(f32(home.x), f32(home.z)) * cellSize, normalize(vec2f(1.0, 0.35))) * 0.11;
+  let slosh = sin(t * 0.9 - sk) + 0.25 * sin(2.0 * (t * 0.9 - sk) + 0.6);
+  let p = (vec3f(home) + h + wander + vec3f(0.3, 0.02, 0.1) * slosh) * cellSize;
+
+  let rel = p - frame.camPos;
   let dist = length(rel);
   let corner = cornerOf(vi);
-  // Never smaller than about a pixel so distant flecks don't shimmer.
+  // Never smaller than about a pixel, or fine grains sparkle; dimmed to match
+  // when that clamp kicks in, but not all the way to nothing.
   let pixel = dist * 2.0 / (frame.proj[1][1] * frame.resolution.y);
-  // Fine grains: at the old size they read as flakes rather than as dust.
-  let grain = select(0.0012 + h.x * 0.0024, 0.0016 + h.x * 0.004, near);
-  let size = max(grain, pixel * 1.2);
+  let grain = select(0.004 + h.x * 0.004, 0.003 + h.x * 0.005, near);
+  // Dust is smaller than a pixel at any distance worth drawing it, so what
+  // matters is not its size in metres but that it lands on enough pixels to
+  // survive the anti-aliasing: a couple across, dimmed to match.
+  let size = max(grain, pixel * 2.2);
   var o: VOut;
   o.pos = billboard(p, size, corner);
   o.quad = corner;
-  let edgeFade = smoothstep(box * 0.5, box * 0.3, dist) * smoothstep(0.15, 0.6, dist);
-  // Flecks are a little brighter than the water behind them (and catch the
-  // sun when looking toward it); never bright white specks against dark water.
+  // Gone before the lattice runs out, and never right on the lens.
+  let reach = f32(side) * cellSize * 0.5;
+  let edgeFade = smoothstep(reach, reach * 0.65, dist) * smoothstep(0.1, 0.5, dist);
   let dirV = normalize(rel);
   let bg = inscatterColor(p.y, dirV);
   let sunGlint = sunAtDepth(p.y) * min(waterPhase(dot(dirV, frame.sunDir)), 0.4) * 0.12;
-  o.color = bg * (0.6 + 1.2 * h.z) + sunGlint * h.z;
-  // A grain smaller than a pixel is drawn at a pixel and dimmed to match, or
-  // it aliases into a sparkling mess. Dimmed all the way, though, dust this
-  // fine disappears entirely — so the fade has a floor, and the whole thing is
-  // brighter to make up for grains a quarter of their old size.
-  let subPixel = max(0.3, min(1.0, grain / size));
-  o.alpha = edgeFade * exp(-dist * 0.08) * subPixel * select(1.5, 2.1, near);
+  // Brighter than the water behind, or a mote tinted to the water it hangs in
+  // is invisible however much of it there is.
+  o.color = bg * (1.5 + 2.2 * h.z) + sunGlint * (0.5 + h.z);
+  // Sub-pixel grains are drawn at a pixel and dimmed, but only so far: dimmed
+  // in proportion they vanish altogether, which is what happened when these
+  // were first made dust-sized.
+  o.alpha = edgeFade * exp(-dist * 0.05) * max(0.6, min(1.0, grain / size)) *
+    select(0.5, 0.75, near);
   o.kind = 0u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
   return o;
@@ -213,11 +241,9 @@ export async function createParticles(
 ): Promise<RenderSystem> {
   const device = renderer.device;
   const rng = ctx.rng('particles');
-  // Fewer than before: with the wrap box pushed ahead of the lens, four in five
-  // are in front of the viewer instead of one in two, so the same amount of
-  // dust shows for less vertex work. Nothing is stored — a mote's position is
-  // its index hashed, wrapped and drifted, worked out afresh every frame.
-  const snowCount = Math.round(8000 * ctx.quality.density);
+  // One mote per cell of the two lattices, and no more: even spacing means a
+  // few thousand cover the water where scattered points needed far more.
+  const snowCount = SNOW_COUNT;
 
   // Bubble emitters: vents among rocks, the odd anemone bed, and cluster edges.
   const emitters: number[] = [];
