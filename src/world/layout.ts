@@ -204,8 +204,9 @@ function patchField(seed: number): (x: number, z: number) => number {
     const v =
       (at(ix, iz) * (1 - fx) + at(ix + 1, iz) * fx) * (1 - fz) +
       (at(ix, iz + 1) * (1 - fx) + at(ix + 1, iz + 1) * fx) * fz;
-    // Thin patches down to a third; the rest is full.
-    return Math.min(1, 0.32 + v * 1.25);
+    // Thin patches by about half; the rest is full. Any lower and the world
+    // reads as bare rather than varied.
+    return Math.min(1, 0.55 + v * 1.0);
   };
 }
 

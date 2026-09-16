@@ -64,6 +64,8 @@ class Tracker {
   lost = false;
   /** Which side of the subject the camera sits on (chosen on first sight). */
   side = 0;
+  /** How far back this shot sits: 1 is close, larger pulls out. */
+  shot = 1;
   /** Smoothed heading of the subject. */
   heading: Vec3 = [0, 0, 1];
 
@@ -331,10 +333,36 @@ export class CreatureCam {
       const fwd = t.heading;
       const right = vec3.normalize(vec3.cross([0, 1, 0], fwd));
       if (t.side === 0) {
-        // Stay on whichever side of it the camera already is: least movement.
-        t.side = vec3.dot(vec3.sub(this.pos, p), right) >= 0 ? 1 : -1;
+        // Pick the side with something behind the animal: shooting across a
+        // canyon or out into open water gives the frame depth, where shooting
+        // into the rise behind it gives a wall of sand a metre from the lens.
+        const depthBehind = (side: number) => {
+          const a0 = side * 0.9;
+          const back = vec3.add(
+            vec3.scale(fwd, -Math.cos(a0)),
+            vec3.scale(right, Math.sin(a0)),
+          );
+          // How far the ground falls away on the far side of the animal.
+          let fall = 0;
+          for (const d of [8, 16, 26]) {
+            const x = p[0] - back[0] * d;
+            const z = p[2] - back[2] * d;
+            fall += p[1] - this.nav.floorAt(x, z);
+          }
+          return fall;
+        };
+        const left = depthBehind(1);
+        const rightward = depthBehind(-1);
+        t.side =
+          Math.abs(left - rightward) < 1
+            ? vec3.dot(vec3.sub(this.pos, p), right) >= 0
+              ? 1
+              : -1
+            : left > rightward
+              ? 1
+              : -1;
       }
-      const d = t.subject.distance;
+      const d = t.subject.distance * t.shot;
       // (floorAt already includes the camera's clearance above the ground.)
       const nearBottom = p[1] - this.nav.floorAt(p[0], p[2]) < 1.2;
       const angle = t.side * (0.9 + Math.sin(this.orbitPhase) * 0.5);
@@ -343,13 +371,16 @@ export class CreatureCam {
           vec3.scale(fwd, -Math.cos(angle) * d),
           vec3.scale(right, Math.sin(angle) * d),
         ),
-        // Higher above animals down among the coral, so the camera looks
-        // over the reef at them instead of pushing through it.
-        [0, d * (nearBottom ? 0.6 : 0.28), 0],
+        // Only a little above: enough to see over the coral in front, not so
+        // much that the shot becomes a map of the sand. Looking along the
+        // seabed is what puts the reef, the walls and the open water in frame.
+        [0, d * (nearBottom ? 0.32 : 0.12), 0],
       );
       return {
         cameraAt: vec3.add(p, offset),
-        aim: vec3.add(p, vec3.scale(fwd, d * 0.15)),
+        // Aimed a little over the animal, so the horizon sits in the frame
+        // rather than below it.
+        aim: vec3.add(vec3.add(p, vec3.scale(fwd, d * 0.15)), [0, d * 0.1, 0]),
       };
     };
     const cur = this.current ? one(this.current) : null;
@@ -547,7 +578,13 @@ export class CreatureCam {
     // or never seen), so the view pans from one to the other.
     const old = this.current;
     this.previous = old && !old.lost && old.sample ? old : this.previous;
-    this.current = new Tracker(choice);
+    // Vary the shot size the way a documentary cuts: a couple of close ones,
+    // then pull out to put the reef, the walls and the open water in frame.
+    // Every shot at one distance is what made it feel like a seabed survey.
+    const sizes = [1, 1.2, 2.4, 1, 1.7, 3.2];
+    const next = new Tracker(choice);
+    next.shot = sizes[this.picks % sizes.length] * this.rng.range(0.9, 1.15);
+    this.current = next;
     this.blendStart = Infinity;
     this.switchAt = this.time + this.rng.range(11, 16);
   }

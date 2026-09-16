@@ -248,6 +248,13 @@ export async function createPropKind(
   o: PropKindOptions,
 ): Promise<RenderSystem> {
   const device = renderer.device;
+  // Recorded for the tests, which compare how much life a change puts in the
+  // world; counting what a single view draws only measures the view.
+  const counts = (window.__aquarium.propCounts ??= {}) as Record<
+    string,
+    number
+  >;
+  counts[o.name] = (counts[o.name] ?? 0) + o.instances.length;
   if (o.contact) {
     for (const inst of o.instances) {
       const r = (o.mesh.variants[inst.variant]?.radius ?? 1) * inst.scale;

@@ -1,6 +1,7 @@
 // Small seafloor life: sea anemones, urchins, starfish and shells.
 
 import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
+import {scatter} from '../../world/scatter.ts';
 import {
   createPropKind,
   quatAxisAngle,
@@ -559,7 +560,10 @@ export async function createCritters(
     rot?: Quat,
     lift = 0,
   ) => {
-    if (rng.float() > ctx.open(x, z) || ctx.terrain.normalAt(x, z)[1] < 0.6) {
+    // Urchins, stars and shells hold on to rock, walls included: they are
+    // seated on the surface normal, so a steep face is somewhere to live
+    // rather than somewhere to fall off. Only the near-vertical is refused.
+    if (rng.float() > ctx.open(x, z) || ctx.terrain.normalAt(x, z)[1] < 0.35) {
       return;
     }
     const n = ctx.terrain.normalAt(x, z);
@@ -684,6 +688,26 @@ export async function createCritters(
       continue;
     }
     place(CritterKind.Urchin, x, z, rng.range(0.8, 1.4), urchinColors);
+  }
+
+  // Walls: urchins and stars hold on to steep rock, and it is otherwise bare.
+  const wallLife = scatter(rng, {
+    count: ctx.count(360),
+    minDist: 0.5,
+    center: [ctx.nav.o.center[0], ctx.nav.o.center[1]],
+    radius: ctx.desc.terrain.basinRadius,
+    density: (x, z) => {
+      const up = ctx.terrain.normalAt(x, z)[1];
+      return up > 0.3 && up < 0.72 ? (0.72 - up) * 3.0 : 0;
+    },
+    maxTries: 20000,
+  });
+  for (const [x, z] of wallLife) {
+    if (rng.bool(0.7)) {
+      place(CritterKind.Urchin, x, z, rng.range(0.6, 1.2), urchinColors);
+    } else {
+      place(CritterKind.Starfish, x, z, rng.range(0.6, 1.1), starColors);
+    }
   }
 
   return createPropKind(renderer, {

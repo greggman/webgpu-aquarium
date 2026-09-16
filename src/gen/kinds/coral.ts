@@ -3,6 +3,7 @@
 // build and one pipeline; the kind lives in patch/instance parameters.
 
 import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
+import {scatter} from '../../world/scatter.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
 import type {GenContext} from '../../world/layout.ts';
@@ -748,9 +749,14 @@ export async function createCoral(
     const n0 = ctx.terrain.normalAt(x, z);
     const list = (low ? lowKind : byKind).get(kind)!;
     const variant = rng.pick(list);
-    // Nothing grows on the open sand of a clearing, and a head planted on a
-    // steep wall hangs out of it sideways.
-    if (rng.float() > ctx.open(x, z) || n0[1] < 0.55) {
+    // Nothing grows on the open sand of a clearing. On a wall, only the kinds
+    // that really do grow on one: fans, whips and sponges face out of vertical
+    // rock, while a massive head needs a seat or it hangs out sideways.
+    const wallOk =
+      kind === CoralKind.Whip ||
+      kind === CoralKind.Sponge ||
+      kind === CoralKind.Table;
+    if (rng.float() > ctx.open(x, z) || n0[1] < (wallOk ? 0.3 : 0.55)) {
       return variants[variant];
     }
     const n = ctx.terrain.normalAt(x, z);
@@ -901,6 +907,32 @@ export async function createCoral(
       );
       place(kind, x, z, rng.range(0.45, 1.0), 0.6);
     }
+  }
+
+  // Canyon and gully walls. Nothing else aims at steep ground — every other
+  // pass scatters over the flats and then rejects what lands on a slope — so
+  // the walls came out bare rock, which is both wrong and a waste of the one
+  // place with any drama in it. Fans, whips and sponges are exactly the things
+  // that grow out of a vertical face.
+  const walls = scatter(rng, {
+    count: ctx.count(420),
+    minDist: 1.1,
+    center: [ctx.nav.o.center[0], ctx.nav.o.center[1]],
+    radius: ctx.desc.terrain.basinRadius,
+    density: (x, z) => {
+      const up = ctx.terrain.normalAt(x, z)[1];
+      // Steep, but not the overhanging edge of the drop-off.
+      return up > 0.3 && up < 0.72 ? (0.72 - up) * 3.2 : 0;
+    },
+    maxTries: 20000,
+  });
+  for (const [x, z] of walls) {
+    const kind = rng.weighted(
+      [CoralKind.Whip, CoralKind.Sponge, CoralKind.Table],
+      [4, 3, 1],
+    );
+    // Leaning out of the wall rather than standing on it.
+    place(kind, x, z, rng.range(0.5, 1.3), 0.85);
   }
 
   // Patch reefs: small coral islands dotted over the open sand between the

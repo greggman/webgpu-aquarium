@@ -266,9 +266,9 @@ export async function createRocks(
       if (rng.float() > ctx.open(x, z)) {
         return;
       }
-      // Canyon and gully walls are bare rock: a boulder dropped on one juts
-      // out sideways, because only its base is sunk into the ground.
-      if (ctx.terrain.normalAt(x, z)[1] < 0.62) {
+      // A boulder dropped on a wall juts out of it, because only its base is
+      // sunk in; but rubble and pebbles collect on any slope short of a cliff.
+      if (ctx.terrain.normalAt(x, z)[1] < (low ? 0.4 : 0.62)) {
         return;
       }
     }
