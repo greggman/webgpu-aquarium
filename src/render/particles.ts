@@ -86,7 +86,7 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   // Never smaller than about a pixel so distant flecks don't shimmer.
   let pixel = dist * 2.0 / (frame.proj[1][1] * frame.resolution.y);
   // Fine grains: at the old size they read as flakes rather than as dust.
-  let grain = select(0.001 + h.x * 0.002, 0.0013 + h.x * 0.0033, near);
+  let grain = select(0.0012 + h.x * 0.0024, 0.0016 + h.x * 0.004, near);
   let size = max(grain, pixel * 1.2);
   var o: VOut;
   o.pos = billboard(p, size, corner);
@@ -98,8 +98,12 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   let bg = inscatterColor(p.y, dirV);
   let sunGlint = sunAtDepth(p.y) * min(waterPhase(dot(dirV, frame.sunDir)), 0.4) * 0.12;
   o.color = bg * (0.6 + 1.2 * h.z) + sunGlint * h.z;
-  o.alpha = edgeFade * exp(-dist * 0.08) * min(1.0, grain / size) *
-    select(0.5, 0.62, near);
+  // A grain smaller than a pixel is drawn at a pixel and dimmed to match, or
+  // it aliases into a sparkling mess. Dimmed all the way, though, dust this
+  // fine disappears entirely — so the fade has a floor, and the whole thing is
+  // brighter to make up for grains a quarter of their old size.
+  let subPixel = max(0.3, min(1.0, grain / size));
+  o.alpha = edgeFade * exp(-dist * 0.08) * subPixel * select(1.5, 2.1, near);
   o.kind = 0u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
   return o;

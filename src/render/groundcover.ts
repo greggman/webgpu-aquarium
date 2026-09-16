@@ -21,9 +21,17 @@ import type {CullView, FrameContext, RenderSystem} from './renderer.ts';
 /** Cells across the patch that follows the camera. */
 const GRID = 128;
 /** Metres per cell. */
-const CELL = 0.3;
-/** Vertices per tuft: five blades of two triangles each. */
-const BLADE_VERTS = 30;
+const CELL = 0.22;
+/**
+ * Vertices per tuft: sixteen blades of two triangles each.
+ *
+ * Blades per tuft is the cheap axis. A tuft costs one instance however many
+ * blades it has, so sixteen from one root reads as thick turf where sixteen
+ * separate roots would cost sixteen times the setup. Games usually paint the blades onto
+ * one card instead; that needs an alpha cutout, and discarding fragments is
+ * what wrecked performance on Apple's tile GPUs here before.
+ */
+const BLADE_VERTS = 96;
 
 const shader = /* wgsl */ `
 ${surfaceLib}
@@ -46,6 +54,31 @@ struct Cover {
  * and whether it existed at all, once per cell of camera movement. Bit mixing
  * on the indices gives the same answer for a cell for as long as it exists.
  */
+/** Smooth 0-1 noise on an integer lattice. */
+fn noise2(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hashCell(vec2i(i)).x;
+  let b = hashCell(vec2i(i) + vec2i(1, 0)).x;
+  let c = hashCell(vec2i(i) + vec2i(0, 1)).x;
+  let d = hashCell(vec2i(i) + vec2i(1, 1)).x;
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+/**
+ * Where there is meadow at all, 0 to 1.
+ *
+ * Stretched and warped rather than round: seagrass grows in drifts and runs
+ * that follow the sand, so the field is sampled in a space squashed along one
+ * axis and bent by a slower noise. Even, round patches read as spray paint.
+ */
+fn meadowAt(xz: vec2f) -> f32 {
+  let bend = noise2(xz * 0.012) * 9.0;
+  let q = vec2f(xz.x * 0.055 + bend, xz.y * 0.017 - bend * 0.3);
+  return smoothstep(0.3, 0.62, noise2(q) * 0.75 + noise2(q * 2.7) * 0.25);
+}
+
 fn hashCell(c: vec2i) -> vec4f {
   var n = (u32(c.x) * 1597334673u) ^ (u32(c.y) * 3812015801u);
   var o: vec4f;
@@ -99,13 +132,14 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   let dist = distance(base.xz, frame.camPos.xz);
   let fade = smoothstep(cover.radius, cover.radius * 0.72, dist);
   // Turf takes to sand and reef flats, not to bare rock or a wall, and it
-  // grows in patches: a slow field decides where there is any at all, so the
-  // floor reads as meadow and clearing rather than an even sprinkle.
-  let sand = (1.0 - m.r) * (0.4 + m.g * 0.5 + m.b * 0.9);
+  // grows in drifts. Inside a drift nearly every cell has a tuft, outside it
+  // almost none: thin everywhere reads as a dusting, thick in places reads as
+  // meadow, for the same number of tufts drawn.
+  let sand = (1.0 - m.r) * (0.45 + m.g * 0.4 + m.b * 1.0);
   let flat = smoothstep(0.62, 0.86, normal.y);
-  // Patches of turf, on a lattice sixteen cells across.
-  let meadow = smoothstep(0.25, 0.7, hashCell(vec2i(cell.x >> 4u, cell.y >> 4u)).x + 0.4);
-  let grow = fade * flat * step(h.z, (0.25 + sand * 0.75) * meadow);
+  let meadow = meadowAt(xz) * clamp(sand, 0.0, 1.0);
+  // Inside a drift nearly every cell has a tuft: thick where there is any.
+  let grow = fade * flat * step(h.z, meadow * 1.6);
 
   let blade = vi / 6u;
   let corner = vi % 6u;
@@ -119,7 +153,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   // Short and broad, like turf: tall thin blades read as scattered sticks.
   // Small and narrow: at any size worth noticing individually these read as
   // cones stuck in the sand rather than as turf.
-  let height = (0.07 + bh.y * 0.13) * grow;
+  // Taller where the drift is thickest, wispy at its edge.
+  let height = (0.09 + bh.y * 0.19) * (0.55 + 0.75 * meadow) * grow;
   let width = (0.008 + bh.z * 0.012) * (1.0 - up * 0.65);
 
   // Current: the tips stream, the bases hold.
@@ -127,7 +162,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   let sway = (sin(phase) * 0.25 + 0.55) * up * up * height;
 
   var p = base;
-  p += vec3f(dir.x, 0.0, dir.y) * bh.w * 0.09;
+  // Spread around the root, so a tuft is a clump rather than a fan.
+  p += vec3f(dir.x, 0.0, dir.y) * bh.w * 0.19;
   p.y += up * height;
   p += vec3f(dir.y, 0.0, -dir.x) * side * width;
   p += vec3f(0.8, 0.0, 0.35) * sway;
