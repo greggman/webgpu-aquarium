@@ -72,29 +72,34 @@ fn baseHeight(xz: vec2f) -> f32 {
  * The height map sets the shape; the 3D terms are what it could not say.
  */
 fn density(p: vec3f) -> f32 {
-  let ground = baseHeight(p.xz);
-  var d = p.y - ground;
   if (P.relief <= 0.0) {
-    return d;
+    return p.y - baseHeight(p.xz);
   }
-  let below = ground - p.y;
-
-  // Undercuts: a slow 3D warp, strongest a few metres down, so walls bulge and
-  // lean out over their own feet instead of running straight up.
-  let warp = fbm3(p * 0.055 + P.seed, 3);
-  let band = smoothstep(0.0, 3.0, below) * smoothstep(26.0, 8.0, below);
-  d += warp * 3.4 * P.relief * band;
+  // Overhangs come from warping the *lookup*, not from adding noise to the
+  // field: each height samples the terrain from a slightly shifted place, so a
+  // wall leans further out the further down you go. Adding noise to the field
+  // instead makes lips thinner than a cell, which surface nets cannot mesh —
+  // it has one vertex per cell — and the surface tears into square holes.
+  let rough = baseHeight(p.xz);
+  let deep = rough - p.y;
+  let band = smoothstep(0.0, 12.0, deep) * smoothstep(34.0, 16.0, deep);
+  let sway = vec2f(
+    fbm3(p * 0.045 + P.seed, 3),
+    fbm3(p * 0.045 + P.seed + 17.0, 3),
+  ) * 3.2 * P.relief * band;
+  let ground = baseHeight(p.xz + sway);
+  var d = p.y - ground;
 
   // Tunnels: the near-zero shells of two warped fields, intersected, so they
-  // form connected tubes rather than blobs or a sponge. Only under real rock,
-  // and fading out before the surface so none opens as a hole in the seabed.
-  // Only where the rock is worth boring: a slow regional mask keeps most of
-  // the seabed solid, so tunnels are a discovery rather than a sponge.
+  // form connected tubes rather than blobs or a sponge. Only where a slow
+  // regional mask allows, well under the surface, so most of the seabed stays
+  // solid and none of them opens as a hole in the floor.
+  let below = ground - p.y;
   let region = smoothstep(0.18, 0.42, fbm3(vec3f(p.x, p.y * 0.25, p.z) * 0.012 + 53.0, 2) + 0.2);
   let q = p * 0.031 + P.seed * 0.7 + 11.0;
   let tube = max(abs(fbm3(q, 3)), abs(fbm3(q * 1.27 + 5.0, 3)));
-  let cover = smoothstep(2.5, 6.0, below) * smoothstep(20.0, 12.0, below) * region;
-  d = max(d, (0.085 - tube) * 26.0 * cover * P.relief);
+  let cover = smoothstep(4.0, 12.0, below) * smoothstep(30.0, 18.0, below) * region;
+  d = max(d, (0.075 - tube) * 30.0 * cover * P.relief);
   return d;
 }
 
@@ -289,8 +294,10 @@ export async function buildVoxelTerrain(
   const half = s.worldSize / 2;
   const across = Math.ceil(s.worldSize / span);
   const up = Math.ceil((s.maxY - s.minY) / span);
-  // How far under the height map the tunnels can still carve.
+  // How far the 3D terms move the surface away from the height map: tunnels
+  // carve well below it, and the warp bulges a few metres above.
   const undercut = 36;
+  const lift = 8;
 
   // Which chunks can hold surface, from the height map's range over each
   // column: most of the volume is solid rock or open water and can be skipped.
@@ -299,18 +306,27 @@ export async function buildVoxelTerrain(
     for (let cx = 0; cx < across; cx++) {
       const x0 = -half + cx * span;
       const z0 = -half + cz * span;
+      // Every height-map texel in the footprint: sampling a chunk on a coarse
+      // grid steps straight over a canyon, and a chunk whose range is wrong is
+      // skipped, which shows up as a hole in the seabed.
       let lo = Infinity;
       let hi = -Infinity;
-      for (let i = 0; i <= 6; i++) {
-        for (let j = 0; j <= 6; j++) {
-          const h = cpu.heightAt(x0 + (span * i) / 6, z0 + (span * j) / 6);
+      const steps = Math.max(8, Math.ceil(span / (s.worldSize / cpu.size)));
+      for (let i = 0; i <= steps; i++) {
+        for (let j = 0; j <= steps; j++) {
+          const h = cpu.heightAt(
+            x0 + (span * i) / steps,
+            z0 + (span * j) / steps,
+          );
           lo = Math.min(lo, h);
           hi = Math.max(hi, h);
         }
       }
       for (let cy = 0; cy < up; cy++) {
         const y0 = s.minY + cy * span;
-        if (y0 > hi + s.cellSize * 2 || y0 + span < lo - undercut) {
+        // The 3D warp lifts the surface above the height map as well as below
+        // it, so both bounds need room.
+        if (y0 > hi + lift || y0 + span < lo - undercut) {
           continue;
         }
         boxes.push({origin: [x0, y0, z0]});
@@ -578,7 +594,11 @@ fn fs(i: VOut) -> FOut {
 
 @vertex
 fn vsShadow(@location(0) inPos: vec3f, @location(1) inNormal: vec3f) -> @builtin(position) vec4f {
-  return frame.shadowViewProj * vec4f(inPos, 1.0);
+  // Pushed a shadow texel into the rock, so a surface never shadows itself.
+  // (The mesh is closed, and only its far side is drawn into the map, so this
+  // cannot pull a shadow away from the foot of anything standing on it.)
+  let p = inPos - normalize(inNormal) * frame.shadow.x * 1.5;
+  return frame.shadowViewProj * vec4f(p, 1.0);
 }
 `;
 
@@ -635,7 +655,9 @@ export async function createVoxelRenderer(
       label: 'voxel:shadow-pipeline',
       layout,
       vertex: {module, entryPoint: 'vsShadow', buffers},
-      primitive: {topology: 'triangle-list', cullMode: 'none'},
+      // Only the faces turned away from the light write depth: the classic
+      // cure for a closed mesh shadowing itself.
+      primitive: {topology: 'triangle-list', cullMode: 'front'},
       depthStencil: {
         format: DEPTH_FORMAT,
         depthWriteEnabled: true,
