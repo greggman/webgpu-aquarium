@@ -36,11 +36,28 @@ struct Cover {
 };
 @group(1) @binding(0) var<uniform> cover: Cover;
 
-fn hash2(p: vec2f) -> vec4f {
-  var q = vec3f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)), dot(p, vec2f(419.2, 371.9)));
-  q = fract(sin(q) * 43758.5453);
-  let w = fract(sin(dot(q.xy, vec2f(12.9898, 78.233))) * 43758.5453);
-  return vec4f(q, w);
+/**
+ * Four values from a cell's integer coordinates.
+ *
+ * Integer, not the cell's world position: the grid slides with the camera, so
+ * the same cell's position comes out of a different sum each time it moves, and
+ * the usual sin-based hash turns a last-bit difference into an entirely
+ * different number. Every tuft in view then changed its mind about where it was
+ * and whether it existed at all, once per cell of camera movement. Bit mixing
+ * on the indices gives the same answer for a cell for as long as it exists.
+ */
+fn hashCell(c: vec2i) -> vec4f {
+  var n = (u32(c.x) * 1597334673u) ^ (u32(c.y) * 3812015801u);
+  var o: vec4f;
+  for (var i = 0u; i < 4u; i++) {
+    n ^= n >> 16u;
+    n *= 2246822519u;
+    n ^= n >> 13u;
+    n *= 3266489917u;
+    n ^= n >> 16u;
+    o[i] = f32(n >> 8u) / 16777216.0;
+  }
+  return o;
 }
 
 struct VOut {
@@ -65,10 +82,9 @@ fn maskAt(xz: vec2f) -> vec4f {
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
   var o: VOut;
   // Which cell of the patch this instance is, and where that cell sits.
-  let gx = f32(ii % ${GRID}u);
-  let gz = f32(ii / ${GRID}u);
-  let cellPos = cover.origin + vec2f(gx, gz) * cover.cell;
-  let h = hash2(cellPos);
+  let cell = vec2i(cover.origin) + vec2i(i32(ii % ${GRID}u), i32(ii / ${GRID}u));
+  let cellPos = vec2f(cell) * cover.cell;
+  let h = hashCell(cell);
   let xz = cellPos + (h.xy - 0.5) * cover.cell * 0.9;
 
   let g = groundAt(xz);
@@ -77,20 +93,23 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   let base = vec3f(xz.x, g.r, xz.y);
 
   // Thinner with distance, and gone before the edge of the patch, so nothing
-  // ever pops into being in view.
-  let dist = distance(base, frame.camPos);
+  // ever pops into being in view. Measured flat: the patch follows the camera
+  // horizontally, so bringing its height into the fade would empty the whole
+  // thing as the camera rose and fill it again as it sank.
+  let dist = distance(base.xz, frame.camPos.xz);
   let fade = smoothstep(cover.radius, cover.radius * 0.72, dist);
   // Turf takes to sand and reef flats, not to bare rock or a wall, and it
   // grows in patches: a slow field decides where there is any at all, so the
   // floor reads as meadow and clearing rather than an even sprinkle.
   let sand = (1.0 - m.r) * (0.4 + m.g * 0.5 + m.b * 0.9);
   let flat = smoothstep(0.62, 0.86, normal.y);
-  let meadow = smoothstep(0.25, 0.7, hash2(floor(xz * 0.18)).x + 0.4);
+  // Patches of turf, on a lattice sixteen cells across.
+  let meadow = smoothstep(0.25, 0.7, hashCell(vec2i(cell.x >> 4u, cell.y >> 4u)).x + 0.4);
   let grow = fade * flat * step(h.z, (0.25 + sand * 0.75) * meadow);
 
   let blade = vi / 6u;
   let corner = vi % 6u;
-  let bh = hash2(cellPos + vec2f(f32(blade) * 7.3, f32(blade) * 3.1));
+  let bh = hashCell(cell * 7 + vec2i(i32(blade) * 31, i32(blade) * 17));
   // Two triangles per blade: a tapered strip from the ground to the tip.
   let up = f32(corner == 1u || corner == 2u || corner == 4u);
   let side = f32(corner == 0u || corner == 1u || corner == 5u) * 2.0 - 1.0;
@@ -98,8 +117,10 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   let lean = bh.x * 6.2831853;
   let dir = vec2f(cos(lean), sin(lean));
   // Short and broad, like turf: tall thin blades read as scattered sticks.
-  let height = (0.09 + bh.y * 0.16) * grow;
-  let width = (0.02 + bh.z * 0.025) * (1.0 - up * 0.7);
+  // Small and narrow: at any size worth noticing individually these read as
+  // cones stuck in the sand rather than as turf.
+  let height = (0.07 + bh.y * 0.13) * grow;
+  let width = (0.008 + bh.z * 0.012) * (1.0 - up * 0.65);
 
   // Current: the tips stream, the bases hold.
   let phase = frame.time * 1.4 + dot(xz, vec2f(0.4, 0.3)) + f32(blade);
@@ -118,9 +139,11 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
   // Facing up and outward, so a tuft catches the light as a clump rather than
   // as three separate slivers.
   o.normal = normalize(normal + vec3f(dir.x, 1.2, dir.y) * 0.6);
-  let green = mix(vec3f(0.26, 0.44, 0.17), vec3f(0.46, 0.58, 0.22), bh.z);
-  let weed = mix(vec3f(0.42, 0.46, 0.18), vec3f(0.24, 0.48, 0.38), h.w);
-  o.tint = mix(green, weed, m.a) * (0.8 + 0.35 * bh.y);
+  // Olive and muted, near the seabed's own colours: bright green turf reads as
+  // plastic against sand.
+  let green = mix(vec3f(0.19, 0.29, 0.13), vec3f(0.31, 0.38, 0.16), bh.z);
+  let weed = mix(vec3f(0.28, 0.31, 0.14), vec3f(0.17, 0.32, 0.25), h.w);
+  o.tint = mix(green, weed, m.a) * (0.8 + 0.3 * bh.y);
   o.along = up;
   return o;
 }
@@ -212,8 +235,10 @@ export async function createGroundCover(
     update(ctx: FrameContext) {
       const view: CullView = ctx.view;
       // Snapped to the grid so tufts stay put as the camera moves.
-      data[0] = Math.floor(view.camPos[0] / CELL - grid / 2) * CELL;
-      data[1] = Math.floor(view.camPos[2] / CELL - grid / 2) * CELL;
+      // Cell indices, not metres: the shader identifies a cell by these, and
+      // an integer survives the grid sliding under the camera exactly.
+      data[0] = Math.floor(view.camPos[0] / CELL) - grid / 2;
+      data[1] = Math.floor(view.camPos[2] / CELL) - grid / 2;
       data[2] = CELL;
       data[3] = radius;
       device.queue.writeBuffer(uniform, 0, data);
