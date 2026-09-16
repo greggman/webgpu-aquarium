@@ -6,6 +6,7 @@
 // never visible.
 
 import {createShader} from '../gpu/device.ts';
+import {boxOutside, sidePlanes} from '../render/frustum.ts';
 import type {CullView} from '../render/renderer.ts';
 import {defineStruct, StructBuffer} from '../gpu/structs.ts';
 import {dispatch2D, readBuffer} from '../gpu/util.ts';
@@ -996,39 +997,14 @@ export async function createTerrainRenderer(
   const lists: number[][] = steps.map(() => []);
   const shadowLists: number[][] = steps.map(() => []);
 
-  const outsideClip = (
-    m: Float32Array,
-    min: readonly number[],
-    max: readonly number[],
-    ortho: boolean,
-  ) => {
-    // True if all 8 corners are beyond the same clip plane.
-    let left = 0;
-    let right = 0;
-    let bottom = 0;
-    let top = 0;
-    let behind = 0;
-    for (let c = 0; c < 8; c++) {
-      const x = c & 1 ? max[0] : min[0];
-      const y = c & 2 ? max[1] : min[1];
-      const z = c & 4 ? max[2] : min[2];
-      const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
-      const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
-      const cw = ortho ? 1 : m[3] * x + m[7] * y + m[11] * z + m[15];
-      if (cx < -cw) left++;
-      if (cx > cw) right++;
-      if (cy < -cw) bottom++;
-      if (cy > cw) top++;
-      if (cw < 0) behind++;
-    }
-    return (
-      left === 8 || right === 8 || bottom === 8 || top === 8 || behind === 8
-    );
-  };
+  const camPlanes = new Float32Array(16);
+  const shadowPlanes = new Float32Array(16);
 
   return {
     update(view: CullView) {
       const cp = view.camPos;
+      sidePlanes(view.viewProj, camPlanes);
+      sidePlanes(view.shadowViewProj, shadowPlanes);
       lists.forEach(l => (l.length = 0));
       shadowLists.forEach(l => (l.length = 0));
       chunkInfo.forEach((c, i) => {
@@ -1050,10 +1026,10 @@ export async function createTerrainRenderer(
           }
           return level;
         };
-        if (!outsideClip(view.viewProj, c.min, c.max, false)) {
+        if (!boxOutside(camPlanes, c.min, c.max)) {
           lists[pick(0.025)].push(i);
         }
-        if (!outsideClip(view.shadowViewProj, c.min, c.max, true)) {
+        if (!boxOutside(shadowPlanes, c.min, c.max)) {
           shadowLists[pick(0.08)].push(i);
         }
       });

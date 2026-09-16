@@ -35,6 +35,36 @@ export function sidePlanes(
   return out;
 }
 
+/**
+ * True when an axis-aligned box lies entirely outside at least one plane.
+ *
+ * Testing a box by its corners in clip space instead looks reasonable and is
+ * wrong: a corner behind the camera has a negative w, which flips every
+ * comparison against it, so a box the camera sits inside can be judged to be
+ * entirely off one side and vanish. In world space, against normalized planes,
+ * there is no such trap.
+ */
+export function boxOutside(
+  planes: Float32Array,
+  min: readonly number[],
+  max: readonly number[],
+): boolean {
+  for (let i = 0; i < planes.length; i += 4) {
+    const nx = planes[i];
+    const ny = planes[i + 1];
+    const nz = planes[i + 2];
+    // The corner furthest along the plane's normal: if even that one is behind
+    // the plane, all eight are.
+    const px = nx >= 0 ? max[0] : min[0];
+    const py = ny >= 0 ? max[1] : min[1];
+    const pz = nz >= 0 ? max[2] : min[2];
+    if (nx * px + ny * py + nz * pz + planes[i + 3] < 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** True when a sphere is at least partly inside all four side planes. */
 export function sphereInside(
   planes: Float32Array,

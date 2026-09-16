@@ -559,6 +559,18 @@ async function main() {
     window.__aquarium.fps = fpsAvg;
     window.__aquarium.gpuMs = gpuMs;
     window.__aquarium.cpuMs = cpuMs;
+    // ?where=1 keeps the camera's position on screen, so a spot worth
+    // reporting can be read straight off a screenshot.
+    if (params.get('where') === '1' && frameIndex % 10 === 0) {
+      hud.classList.remove('hidden');
+      hud.hidden = false;
+      const p = pose.pos;
+      hud.textContent =
+        `seed ${seed} · ${tier}\n` +
+        `pos ${p[0].toFixed(1)} ${p[1].toFixed(1)} ${p[2].toFixed(1)} · ` +
+        `yaw ${((pose.yaw * 180) / Math.PI).toFixed(0)} pitch ${((pose.pitch * 180) / Math.PI).toFixed(0)} · ` +
+        `floor ${nav.floorAt(p[0], p[2]).toFixed(1)}`;
+    }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
       hud.hidden = false;
