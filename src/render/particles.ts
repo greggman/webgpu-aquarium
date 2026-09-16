@@ -54,7 +54,13 @@ fn billboard(center: vec3f, size: f32, corner: vec2f) -> vec4f {
 @vertex
 fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
   let h = hash3u(ii);
-  let box = params.box;
+  // Two layers. Spread evenly through a 24 m box, particles are almost never
+  // within touching distance of the lens, which is exactly where they read as
+  // motion: what you notice moving through water is the mote that passes your
+  // mask, not the haze twenty metres off. A third of them wrap in a box a few
+  // metres across instead, so there is always something close going by.
+  let near = ii % 3u == 0u;
+  let box = select(params.box, 5.5, near);
   // Slow drift with the current and a gentle sink; wrap in a box around the camera.
   let drift = vec3f(0.12, -0.03 - h.y * 0.05, 0.05) * frame.time +
     vec3f(sin(frame.time * 0.3 + h.x * 20.0), cos(frame.time * 0.23 + h.z * 20.0), sin(frame.time * 0.27 + h.y * 20.0)) * 0.15;
@@ -70,7 +76,8 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   let corner = cornerOf(vi);
   // Never smaller than about a pixel so distant flecks don't shimmer.
   let pixel = dist * 2.0 / (frame.proj[1][1] * frame.resolution.y);
-  let size = max(0.004 + h.x * 0.008, pixel * 1.2);
+  let grain = select(0.004 + h.x * 0.008, 0.005 + h.x * 0.013, near);
+  let size = max(grain, pixel * 1.2);
   var o: VOut;
   o.pos = billboard(p, size, corner);
   o.quad = corner;
@@ -81,7 +88,8 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   let bg = inscatterColor(p.y, dirV);
   let sunGlint = sunAtDepth(p.y) * min(waterPhase(dot(dirV, frame.sunDir)), 0.4) * 0.12;
   o.color = bg * (0.6 + 1.2 * h.z) + sunGlint * h.z;
-  o.alpha = edgeFade * exp(-dist * 0.08) * min(1.0, (0.006 + h.x * 0.008) / size) * 0.5;
+  o.alpha = edgeFade * exp(-dist * 0.08) * min(1.0, grain / size) *
+    select(0.5, 0.62, near);
   o.kind = 0u;
   o.viewDepth = -(frame.view * vec4f(p, 1.0)).z;
   return o;
