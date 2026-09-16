@@ -193,6 +193,7 @@ async function main() {
               maxY: desc.surfaceY - 3,
               seed: desc.seed,
               relief: numParam('relief') ?? 1,
+              debugStats: params.get('voxelstats') === '1',
             },
           );
           console.log(
@@ -205,6 +206,7 @@ async function main() {
             renderer.globals.layout,
             targetsFormats,
             mesh,
+            params.get('flat') === '1',
           );
         })()
       : null;

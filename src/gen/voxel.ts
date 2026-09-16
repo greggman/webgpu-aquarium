@@ -34,6 +34,95 @@ const C = CHUNK + 2;
 const VF = 6;
 const PARAM_STRIDE = 256;
 
+/**
+ * Checks the meshed surface against the height map it was built from: with the
+ * 3D terms off the two should agree to well under a cell, and anything bigger
+ * is the mesher misplacing vertices.
+ */
+async function reportVertexError(
+  device: GPUDevice,
+  vertices: GPUBuffer,
+  totals: Uint32Array,
+  chunks: number,
+  cpu: TerrainData,
+  s: VoxelSettings,
+) {
+  const count = Math.min(chunks ? totals[(chunks - 1) * 2] : 0, 200000);
+  if (!count) {
+    return;
+  }
+  const staging = device.createBuffer({
+    label: 'voxel:vertex-readback',
+    size: count * VF * 4,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  const enc = device.createCommandEncoder({label: 'voxel:vertex-copy'});
+  enc.copyBufferToBuffer(vertices, 0, staging, 0, count * VF * 4);
+  device.queue.submit([enc.finish({label: 'voxel:vertex-copy'})]);
+  await staging.mapAsync(GPUMapMode.READ);
+  const v = new Float32Array(staging.getMappedRange());
+  let worst = 0;
+  let over = 0;
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < count; i++) {
+    const x = v[i * VF];
+    const y = v[i * VF + 1];
+    const z = v[i * VF + 2];
+    const e = Math.abs(y - cpu.heightAt(x, z));
+    if (e > 40) {
+      continue;
+    }
+    worst = Math.max(worst, e);
+    sum += e;
+    n++;
+    if (e > s.cellSize) {
+      over++;
+    }
+  }
+  console.log(
+    `[voxel] vertex error vs height map: mean ${(sum / Math.max(n, 1)).toFixed(2)} m, ` +
+      `worst ${worst.toFixed(2)} m, ${((over / Math.max(n, 1)) * 100).toFixed(1)}% over one cell ` +
+      `(cell ${s.cellSize} m, ${n} sampled)`,
+  );
+  // Where the bad ones sit inside their chunk, to tell a boundary bug from a
+  // sampling one.
+  const span = CHUNK * s.cellSize;
+  let edge = 0;
+  let bad = 0;
+  const examples: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const x = v[i * VF];
+    const y = v[i * VF + 1];
+    const z = v[i * VF + 2];
+    const e = Math.abs(y - cpu.heightAt(x, z));
+    if (e <= s.cellSize || e > 40) {
+      continue;
+    }
+    bad++;
+    const local = [x, y, z].map(c => {
+      const f = (((c / span) % 1) + 1) % 1;
+      return Math.min(f, 1 - f) * span;
+    });
+    if (Math.min(...local) < s.cellSize * 1.5) {
+      edge++;
+    }
+    if (examples.length < 5) {
+      examples.push(
+        `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) off by ${e.toFixed(1)} m, ` +
+          `${local.map(c => c.toFixed(1)).join('/')} from a chunk edge`,
+      );
+    }
+  }
+  console.log(
+    `[voxel] of ${bad} bad vertices, ${((edge / Math.max(bad, 1)) * 100).toFixed(0)}% lie within ` +
+      '1.5 cells of a chunk boundary',
+  );
+  examples.forEach(e => console.log(`[voxel]   ${e}`));
+  staging.unmap();
+  staging.destroy();
+}
+
 export interface VoxelSettings {
   worldSize: number;
   /** Metres per cell. */
@@ -44,6 +133,8 @@ export interface VoxelSettings {
   seed: number;
   /** Strength of the 3D features; 0 reproduces the height map exactly. */
   relief: number;
+  /** Log how far the meshed surface sits from the height map. */
+  debugStats?: boolean;
 }
 
 const fieldWgsl = /* wgsl */ `
@@ -61,9 +152,41 @@ struct Params {
 @group(1) @binding(0) var tHeight: texture_2d<f32>;
 @group(1) @binding(1) var sHeight: sampler;
 
-/** The height map the rest of the world is built from, in world space. */
-fn baseHeight(xz: vec2f) -> f32 {
+fn heightTap(xz: vec2f) -> f32 {
   return textureSampleLevel(tHeight, sHeight, xz / P.worldSize + 0.5, 0.0).r;
+}
+
+/**
+ * The height map, smoothed to the cell size.
+ *
+ * The map carries ripples and ledges finer than a cell, and a grid cannot hold
+ * detail it cannot sample: asked to, it quilts, each cell tilting whichever way
+ * its own corners fell. The geometry takes the broad shape and the material's
+ * own relief puts the fine detail back, which is how it is done everywhere.
+ */
+fn baseHeight(xz: vec2f) -> f32 {
+  let e = P.cell * 0.6;
+  return heightTap(xz) * 0.36 +
+    (heightTap(xz + vec2f(e, 0.0)) + heightTap(xz - vec2f(e, 0.0)) +
+     heightTap(xz + vec2f(0.0, e)) + heightTap(xz - vec2f(0.0, e))) * 0.13 +
+    (heightTap(xz + vec2f(e, e)) + heightTap(xz + vec2f(e, -e)) +
+     heightTap(xz + vec2f(-e, e)) + heightTap(xz + vec2f(-e, -e))) * 0.03;
+}
+
+/**
+ * How much steeper than flat the ground is here: sqrt(1 + |grad h|^2).
+ *
+ * "Height above the ground" is not a distance to it. On a wall of slope s, a
+ * point one metre out from the rock is s metres above the height map, and the
+ * mesher — which finds the surface by interpolating the field along cell edges
+ * — puts its vertices in the wrong place by that factor. Dividing by this
+ * turns the field back into a distance, and steep walls stop stair-stepping.
+ */
+fn slopeScale(xz: vec2f) -> f32 {
+  let e = max(P.cell, 0.3);
+  let gx = (baseHeight(xz + vec2f(e, 0.0)) - baseHeight(xz - vec2f(e, 0.0))) / (2.0 * e);
+  let gz = (baseHeight(xz + vec2f(0.0, e)) - baseHeight(xz - vec2f(0.0, e))) / (2.0 * e);
+  return sqrt(1.0 + gx * gx + gz * gz);
 }
 
 /**
@@ -72,6 +195,12 @@ fn baseHeight(xz: vec2f) -> f32 {
  * The height map sets the shape; the 3D terms are what it could not say.
  */
 fn density(p: vec3f) -> f32 {
+  if (P.relief < -0.5) {
+    // Debug: a smooth analytic surface, to tell a broken field from a broken
+    // mesher.
+    // A steep ramp (slope 4, about 76 degrees) with a flat top and bottom.
+    return p.y + 16.0 - clamp(p.x * 4.0, -12.0, 12.0);
+  }
   if (P.relief <= 0.0) {
     return p.y - baseHeight(p.xz);
   }
@@ -173,31 +302,31 @@ fn vertices(@builtin(global_invocation_id) id: vec3u) {
   if (inside == 0u || inside == 8u) {
     return;
   }
-  var sum = vec3f(0.0);
-  var n = 0.0;
-  for (var a = 0u; a < 8u; a++) {
-    for (var axis = 0u; axis < 3u; axis++) {
-      let bit = 1u << axis;
-      if ((a & bit) != 0u) {
-        continue;
-      }
-      let b = a | bit;
-      let va = corner[a];
-      let vb = corner[b];
-      if ((va < 0.0) == (vb < 0.0)) {
-        continue;
-      }
-      let t = va / (va - vb);
-      let pa = vec3f(f32(a & 1u), f32((a >> 1u) & 1u), f32((a >> 2u) & 1u));
-      let pb = vec3f(f32(b & 1u), f32((b >> 1u) & 1u), f32((b >> 2u) & 1u));
-      sum += mix(pa, pb, t);
-      n += 1.0;
-    }
-  }
-  let local = sum / max(n, 1.0);
+  // Where to put the vertex: the point on the surface nearest the middle of
+  // the cell, found with one Newton step down the field's own gradient.
+  //
+  // Averaging the crossings on the cell's edges — the usual surface-nets rule —
+  // pulls vertices toward whichever corner the surface happens to graze, and on
+  // ground that runs near the grid the pull alternates cell by cell, quilting
+  // the surface at cell scale. Stepping from the centre instead has no such
+  // bias, and for a smooth field lands within a few centimetres of the surface.
+  let mid = (corner[0] + corner[1] + corner[2] + corner[3] +
+    corner[4] + corner[5] + corner[6] + corner[7]) * 0.125;
+  let g = vec3f(
+    (corner[1] + corner[3] + corner[5] + corner[7]) -
+      (corner[0] + corner[2] + corner[4] + corner[6]),
+    (corner[2] + corner[3] + corner[6] + corner[7]) -
+      (corner[0] + corner[1] + corner[4] + corner[5]),
+    (corner[4] + corner[5] + corner[6] + corner[7]) -
+      (corner[0] + corner[1] + corner[2] + corner[3]),
+  ) * 0.25;
+  let local = clamp(
+    vec3f(0.5) - g * (mid / max(dot(g, g), 1e-8)),
+    vec3f(0.02),
+    vec3f(0.98),
+  );
   let world = P.origin + (vec3f(id) - 1.0 + local) * P.cell;
-  let g = grad(id.x, id.y, id.z);
-  let normal = select(vec3f(0.0, 1.0, 0.0), normalize(g), length(g) > 1e-6);
+  let normal = select(vec3f(0.0, 1.0, 0.0), normalize(g), length(g) > 1e-8);
   let vi = atomicAdd(&counts[0], 1u);
   let o = vi * VF;
   if (o + VF > arrayLength(&verts)) {
@@ -297,7 +426,9 @@ export async function buildVoxelTerrain(
   // How far the 3D terms move the surface away from the height map: tunnels
   // carve well below it, and the warp bulges a few metres above.
   const undercut = 36;
-  const lift = 8;
+  const lift = 6;
+  /** How far sideways the warp can move a height lookup. */
+  const sway = 4;
 
   // Which chunks can hold surface, from the height map's range over each
   // column: most of the volume is solid rock or open water and can be skipped.
@@ -311,12 +442,16 @@ export async function buildVoxelTerrain(
       // skipped, which shows up as a hole in the seabed.
       let lo = Infinity;
       let hi = -Infinity;
-      const steps = Math.max(8, Math.ceil(span / (s.worldSize / cpu.size)));
+      // Reaching past the chunk as well: the warp samples the height map up to
+      // `sway` metres away, so ground from outside this footprint can end up
+      // inside the chunk.
+      const reach = span + 2 * sway;
+      const steps = Math.max(8, Math.ceil(reach / (s.worldSize / cpu.size)));
       for (let i = 0; i <= steps; i++) {
         for (let j = 0; j <= steps; j++) {
           const h = cpu.heightAt(
-            x0 + (span * i) / steps,
-            z0 + (span * j) / steps,
+            x0 - sway + (reach * i) / steps,
+            z0 - sway + (reach * j) / steps,
           );
           lo = Math.min(lo, h);
           hi = Math.max(hi, h);
@@ -349,7 +484,8 @@ export async function buildVoxelTerrain(
   const vertices = device.createBuffer({
     label: 'voxel:vertices',
     size: (1 << 21) * VF * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+    usage:
+      GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
   });
   const indices = device.createBuffer({
     label: 'voxel:indices',
@@ -398,12 +534,12 @@ export async function buildVoxelTerrain(
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        texture: {sampleType: 'unfilterable-float'},
+        texture: {sampleType: 'float'},
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        sampler: {type: 'non-filtering'},
+        sampler: {type: 'filtering'},
       },
     ],
   });
@@ -477,7 +613,13 @@ export async function buildVoxelTerrain(
       },
       {
         binding: 1,
-        resource: device.createSampler({label: 'voxel:height-sampler'}),
+        resource: device.createSampler({
+          label: 'voxel:height-sampler',
+          magFilter: 'linear',
+          minFilter: 'linear',
+          addressModeU: 'clamp-to-edge',
+          addressModeV: 'clamp-to-edge',
+        }),
       },
     ],
   });
@@ -510,16 +652,18 @@ export async function buildVoxelTerrain(
     pass.setBindGroup(2, fieldOutGroup);
     pass.dispatchWorkgroups(fieldGroups, fieldGroups, fieldGroups);
     pass.end();
-    const mesh = encoder.beginComputePass({label: `voxel:mesh-${i}`});
-    mesh.setPipeline(vertexPipeline);
-    mesh.setBindGroup(0, paramsGroup, offset);
-    mesh.setBindGroup(1, meshGroup);
-    mesh.dispatchWorkgroups(cellGroups, cellGroups, cellGroups);
-    mesh.setPipeline(quadPipeline);
-    mesh.setBindGroup(0, paramsGroup, offset);
-    mesh.setBindGroup(1, meshGroup);
-    mesh.dispatchWorkgroups(cellGroups, cellGroups, cellGroups);
-    mesh.end();
+    const verts = encoder.beginComputePass({label: `voxel:verts-${i}`});
+    verts.setPipeline(vertexPipeline);
+    verts.setBindGroup(0, paramsGroup, offset);
+    verts.setBindGroup(1, meshGroup);
+    verts.dispatchWorkgroups(cellGroups, cellGroups, cellGroups);
+    verts.end();
+    const quads = encoder.beginComputePass({label: `voxel:quads-${i}`});
+    quads.setPipeline(quadPipeline);
+    quads.setBindGroup(0, paramsGroup, offset);
+    quads.setBindGroup(1, meshGroup);
+    quads.dispatchWorkgroups(cellGroups, cellGroups, cellGroups);
+    quads.end();
     // Running totals after this chunk: its index range ends here.
     encoder.copyBufferToBuffer(counts, 0, tally, i * 8, 8);
   });
@@ -539,6 +683,9 @@ export async function buildVoxelTerrain(
   field.destroy();
   cellVertex.destroy();
   tally.destroy();
+  if (s.debugStats) {
+    await reportVertexError(device, vertices, totals, boxes.length, cpu, s);
+  }
   return {
     vertices,
     indices,
@@ -592,6 +739,24 @@ fn fs(i: VOut) -> FOut {
   return o;
 }
 
+/**
+ * Debug view: solid colour, one directional light, no water and no shadows, so
+ * the silhouette and any hole in the surface are obvious. Back faces are drawn
+ * red, so seeing red means looking through the surface at its inside.
+ */
+@fragment
+fn fsFlat(i: VOut, @builtin(front_facing) front: bool) -> FOut {
+  // Geometric normal from the triangle itself, not the field gradient: if the
+  // blocky look survives this, it is in the geometry.
+  let n = normalize(cross(dpdxFine(i.world), dpdyFine(i.world))) * -1.0;
+  let key = clamp(dot(n, normalize(vec3f(0.4, 0.85, 0.3))), 0.0, 1.0);
+  let col = vec3f(0.55, 0.6, 0.62) * (0.25 + 0.75 * key);
+  var o: FOut;
+  o.color = vec4f(select(vec3f(1.2, 0.0, 0.0), col, front), 1.0);
+  o.velocity = (i.curClip.xy / i.curClip.w - i.prevClip.xy / i.prevClip.w) * vec2f(0.5, -0.5);
+  return o;
+}
+
 @vertex
 fn vsShadow(@location(0) inPos: vec3f, @location(1) inNormal: vec3f) -> @builtin(position) vec4f {
   // Pushed a shadow texel into the rock, so a surface never shadows itself.
@@ -619,6 +784,7 @@ export async function createVoxelRenderer(
     depth: GPUTextureFormat;
   },
   mesh: VoxelMesh,
+  debug = false,
 ): Promise<VoxelRenderer> {
   const module = createShader(device, 'voxel:render-shader', renderShader);
   const layout = device.createPipelineLayout({
@@ -641,10 +807,10 @@ export async function createVoxelRenderer(
       vertex: {module, entryPoint: 'vs', buffers},
       fragment: {
         module,
-        entryPoint: 'fs',
+        entryPoint: debug ? 'fsFlat' : 'fs',
         targets: [{format: targets.color}, {format: targets.velocity}],
       },
-      primitive: {topology: 'triangle-list', cullMode: 'back'},
+      primitive: {topology: 'triangle-list', cullMode: debug ? 'none' : 'back'},
       depthStencil: {
         format: targets.depth,
         depthWriteEnabled: true,
