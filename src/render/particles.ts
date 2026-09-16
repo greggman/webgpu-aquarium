@@ -61,10 +61,19 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   // metres across instead, so there is always something close going by.
   let near = ii % 3u == 0u;
   let box = select(params.box, 5.5, near);
-  // Slow drift with the current and a gentle sink; wrap in a box around the camera.
+  // Slow drift with the current and a gentle sink; wrap in a box around the
+  // camera.
   let drift = vec3f(0.12, -0.03 - h.y * 0.05, 0.05) * frame.time +
     vec3f(sin(frame.time * 0.3 + h.x * 20.0), cos(frame.time * 0.23 + h.z * 20.0), sin(frame.time * 0.27 + h.y * 20.0)) * 0.15;
-  let rel0 = fract((h * box + drift - frame.camPos) / box) * box - box * 0.5;
+  // Centred ahead of the lens rather than on it. A box centred on the camera
+  // spends half its motes behind the viewer, where they cost a vertex each and
+  // are never seen; pushed forward, nearly all of them are in front. The wrap
+  // is still in world space, so they hold still as the camera moves and only
+  // teleport at the box edge, where they have already faded out.
+  let fwd = -vec3f(frame.view[0][2], frame.view[1][2], frame.view[2][2]);
+  let centre = frame.camPos + fwd * box * 0.32;
+  let rel0 = fract((h * box + drift - centre) / box) * box - box * 0.5 +
+    (centre - frame.camPos);
   // The swell's surge sloshes the whole water column back and forth (the same
   // rhythm the seabed sways to), which makes the water itself feel alive.
   let world0 = frame.camPos + rel0;
@@ -76,7 +85,8 @@ fn vsSnow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
   let corner = cornerOf(vi);
   // Never smaller than about a pixel so distant flecks don't shimmer.
   let pixel = dist * 2.0 / (frame.proj[1][1] * frame.resolution.y);
-  let grain = select(0.004 + h.x * 0.008, 0.005 + h.x * 0.013, near);
+  // Fine grains: at the old size they read as flakes rather than as dust.
+  let grain = select(0.001 + h.x * 0.002, 0.0013 + h.x * 0.0033, near);
   let size = max(grain, pixel * 1.2);
   var o: VOut;
   o.pos = billboard(p, size, corner);
@@ -199,7 +209,11 @@ export async function createParticles(
 ): Promise<RenderSystem> {
   const device = renderer.device;
   const rng = ctx.rng('particles');
-  const snowCount = Math.round(12000 * ctx.quality.density);
+  // Fewer than before: with the wrap box pushed ahead of the lens, four in five
+  // are in front of the viewer instead of one in two, so the same amount of
+  // dust shows for less vertex work. Nothing is stored — a mote's position is
+  // its index hashed, wrapped and drifted, worked out afresh every frame.
+  const snowCount = Math.round(8000 * ctx.quality.density);
 
   // Bubble emitters: vents among rocks, the odd anemone bed, and cluster edges.
   const emitters: number[] = [];
