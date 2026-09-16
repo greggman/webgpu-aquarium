@@ -48,7 +48,8 @@ const numParam = (name: string) =>
 async function main() {
   const canvas = document.getElementById('screen') as HTMLCanvasElement;
   const hud = document.getElementById('hud')!;
-  // New ocean: reload with a fresh seed, keeping any other URL options.
+  // New ocean: reload, keeping any other URL options but dropping the seed so
+  // a later refresh gives another one (the seed is random when unset).
   const regen = document.getElementById('regenerate') as HTMLButtonElement;
   if (params.get('hud') === '0') {
     regen.hidden = true;
@@ -57,8 +58,14 @@ async function main() {
     e.stopPropagation();
     regen.disabled = true;
     const next = new URLSearchParams(location.search);
-    next.set('seed', String(Math.floor(Math.random() * 1e9)));
-    location.search = next.toString();
+    next.delete('seed');
+    const query = next.toString();
+    const url = location.pathname + (query ? `?${query}` : '') + location.hash;
+    if (url === location.pathname + location.search + location.hash) {
+      location.reload();
+    } else {
+      location.replace(url);
+    }
   });
   // Don't let presses on the button count as camera input.
   for (const type of ['pointerdown', 'mousedown', 'touchstart']) {
@@ -324,6 +331,7 @@ async function main() {
   window.__aquarium.tallProps = gen.tallProps;
   window.__aquarium.camera = camera;
   window.__aquarium.follow = follow;
+  window.__aquarium.jellyfish = jellyfish;
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;
   window.__aquarium.terrain = terrain.cpu;

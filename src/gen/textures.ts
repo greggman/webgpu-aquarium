@@ -37,8 +37,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let phase = (uv.y + uv.x * 0.2) * 20.0 + warp;
   let ripple = pow(0.5 + 0.5 * sin(phase * 6.2831853), 1.6);
 
-  // a: fine grain
-  let grain = fbm2p(uv * 64.0, 3, 64) * 0.5 + 0.5;
+  // a: fine grain. Kept below the texel rate: octaves close to Nyquist store
+  // noise the sampler cannot filter, which shows as speckle when magnified.
+  let grain = fbm2p(uv * 32.0, 3, 32) * 0.5 + 0.5;
 
   textureStore(dst, id.xy, vec4f(broad, cells, ripple, grain));
 }

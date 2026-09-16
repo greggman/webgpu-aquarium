@@ -18,7 +18,7 @@ fn detailSample(p: vec3f, n: vec3f, scale: f32, fw: f32, level: u32) -> vec4f {
   if (level == 0u) {
     return vec4f(0.5);
   }
-  let lod = log2(max(fw * scale * 512.0, 1.0));
+  let lod = log2(max(fw * scale * f32(textureDimensions(tDetail, 0).x), 1.0));
   let a = abs(n);
   if (level == 1u) {
     if (a.y >= a.x && a.y >= a.z) {

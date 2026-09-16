@@ -52,6 +52,9 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   let field = dot(dir, stripeDir) * pat.p1.y * 2.4 + fbm3(q * 0.8, 3) * 5.5 + fbm3(q * 2.0, 2) * 1.2;
   // Rounded ridges and valleys of similar width, like real meandroid coral
   // (thin sharp ridges read as painted contour lines).
+  // Only the smooth phase is carried to the fragment shader: sampling
+  // sin(field) at the vertices under-samples the meanders (a few grid cells
+  // per ridge) and the interpolated result beats into a lattice of dots.
   let ridge = smoothstep(-0.75, 0.75, sin(field));
   let rim = smoothstep(0.0, 0.25, uv.y);
   // Gentle mesh relief (the ridges are finer than the grid can hold; strong
@@ -59,9 +62,10 @@ fn brainSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
   p += dir * (ridge * pat.p1.z * 0.35 * rim + fbm3(q * 0.7, 2) * 0.08);
   // Slight flare and sink at the base.
   p.y -= (1.0 - rim) * 0.1 * pat.p0.y;
-  var o = sp(p, vec4f(uv, ridge, 0.0));
-  // Baked AO follows the silhouette only (per-ridge AO bands read as stripes).
-  o.ao = mix(0.85, 1.0, ridge) * mix(0.5, 1.0, rim);
+  var o = sp(p, vec4f(uv, ridge, field));
+  // Baked AO follows the silhouette only (per-ridge AO bands read as stripes,
+  // and the per-vertex ridge is too coarse to shade with).
+  o.ao = mix(0.5, 1.0, rim);
   o.mat = f32(${CoralKind.Brain});
   return o;
 }
@@ -193,16 +197,25 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
   let polyps = detailSample(lp * 1.0 + inst.params.x, nIn, 9.0, fw, polypLevel);
   let broad = detailSample(lp, nIn, 0.6, fw, max(detailLevel, 1u));
   let cup = smoothstep(0.02, 0.3, polyps.g);
-  let height = cup * 0.6 + fine.a * 0.3 + i.uv.w * 0.4;
+  // Massive heads carry the meander phase in uv.w instead of a height.
+  let isBrain = kind == ${CoralKind.Brain}u;
+  let brainPhase = i.uv.w;
+  // Rebuilt per pixel, so the ridges stay smooth however coarse the mesh is.
+  let brain = smoothstep(-0.75, 0.75, sin(brainPhase));
+  // The bump is taken from screen-space derivatives, which are constant over
+  // each 2x2 pixel quad: feeding it detail finer than a few pixels turns the
+  // surface into a mosaic of quad-sized blocks. Only the layers that stay
+  // broad on screen drive it; the polyp cups show up in albedo and AO.
+  let bumpHeight = broad.r * 0.45 + fine.a * 0.15 + select(i.uv.w, 0.0, isBrain) * 0.4;
   // Thin branches get only a faint bump: stretched along a narrow tube the
   // polyp texture turns into barcode stripes.
   let thin = kind == ${CoralKind.Whip}u || kind == ${CoralKind.Branching}u;
   // Massive heads: the meander ridges themselves also drive the bump, so the
   // relief reads at pixel scale (not just as colour).
   // (Faded with distance: finer than a few pixels the ridges alias into stripes.)
-  let brainNear = smoothstep(6.0, 2.0, length(frame.camPos - i.world));
-  let brainRidge = select(0.0, i.uv.z * 1.5 * brainNear, kind == ${CoralKind.Brain}u);
-  let bumped = bumpFromHeight(nIn, i.world, height + brainRidge * 1.2, select(0.12, 0.02, thin));
+  let brainNear = smoothstep(6.0, 2.0, camDist);
+  let brainRidge = select(0.0, brain * 1.5 * brainNear, isBrain);
+  let bumped = bumpFromHeight(nIn, i.world, bumpHeight + brainRidge * 1.2, select(0.12, 0.02, thin));
   var s = defaultSurface();
   s.normal = bumped;
   s.ao = i.aoMat.x;
@@ -235,7 +248,7 @@ fn material(i: VOut, nIn: vec3f, inst: Instance) -> Surface {
       s.emissive = accent * tip * inst.params.z * 0.25;
     }
     case ${CoralKind.Brain}u: {
-      let ridge = i.uv.z;
+      let ridge = brain;
       // Grooves only slightly darker in albedo; the relief and AO carry the rest.
       // Same hue in grooves and on crests: only brightness differs.
       let groove = tint * 0.9;

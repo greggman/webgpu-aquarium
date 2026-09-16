@@ -200,6 +200,9 @@ interface JellyState {
   hue: number;
   vel: [number, number, number];
   wob: number;
+  /** Depth this one hovers around, and how fast it wanders from it. */
+  home: number;
+  wander: number;
 }
 
 export async function createJellyfish(
@@ -302,8 +305,13 @@ export async function createJellyfish(
     const x = center[0] + Math.cos(a) * r;
     const z = center[1] + Math.sin(a) * r;
     const g = ctx.terrain.heightAt(x, z);
+    // Spread through the water column, a little denser in mid-water.
+    const t = (rng.float() + rng.float()) * 0.5;
+    const home = g + 3 + t * Math.max(0.5, ceiling - 0.5 - (g + 3));
     jellies.push({
-      pos: [x, rng.range(g + 3, ceiling - 0.5), z],
+      pos: [x, home, z],
+      home,
+      wander: rng.range(0.6, 2.2),
       scale: rng.range(0.12, 0.3),
       phase: rng.float(),
       rate: rng.range(0.5, 0.9),
@@ -380,9 +388,13 @@ export async function createJellyfish(
       farCount = 0;
       jellies.forEach(j => {
         j.phase += dt * j.rate;
-        // Each contraction gives a little upward thrust; they slowly sink between.
-        const thrust = j.phase % 1 < 0.25 ? 0.35 : -0.03;
-        j.vel[1] += (thrust - j.vel[1] * 0.8) * dt;
+        // Each contraction thrusts upward and it sinks back between them, so
+        // over a cycle it holds its depth instead of everything climbing to
+        // the surface and collecting there in one layer. A gentle pull back
+        // to its own depth keeps the spread through the water column.
+        const thrust = j.phase % 1 < 0.25 ? 0.35 : -0.12;
+        const home = j.home + Math.sin(fc.time * 0.04 + j.wob) * j.wander;
+        j.vel[1] += (thrust + (home - j.pos[1]) * 0.05 - j.vel[1] * 0.8) * dt;
         j.vel[0] += Math.sin(fc.time * 0.05 + j.wob) * 0.004 * dt;
         j.vel[2] += Math.cos(fc.time * 0.04 + j.wob) * 0.004 * dt;
         j.pos[0] += j.vel[0] * dt;
