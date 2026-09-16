@@ -120,7 +120,8 @@ export function createGenContext(
       return patch(x, z);
     },
     surfaceTop: (x, z) => {
-      let top = terrain.groundAt(x, z);
+      const ground = terrain.groundAt(x, z);
+      let top = ground;
       for (const o of obstacles) {
         const d = Math.hypot(x - o.center[0], z - o.center[2]);
         const r = o.radius * 0.8;
@@ -128,7 +129,12 @@ export function createGenContext(
           top = Math.max(top, o.center[1] + Math.sqrt(r * r - d * d) * 0.75);
         }
       }
-      return top;
+      // The spheres are a coarse stand-in for the rock they cover — lumpy,
+      // eroded, ledged — so where one lifts the ground, it is as likely to be
+      // above the real surface as on it, and anything stood on top floats.
+      // Bedding it a fifth of the way back in costs nothing where the sphere
+      // was right and hides it where it was not.
+      return top - (top - ground) * 0.2;
     },
     rng: name => new Rng(desc.seed).fork(name),
     count: n => Math.max(1, Math.round(n * quality.density)),

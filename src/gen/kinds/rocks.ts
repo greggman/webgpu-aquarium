@@ -274,8 +274,12 @@ export async function createRocks(
     }
     // Stacked rocks sit on whatever is already there (terrain or other rocks).
     const base = onTop ? ctx.surfaceTop(x, z) : ctx.groundY(x, z);
-    const y = base - scale * sink;
+    // These are chiselled spheres with their undersides flattened off, so on
+    // a slope the flat shows as a cut edge hanging over the hill. Sinking them
+    // with the gradient buries the cut instead.
     const n = ctx.terrain.normalAt(x, z);
+    const slope = Math.sqrt(Math.max(0, 1 - n[1] * n[1])) / Math.max(n[1], 0.2);
+    const y = base - scale * (sink + Math.min(0.55, slope * 0.45));
     const up: [number, number, number] = [n[0] * 0.6, 1, n[2] * 0.6];
     instances.push({
       pos: [x, y, z],

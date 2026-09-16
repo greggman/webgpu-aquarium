@@ -568,8 +568,15 @@ export async function createCritters(
     }
     const n = ctx.terrain.normalAt(x, z);
     const c = rng.pick(colors);
+    // Bedded further into a slope: a shell is modelled as a lid, and on a
+    // hillside its open underside would otherwise face the viewer.
+    const tilt = Math.sqrt(Math.max(0, 1 - n[1] * n[1])) / Math.max(n[1], 0.2);
     instances.push({
-      pos: [x, ctx.surfaceTop(x, z) + lift * scale, z],
+      pos: [
+        x,
+        ctx.surfaceTop(x, z) + (lift - Math.min(0.5, tilt * 0.35)) * scale,
+        z,
+      ],
       scale,
       rot: rot ?? quatUpYaw([n[0], 1, n[2]], rng.range(0, Math.PI * 2)),
       color: [c[0], c[1], c[2], rng.float()],

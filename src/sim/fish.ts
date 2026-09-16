@@ -1571,7 +1571,13 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BOut 
   let lifted = groundPoint + toCam / max(length(toCam), 1e-3) * min(0.25, length(toCam) * 0.05);
   o.pos = frame.viewProj * vec4f(lifted, 1.0);
   o.quad = c;
-  o.strength = fade;
+  // Washed out by the water between here and the lens, like everything else.
+  // A shadow is a hole in the light reaching the ground; the haze in front of
+  // it fills that hole in, so a shadow twenty metres off should be barely
+  // there. Multiplied in without this, distant fish printed hard dark blobs on
+  // far cliffs, the more obviously since the cliff itself had faded.
+  let haze = waterTransmittance(length(toCam));
+  o.strength = fade * dot(haze, vec3f(0.3, 0.5, 0.2));
   return o;
 }
 
