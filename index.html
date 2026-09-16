@@ -8,6 +8,53 @@
     />
     <title>WebGPU Aquarium</title>
     <link rel="icon" href="data:," />
+    <meta
+      name="description"
+      content="A procedurally generated underwater world rendered with WebGPU. Every visit grows a new reef: terrain, coral, plants, fish and creatures are all generated from a seed on the GPU."
+    />
+    <meta name="theme-color" content="#02101a" />
+    <link rel="canonical" href="https://greggman.github.io/webgpu-aquarium/" />
+
+    <!-- Open Graph (Facebook, Slack, Discord, LinkedIn, Mastodon...) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WebGPU Aquarium" />
+    <meta property="og:title" content="WebGPU Aquarium" />
+    <meta
+      property="og:description"
+      content="A procedurally generated underwater world rendered with WebGPU. Every visit grows a new reef: terrain, coral, plants, fish and creatures are all generated from a seed on the GPU."
+    />
+    <meta
+      property="og:url"
+      content="https://greggman.github.io/webgpu-aquarium/"
+    />
+    <meta
+      property="og:image"
+      content="https://greggman.github.io/webgpu-aquarium/preview.jpg"
+    />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="695" />
+    <meta
+      property="og:image:alt"
+      content="An underwater reef: a rocky rise covered in pink, purple and green coral, sea urchins, anemones and small fish, with caustics playing over the sand and deep blue water behind."
+    />
+
+    <!-- Twitter/X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WebGPU Aquarium" />
+    <meta
+      name="twitter:description"
+      content="A procedurally generated underwater world rendered with WebGPU. Every visit grows a new reef: terrain, coral, plants, fish and creatures are all generated from a seed on the GPU."
+    />
+    <meta
+      name="twitter:image"
+      content="https://greggman.github.io/webgpu-aquarium/preview.jpg"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="An underwater reef: a rocky rise covered in pink, purple and green coral, sea urchins, anemones and small fish, with caustics playing over the sand and deep blue water behind."
+    />
+    <meta name="twitter:creator" content="@greggman" />
     <style>
       html,
       body {
@@ -103,7 +150,10 @@
         padding: 8px 12px;
         background: rgba(120, 0, 0, 0.85);
         color: #fff;
-        font: 12px/1.4 ui-monospace, Menlo, monospace;
+        font:
+          12px/1.4 ui-monospace,
+          Menlo,
+          monospace;
         white-space: pre-wrap;
         z-index: 10;
       }
@@ -118,7 +168,12 @@
         justify-content: center;
         align-items: center;
         text-align: left;
-        background: radial-gradient(ellipse at 50% -10%, #1c6f86 0%, #073345 45%, #02101a 100%);
+        background: radial-gradient(
+          ellipse at 50% -10%,
+          #1c6f86 0%,
+          #073345 45%,
+          #02101a 100%
+        );
         user-select: text;
         -webkit-user-select: text;
       }
@@ -170,7 +225,12 @@
     <canvas id="screen"></canvas>
     <div id="loading">generating ocean…</div>
     <div id="hud"></div>
-    <button id="regenerate" type="button" title="Generate a new ocean" aria-label="Generate a new ocean">
+    <button
+      id="regenerate"
+      type="button"
+      title="Generate a new ocean"
+      aria-label="Generate a new ocean"
+    >
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path
           d="M20 12a8 8 0 1 1-2.34-5.66"
@@ -179,7 +239,14 @@
           stroke-width="2.2"
           stroke-linecap="round"
         />
-        <path d="M20 3.5v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M20 3.5v5h-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
     <pre id="errors" hidden></pre>

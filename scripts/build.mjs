@@ -21,10 +21,9 @@ const copyStatic = {
       if (result.errors.length) {
         return;
       }
-      await fs.copyFile(
-        path.join(root, 'index.html'),
-        path.join(dist, 'index.html'),
-      );
+      for (const file of ['index.html', 'preview.jpg']) {
+        await fs.copyFile(path.join(root, file), path.join(dist, file));
+      }
       console.log(`[build] ${new Date().toLocaleTimeString()} done`);
     });
   },
