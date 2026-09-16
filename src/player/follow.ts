@@ -218,11 +218,15 @@ export class CreatureCam {
 
     const framing = this.framing();
     if (framing) {
+      // Chase a spot that keeps its own clearance, not the raw spot beside the
+      // animal: see clearSpot. The aim is unaffected, so the shot still holds
+      // the animal while the camera flies around whatever is in the way.
+      const spot = this.clearSpot(framing.cameraAt);
       // Critically damped spring toward the desired spot, speed-limited so
       // moving between subjects is a glide.
       const omega = 1.0;
       for (let i = 0; i < 3; i++) {
-        const x = this.pos[i] - framing.cameraAt[i];
+        const x = this.pos[i] - spot[i];
         this.vel[i] += (-omega * omega * x - 2 * omega * this.vel[i]) * dt;
       }
       const speed = vec3.length(this.vel);
@@ -266,6 +270,58 @@ export class CreatureCam {
    * Where the camera wants to be and look, blending from the previous subject
    * to the current one over a few seconds once the new one has been seen.
    */
+  /**
+   * The nearest place to `want` that the camera can actually be.
+   *
+   * Flying straight at the spot beside an animal means flying into whatever
+   * stands between: the nav volume then shoves the camera back out, and the
+   * shot jolts. Giving the *target* the clearance instead — lifted off the
+   * ground, out of the rocks, and raised until the way there is clear — leaves
+   * the camera with nothing to be pushed out of, so it arcs over the reef
+   * rather than bumping along it. What it looks at never moves.
+   */
+  private clearSpot(want: Readonly<Vec3>): Vec3 {
+    const margin = 0.9;
+    const out: Vec3 = [want[0], want[1], want[2]];
+    const floorAt = (x: number, z: number) => this.nav.floorAt(x, z) + margin;
+    out[1] = Math.max(out[1], floorAt(out[0], out[2]));
+
+    // Raise it until the straight line from here clears the ground: a rise at
+    // fraction t of the way needs the far end lifted by deficit / t.
+    const steps = 6;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = this.pos[0] + (out[0] - this.pos[0]) * t;
+      const z = this.pos[2] + (out[2] - this.pos[2]) * t;
+      const y = this.pos[1] + (out[1] - this.pos[1]) * t;
+      const deficit = floorAt(x, z) - y;
+      if (deficit > 0) {
+        out[1] += deficit / t;
+      }
+    }
+
+    // Out of the rocks, twice, since pushing clear of one can bury it in
+    // another.
+    for (let pass = 0; pass < 2; pass++) {
+      for (const o of this.nav.o.obstacles ?? []) {
+        const dx = out[0] - o.center[0];
+        const dy = out[1] - o.center[1];
+        const dz = out[2] - o.center[2];
+        const d = Math.hypot(dx, dy, dz);
+        const r = o.radius + margin;
+        if (d < r && d > 1e-3) {
+          const k = (r - d) / d;
+          out[0] += dx * k;
+          out[1] += dy * k;
+          out[2] += dz * k;
+        }
+      }
+      out[1] = Math.max(out[1], floorAt(out[0], out[2]));
+    }
+    out[1] = Math.min(out[1], this.nav.ceiling() - 0.3);
+    return out;
+  }
+
   private framing(): {cameraAt: Vec3; aim: Vec3} | null {
     const one = (t: Tracker) => {
       const p = t.estimate(this.time);

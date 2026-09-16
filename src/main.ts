@@ -410,6 +410,7 @@ async function main() {
   window.__aquarium.camera = camera;
   window.__aquarium.follow = follow;
   window.__aquarium.jellyfish = jellyfish;
+  window.__aquarium.fish = fish;
   window.__aquarium.terrainStats = ground.stats;
   // With ?where=1, check that what is drawn from and what is placed from agree.
   let heightCheck = '';
