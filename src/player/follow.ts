@@ -32,6 +32,9 @@ interface Sample {
   time: number;
 }
 
+/** Subjects to follow before a jellyfish becomes eligible. */
+const JELLY_AFTER = 5;
+
 /** How much the camera likes following each kind of animal. */
 const INTEREST: Record<string, number> = {
   manta: 3,
@@ -145,6 +148,9 @@ export class CreatureCam {
   /** Recently scanned candidate positions. */
   private scanned: {c: FollowCandidate; pos: Vec3}[] = [];
   private generation = 0;
+  /** Subjects chosen so far, and consecutive picks that found nothing. */
+  private picks = 0;
+  private empty = 0;
 
   constructor(
     nav: NavVolume,
@@ -193,6 +199,8 @@ export class CreatureCam {
     this.scanned = [];
     this.nextScan = 0;
     this.switchAt = 0;
+    this.picks = 0;
+    this.empty = 0;
     this.generation++;
   }
 
@@ -365,9 +373,16 @@ export class CreatureCam {
     if (!all.length) {
       return;
     }
+    // Schools stay near their home, so sample the ones whose home is within
+    // reach of the camera; that finds far more usable subjects than sampling
+    // the whole ocean, only a fraction of which is ever close enough.
+    let pool = all.filter(c => vec3.distance(c.home, this.pos) < 45 + c.roam);
+    if (pool.length < 12) {
+      pool = all;
+    }
     const picks: FollowCandidate[] = [];
-    for (let i = 0; i < 48; i++) {
-      picks.push(all[this.rng.int(0, all.length - 1)]);
+    for (let i = 0; i < 64; i++) {
+      picks.push(pool[this.rng.int(0, pool.length - 1)]);
     }
     this.scanPending = true;
     const generation = this.generation;
@@ -393,11 +408,14 @@ export class CreatureCam {
     const from = currentPos ?? this.look;
     const currentSubject = this.current?.subject;
     const options: {s: Subject; score: number}[] = [];
+    // Reach further each time nothing suitable turns up, so a thin patch of
+    // water never leaves the camera with nobody to follow.
+    const reach = 28 + Math.min(this.empty, 8) * 5;
     const consider = (s: Subject, pos: Readonly<Vec3>) => {
       const d = vec3.distance(pos, from);
       const toCam = vec3.distance(pos, this.pos);
       if (
-        toCam > 28 ||
+        toCam > reach ||
         !this.nav.contains([
           pos[0],
           Math.max(pos[1], this.nav.floorAt(pos[0], pos[2]) + 0.1),
@@ -443,7 +461,9 @@ export class CreatureCam {
         pos,
       );
     }
-    const jellies = this.jellyfish.jellies();
+    // Jellyfish hover high, so following one aims the camera up and away from
+    // the reef: they only become eligible after a few other subjects.
+    const jellies = this.picks >= JELLY_AFTER ? this.jellyfish.jellies() : [];
     for (let n = 0; n < 4 && jellies.length; n++) {
       const i = this.rng.int(0, jellies.length - 1);
       const j = jellies[i];
@@ -458,10 +478,13 @@ export class CreatureCam {
       );
     }
     if (!options.length) {
-      // Nothing scanned yet: try again shortly.
+      // Nothing scanned yet (or nothing but jellyfish early on): try again.
+      this.empty++;
       this.switchAt = this.time + 0.5;
       return;
     }
+    this.empty = 0;
+    this.picks++;
     options.sort((a, b) => b.score - a.score);
     const choice = options[this.rng.int(0, Math.min(2, options.length - 1))].s;
     // Keep tracking the old subject during the transition (unless it was lost

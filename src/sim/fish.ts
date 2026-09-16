@@ -1568,6 +1568,9 @@ export interface FollowCandidate {
   length: number;
   schoolSize: number;
   schoolRadius: number;
+  /** Where the school lives, and how far from it the fish roam. */
+  home: [number, number, number];
+  roam: number;
 }
 
 export type FishSystem = RenderSystem & {
@@ -1676,6 +1679,8 @@ export async function createFish(
           length: (s.length[0] + s.length[1]) / 2,
           schoolSize: Math.min(schoolSize, s.count - n),
           schoolRadius: schoolParams(s)[0],
+          home: [0, 0, 0],
+          roam: s.homeRadius + schoolParams(s)[0],
         });
         if (s.home === 'reef' && ctx.clusters.length) {
           // A share of schools at the hero reef (where cameras look), the
@@ -1728,6 +1733,8 @@ export async function createFish(
           const [x, z] = navPoint();
           home = [x, ctx.terrain.heightAt(x, z) + 2, z, s.homeRadius];
         }
+        const cand = candidates[candidates.length - 1];
+        cand.home = [home[0], home[1], home[2]];
       }
       const a = rng.range(0, Math.PI * 2);
       const r = rng.range(0, Math.max(home[3], 0.3) + schoolParams(s)[0]);
