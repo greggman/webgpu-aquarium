@@ -110,6 +110,9 @@ async function main() {
     terrain: terrain.texture,
     terrainMask: terrain.maskTexture,
   });
+  // Everything that must line up with the drawn seabed needs to know how
+  // coarse the drawn mesh is.
+  terrain.cpu.meshGrid = quality.terrainGrid;
   const nav = buildNavVolume(desc, terrain.cpu);
   const gen = createGenContext(desc, terrain.cpu, nav, quality);
   nav.o.obstacles = gen.obstacles;
@@ -569,7 +572,9 @@ async function main() {
         `seed ${seed} · ${tier}\n` +
         `pos ${p[0].toFixed(1)} ${p[1].toFixed(1)} ${p[2].toFixed(1)} · ` +
         `yaw ${((pose.yaw * 180) / Math.PI).toFixed(0)} pitch ${((pose.pitch * 180) / Math.PI).toFixed(0)} · ` +
-        `floor ${nav.floorAt(p[0], p[2]).toFixed(1)}`;
+        `floor ${nav.floorAt(p[0], p[2]).toFixed(1)}\n` +
+        `terrain ${ground.stats.chunks} chunks · ` +
+        `${(ground.stats.triangles / 1000).toFixed(0)}k triangles`;
     }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');

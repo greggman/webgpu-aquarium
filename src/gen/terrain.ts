@@ -364,6 +364,8 @@ export class TerrainData {
   readonly worldSize: number;
   readonly data: Float32Array;
   readonly masks: Float32Array;
+  /** Vertices per side of the drawn mesh; set once the tier is known. */
+  meshGrid = 0;
   constructor(
     size: number,
     worldSize: number,
@@ -403,6 +405,48 @@ export class TerrainData {
 
   heightAt(x: number, z: number) {
     return this.sample(this.data, 0, x, z);
+  }
+
+  /**
+   * The height of the seabed *as drawn*: the mesh interpolates between its own
+   * vertices, and its grid is coarser than the height map, so a crest that
+   * falls between two vertices is cut off. Anything that must agree with what
+   * you can see — where a plant is rooted, where the camera is stopped — has to
+   * use this rather than the height map, or it ends up rooted in mid-water, or
+   * blocked by a ridge that was never drawn.
+   */
+  groundAt(x: number, z: number): number {
+    const grid = this.meshGrid;
+    if (!grid) {
+      return this.heightAt(x, z);
+    }
+    const half = this.worldSize / 2;
+    // The mesh grid is warped (denser in the middle): undo that to find which
+    // two vertices a point falls between.
+    const cell = (w: number) => {
+      const g =
+        Math.sign(w) * Math.pow(Math.min(Math.abs(w) / half, 1), 1 / 1.6);
+      return ((g + 1) / 2) * grid;
+    };
+    const world = (i: number) => {
+      const g = (i / grid) * 2 - 1;
+      return Math.sign(g) * Math.pow(Math.abs(g), 1.6) * half;
+    };
+    const gx = cell(x);
+    const gz = cell(z);
+    const ix = Math.max(0, Math.min(grid - 1, Math.floor(gx)));
+    const iz = Math.max(0, Math.min(grid - 1, Math.floor(gz)));
+    const tx = Math.max(0, Math.min(1, gx - ix));
+    const tz = Math.max(0, Math.min(1, gz - iz));
+    const x0 = world(ix);
+    const x1 = world(ix + 1);
+    const z0 = world(iz);
+    const z1 = world(iz + 1);
+    const h00 = this.heightAt(x0, z0);
+    const h10 = this.heightAt(x1, z0);
+    const h01 = this.heightAt(x0, z1);
+    const h11 = this.heightAt(x1, z1);
+    return (h00 + (h10 - h00) * tx) * (1 - tz) + (h01 + (h11 - h01) * tx) * tz;
   }
   normalAt(x: number, z: number): [number, number, number] {
     const nx = this.sample(this.data, 1, x, z);
@@ -807,6 +851,8 @@ fn vsShadow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 export interface TerrainRenderer {
   /** Picks visible chunks and their detail levels for this frame. */
   update(view: CullView): void;
+  /** Chunks and triangles submitted this frame, for the on-screen readout. */
+  readonly stats: {chunks: number; triangles: number};
   draw(pass: GPURenderPassEncoder): void;
   drawShadow(pass: GPURenderPassEncoder): void;
 }
@@ -999,8 +1045,10 @@ export async function createTerrainRenderer(
 
   const camPlanes = new Float32Array(16);
   const shadowPlanes = new Float32Array(16);
+  const stats = {chunks: 0, triangles: 0};
 
   return {
+    stats,
     update(view: CullView) {
       const cp = view.camPos;
       sidePlanes(view.viewProj, camPlanes);
@@ -1053,6 +1101,11 @@ export async function createTerrainRenderer(
       };
       pack(lists, camRuns);
       pack(shadowLists, shadowRuns);
+      stats.chunks = camRuns.reduce((n, r) => n + r.count, 0);
+      stats.triangles = camRuns.reduce(
+        (n, r, level) => n + (r.count * levelIndex[level].count) / 3,
+        0,
+      );
       if (cursor) {
         device.queue.writeBuffer(chunkBuf, 0, chunkData, 0, cursor * 4);
       }

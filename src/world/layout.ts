@@ -120,7 +120,7 @@ export function createGenContext(
       return patch(x, z);
     },
     surfaceTop: (x, z) => {
-      let top = terrain.heightAt(x, z);
+      let top = terrain.groundAt(x, z);
       for (const o of obstacles) {
         const d = Math.hypot(x - o.center[0], z - o.center[2]);
         const r = o.radius * 0.8;
@@ -132,7 +132,8 @@ export function createGenContext(
     },
     rng: name => new Rng(desc.seed).fork(name),
     count: n => Math.max(1, Math.round(n * quality.density)),
-    groundY: (x, z) => terrain.heightAt(x, z),
+    // What is drawn, not what the height map says: see TerrainData.groundAt.
+    groundY: (x, z) => terrain.groundAt(x, z),
   };
 }
 

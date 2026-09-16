@@ -218,7 +218,7 @@ export function buildNavVolume(
     return smooth[i % samples] * (1 - k) + smooth[(i + 1) % samples] * k;
   };
   return new NavVolume({
-    heightAt: (x, z) => terrain.heightAt(x, z),
+    heightAt: (x, z) => terrain.groundAt(x, z),
     center: t.center,
     radiusAt,
     surfaceY: desc.surfaceY,
@@ -259,7 +259,7 @@ function lineOfSight(terrain: TerrainData, a: Vec3, b: Vec3): boolean {
     const x = a[0] + (b[0] - a[0]) * t;
     const y = a[1] + (b[1] + 0.5 - a[1]) * t;
     const z = a[2] + (b[2] - a[2]) * t;
-    if (terrain.heightAt(x, z) > y - 0.3) {
+    if (terrain.groundAt(x, z) > y - 0.3) {
       return false;
     }
   }
@@ -278,7 +278,7 @@ function openForeground(
 ): boolean {
   // Ground height including big rocks and coral heads.
   const top = (x: number, z: number) => {
-    let h = terrain.heightAt(x, z);
+    let h = terrain.groundAt(x, z);
     for (const o of nav.o.obstacles ?? []) {
       const d = Math.hypot(x - o.center[0], z - o.center[2]);
       if (d < o.radius) {
@@ -288,7 +288,7 @@ function openForeground(
     return h;
   };
   const heading = Math.atan2(b[2] - a[2], b[0] - a[0]);
-  const base = terrain.heightAt(a[0], a[2]);
+  const base = terrain.groundAt(a[0], a[2]);
   // Sitting on a ridge crest that runs away from the lens fills the bottom of
   // the frame with its smooth back.
   const px = -Math.sin(heading);
