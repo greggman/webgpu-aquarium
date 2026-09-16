@@ -79,8 +79,8 @@ export function randomTerrainSettings(
     surfaceY,
     outcropScale: rng.range(0.8, 1.25),
     spurHeight: rng.range(2.5, 4.5),
-    canyonDepth: rng.range(8, 13),
-    canyonWidth: rng.range(6, 9),
+    canyonDepth: rng.range(9, 14),
+    canyonWidth: rng.range(4.5, 6.5),
     canyonScale: rng.range(0.8, 1.2),
   };
 }
@@ -148,18 +148,26 @@ fn canyonCut(p: vec2f) -> f32 {
     return 0.0;
   }
 
+  // Profile: flat floor across most of the width, then the walls rise in the
+  // outer fifth of it. A smooth falloff over the whole width is what makes a
+  // valley; a canyon is a floor between walls.
+  // The rim wanders, so the walls are not smooth arcs.
+  let rimNoise = 1.0 + fbm2(q * 9.0 + 27.0, 3) * 0.35;
+
   // Main canyons: near the zero crossing of a low-frequency field.
   let trunk = abs(fbm2(q, 4));
-  let trunkW = P.canyonWidth * 0.019 * P.canyonScale;
-  var cut = smoothstep(trunkW, 0.0, trunk) * P.canyonDepth;
+  let trunkW = P.canyonWidth * 0.019 * P.canyonScale * rimNoise;
+  var cut = (1.0 - smoothstep(trunkW * 0.78, trunkW, trunk)) * P.canyonDepth;
 
   // Gullies: shallower, feeding the trunks.
   let branch = abs(fbm2(q * 2.2 + 3.3, 4));
-  cut += smoothstep(trunkW * 0.55, 0.0, branch) * P.canyonDepth * 0.4;
+  let branchW = trunkW * 0.5;
+  cut += (1.0 - smoothstep(branchW * 0.7, branchW, branch)) * P.canyonDepth * 0.45;
 
   // Rills: a little fine dissection of the ground between them.
   let rill = abs(fbm2(q * 6.0 + 11.0, 3));
-  cut += smoothstep(trunkW * 0.3, 0.0, rill) * P.canyonDepth * 0.12;
+  let rillW = trunkW * 0.26;
+  cut += (1.0 - smoothstep(rillW * 0.55, rillW, rill)) * P.canyonDepth * 0.14;
   // The three scales can otherwise stack into a trench half the depth of the
   // basin; a canyon is deep, not bottomless.
   cut = min(cut, P.canyonDepth * 1.1) * region;
@@ -208,7 +216,8 @@ fn basinHeight(p: vec2f) -> f32 {
   let cut = canyonCut(p);
   if (cut > 0.05) {
     let floorNoise = fbm2(p * 0.09 + 31.0, 3) * 0.8;
-    h = terrace(h - cut + floorNoise * smoothstep(1.0, 6.0, cut), 1.6, 0.35 * smoothstep(1.0, 5.0, cut));
+    // Benches cut into the walls, so they break rather than run smoothly.
+    h = terrace(h - cut + floorNoise * smoothstep(1.0, 6.0, cut), 2.2, 0.5 * smoothstep(1.0, 5.0, cut));
   }
 
   // Ring of cliffs.
