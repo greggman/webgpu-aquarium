@@ -34,6 +34,7 @@ import {createTaa, halton} from './render/post/taa.ts';
 import {Bloom} from './render/post/bloom.ts';
 import {forwardFromAngles} from './player/camera.ts';
 import {createGenContext} from './world/layout.ts';
+import {createGroundCover} from './render/groundcover.ts';
 import {buildVoxelTerrain, createVoxelRenderer} from './gen/voxel.ts';
 import {createRocks} from './gen/kinds/rocks.ts';
 import {createCoral} from './gen/kinds/coral.ts';
@@ -226,6 +227,14 @@ async function main() {
       )
     : null;
   const ground = voxel ?? terrainRenderer;
+  const cover = (params.get('disable') ?? '').includes('cover')
+    ? null
+    : await createGroundCover(
+        device,
+        renderer.globals.layout,
+        targetsFormats,
+        quality,
+      );
   renderer.systems.push(
     caustics,
     {
@@ -234,6 +243,7 @@ async function main() {
       drawOpaque: p => ground.draw(p),
       drawShadow: p => ground.drawShadow(p),
     },
+    ...(cover ? [cover] : []),
     // Alpha-tested kinds (fish fins, fan lattices) draw last: a pipeline that
     // can discard makes tile-based GPUs shade every fragment drawn before it
     // in the pass, defeating hidden-surface removal for the dense opaque props.
@@ -524,12 +534,22 @@ async function main() {
 
     const t = renderer.targets;
     viewMatrix(pose, view);
-    mat4.perspectiveReversedZ(
-      (68 * Math.PI) / 180,
-      t.width / t.height,
-      0.05,
-      proj,
+    // A fixed vertical field turns a portrait window into a slit: at a phone's
+    // shape it sees about 35 degrees across, against 100 on a desktop, and
+    // half as much of the reef lands in frame. Widen the vertical field on
+    // narrow windows instead, so the view keeps a decent breadth either way.
+    const aspect = t.width / t.height;
+    const minAcross = (58 * Math.PI) / 180;
+    const fov = Math.min(
+      Math.max(
+        (68 * Math.PI) / 180,
+        2 * Math.atan(Math.tan(minAcross / 2) / Math.max(aspect, 0.2)),
+      ),
+      // Only a little wider: past this the reef shrinks in the frame, which
+      // reads emptier than the slit it replaced.
+      (78 * Math.PI) / 180,
     );
+    mat4.perspectiveReversedZ(fov, aspect, 0.05, proj);
     prevViewProj.set(firstFrame ? mat4.multiply(proj, view) : viewProj);
     mat4.multiply(proj, view, viewProj);
     const jx = quality.taa ? halton((frameIndex % 8) + 1, 2) - 0.5 : 0;
