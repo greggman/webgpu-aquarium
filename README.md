@@ -8,6 +8,4 @@ generated from a seed, mostly in GPU compute shaders.
 
 <img src="screenshots/screenshot-01.png">
 
-[Development Notes]
-
 ## LICENSE: [MIT](LICENSE.md)
