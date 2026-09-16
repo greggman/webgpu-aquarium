@@ -559,6 +559,9 @@ export async function createCritters(
     rot?: Quat,
     lift = 0,
   ) => {
+    if (rng.float() > ctx.open(x, z)) {
+      return;
+    }
     const n = ctx.terrain.normalAt(x, z);
     const c = rng.pick(colors);
     instances.push({

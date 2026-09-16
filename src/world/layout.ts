@@ -1,7 +1,7 @@
 // High-level layout of life in the basin: where the hero reef clusters go, and
 // the shared context every content generator receives.
 
-import {Rng} from '../core/rng.ts';
+import {Rng, hash32} from '../core/rng.ts';
 import type {Quality} from '../core/quality.ts';
 import type {TerrainData} from '../gen/terrain.ts';
 import type {NavVolume, NavSphere} from '../player/navvolume.ts';
@@ -25,6 +25,22 @@ export interface KelpForest {
   stems: [number, number][];
 }
 
+export interface Clearing {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+export interface Landmark {
+  kind: 'pinnacle' | 'arch';
+  x: number;
+  y: number;
+  z: number;
+  /** Metres above the seabed. */
+  height: number;
+  radius: number;
+}
+
 export interface GenContext {
   desc: WorldDesc;
   terrain: TerrainData;
@@ -43,6 +59,16 @@ export interface GenContext {
   coralHeads: [number, number, number, number][];
   /** Anemone positions (filled in by the critter generator), homes for clownfish. */
   anemones: [number, number, number][];
+  /** Open sand the reef grows around. */
+  clearings: Clearing[];
+  /** Big formations worth pointing a camera at (filled in by the rocks). */
+  landmarks: Landmark[];
+  /**
+   * How much grows at (x, z), 0-1: zero inside a clearing, and varying
+   * elsewhere so the seabed is patchy rather than an even carpet. Every
+   * generator multiplies its own density by this.
+   */
+  open(x: number, z: number): number;
   /** A generator stream unique to `name`. */
   rng(name: string): Rng;
   /** Instance count scaled by quality. */
@@ -60,6 +86,13 @@ export function createGenContext(
 ): GenContext {
   const base = new Rng(desc.seed ^ 0x5eed1e55);
   const clusters = pickClusters(base.fork('clusters'), terrain, nav);
+  const clearings = pickClearings(
+    base.fork('clearings'),
+    terrain,
+    nav,
+    clusters,
+  );
+  const patch = patchField(base.fork('patchiness').nextU32());
   const obstacles: NavSphere[] = [];
   return {
     desc,
@@ -73,6 +106,19 @@ export function createGenContext(
     tallProps: [],
     coralHeads: [],
     anemones: [],
+    clearings,
+    landmarks: [],
+    open: (x, z) => {
+      for (const c of clearings) {
+        const d = Math.hypot(x - c.x, z - c.z);
+        if (d < c.radius) {
+          // Bare in the middle, thickening again over the outer third.
+          const t = Math.max(0, (d - c.radius * 0.62) / (c.radius * 0.38));
+          return t * t * patch(x, z);
+        }
+      }
+      return patch(x, z);
+    },
     surfaceTop: (x, z) => {
       let top = terrain.heightAt(x, z);
       for (const o of obstacles) {
@@ -87,6 +133,78 @@ export function createGenContext(
     rng: name => new Rng(desc.seed).fork(name),
     count: n => Math.max(1, Math.round(n * quality.density)),
     groundY: (x, z) => terrain.heightAt(x, z),
+  };
+}
+
+/**
+ * Clearings: patches of open sand, placed where the reef would otherwise grow
+ * edge to edge. They give the eye somewhere to rest, somewhere for the light
+ * to land, and something for the density elsewhere to read against.
+ */
+function pickClearings(
+  rng: Rng,
+  terrain: TerrainData,
+  nav: NavVolume,
+  clusters: ReefCluster[],
+): Clearing[] {
+  const c = nav.o.center;
+  const out: Clearing[] = [];
+  const want = rng.int(7, 11);
+  for (let i = 0; i < 900 && out.length < want; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const r = Math.sqrt(rng.float()) * nav.o.radiusAt(a) * 0.8;
+    const x = c[0] + Math.cos(a) * r;
+    const z = c[1] + Math.sin(a) * r;
+    // Flat ground that something would otherwise cover; the first clearing is
+    // the largest and sits beside the hero reef, where the cameras look.
+    const first = out.length === 0;
+    const hero = clusters[0];
+    const near = hero
+      ? Math.hypot(x - hero.x, z - hero.z)
+      : Number.POSITIVE_INFINITY;
+    if (first && hero && (near < hero.radius + 6 || near > hero.radius + 22)) {
+      continue;
+    }
+    if (terrain.normalAt(x, z)[1] < 0.9) {
+      continue;
+    }
+    const radius = first ? rng.range(9, 13) : rng.range(4.5, 9);
+    // Never swallow a reef whole, and keep clearings apart.
+    if (
+      clusters.some(
+        k => Math.hypot(k.x - x, k.z - z) < k.radius * 0.8 + radius * 0.5,
+      ) ||
+      out.some(k => Math.hypot(k.x - x, k.z - z) < k.radius + radius + 3)
+    ) {
+      continue;
+    }
+    out.push({x, z, radius});
+  }
+  return out;
+}
+
+/**
+ * Smooth 0-1 noise on a ~20 m lattice, remapped so most of the basin grows
+ * normally but some of it thins out.
+ */
+function patchField(seed: number): (x: number, z: number) => number {
+  const at = (ix: number, iz: number) => {
+    const h = hash32(ix * 374761393 + iz * 668265263 + seed);
+    return (h >>> 8) / 0xffffff;
+  };
+  const fade = (t: number) => t * t * (3 - 2 * t);
+  return (x, z) => {
+    const px = x / 21;
+    const pz = z / 21;
+    const ix = Math.floor(px);
+    const iz = Math.floor(pz);
+    const fx = fade(px - ix);
+    const fz = fade(pz - iz);
+    const v =
+      (at(ix, iz) * (1 - fx) + at(ix + 1, iz) * fx) * (1 - fz) +
+      (at(ix, iz + 1) * (1 - fx) + at(ix + 1, iz + 1) * fx) * fz;
+    // Thin patches down to a third; the rest is full.
+    return Math.min(1, 0.32 + v * 1.25);
   };
 }
 

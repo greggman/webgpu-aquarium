@@ -11,7 +11,7 @@ import {
   type TerrainSettings,
 } from '../gen/terrain.ts';
 import type {GradeSettings} from '../render/post/present.ts';
-import type {KelpForest} from './layout.ts';
+import type {KelpForest, Landmark} from './layout.ts';
 
 export interface WaterStyle {
   name: string;
@@ -381,6 +381,7 @@ export function cameraSpots(
   clusters: {x: number; y: number; z: number; radius: number}[],
   kelpForests: KelpForest[] = [],
   tallProps: [number, number, number, number][] = [],
+  landmarks: Landmark[] = [],
 ): {presets: Record<string, CameraSpot>; tour: TourStop[]} {
   const rng = new Rng(desc.seed ^ 0xca3e7a);
   const c = desc.terrain.center;
@@ -668,13 +669,37 @@ export function cameraSpots(
     };
   }
 
-  const presets = {reef, kelp, wide, overhead, surface};
+  // Landmark: the arch if there is one, else the tallest pinnacle, framed from
+  // far enough back to take in its full height.
+  const hero2 =
+    landmarks.find(l => l.kind === 'arch') ??
+    [...landmarks].sort((a, b) => b.height - a.height)[0];
+  const landmark = hero2
+    ? spotLookingAt(
+        nav,
+        terrain,
+        [hero2.x, hero2.y + hero2.height * 0.45, hero2.z],
+        hero2.radius + hero2.height * 1.5,
+        hero2.height * 0.35,
+        Math.atan2(c[1] - hero2.z, c[0] - hero2.x) + rng.range(-0.6, 0.6),
+      )
+    : wide;
+
+  const presets = {reef, kelp, wide, overhead, surface, landmark};
 
   // Tour: visit the reef clusters (and the kelp) in order around the basin,
   // alternating low and high passes.
   const stopsAt = [
     ...clusters.map(k => ({x: k.x, y: k.y, z: k.z, r: k.radius})),
     {x: kx, y: kelpTarget[1] - 3, z: kz, r: 4},
+    // Swing past the landmarks: they are the one thing worth crossing the
+    // basin to see.
+    ...landmarks.map(l => ({
+      x: l.x,
+      y: l.y + l.height * 0.4,
+      z: l.z,
+      r: l.radius + l.height * 0.9,
+    })),
   ];
   stopsAt.sort(
     (a, b) =>

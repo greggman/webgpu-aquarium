@@ -150,6 +150,7 @@ async function main() {
     gen.clusters,
     gen.kelpForests,
     gen.tallProps,
+    gen.landmarks,
   );
 
   const targetsFormats = {
@@ -332,6 +333,9 @@ async function main() {
   window.__aquarium.camera = camera;
   window.__aquarium.follow = follow;
   window.__aquarium.jellyfish = jellyfish;
+  window.__aquarium.obstacles = gen.obstacles;
+  window.__aquarium.clearings = gen.clearings;
+  window.__aquarium.clusters = gen.clusters;
   window.__aquarium.nav = nav;
   window.__aquarium.clusters = gen.clusters;
   window.__aquarium.terrain = terrain.cpu;

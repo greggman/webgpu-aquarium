@@ -747,6 +747,10 @@ export async function createCoral(
   ) => {
     const list = (low ? lowKind : byKind).get(kind)!;
     const variant = rng.pick(list);
+    // Nothing grows on the open sand of a clearing.
+    if (rng.float() > ctx.open(x, z)) {
+      return variants[variant];
+    }
     const n = ctx.terrain.normalAt(x, z);
     const vi = variants[variant];
     // Plates grow slightly tilted off their base.

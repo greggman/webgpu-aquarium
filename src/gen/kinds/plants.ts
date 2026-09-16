@@ -500,7 +500,9 @@ export async function createPlants(
     density: (x, z) => {
       const m = ctx.terrain.maskAt(2, x, z);
       return m > 0.35
-        ? Math.min(1, (m - 0.35) * 2.5) * (1 - ctx.terrain.maskAt(0, x, z))
+        ? Math.min(1, (m - 0.35) * 2.5) *
+            (1 - ctx.terrain.maskAt(0, x, z)) *
+            ctx.open(x, z)
         : 0;
     },
     maxTries: 60000,
