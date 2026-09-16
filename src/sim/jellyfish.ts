@@ -2,6 +2,7 @@
 // tentacles, softly bioluminescent. Drawn in the transparent pass.
 
 import {createShader} from '../gpu/device.ts';
+import {sidePlanes, sphereInside} from '../render/frustum.ts';
 import {
   buildMesh,
   vertexLayout,
@@ -377,6 +378,7 @@ export async function createJellyfish(
 
   let nearCount = 0;
   let farCount = 0;
+  const planes = new Float32Array(16);
   return {
     name: 'jellyfish',
     jellies: () => jellies,
@@ -384,6 +386,7 @@ export async function createJellyfish(
       const dt = fc.dt;
       const view = fc.view;
       const m = view.viewProj;
+      sidePlanes(m, planes);
       nearCount = 0;
       farCount = 0;
       jellies.forEach(j => {
@@ -434,17 +437,8 @@ export async function createJellyfish(
         if (dist > view.maxDistance + rad) {
           return;
         }
-        const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
-        const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
         const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
-        const pad = rad * 1.5;
-        if (
-          cw < -pad ||
-          cx > cw * 1.05 + pad * 1.2 ||
-          cx < -cw * 1.05 - pad * 1.2 ||
-          cy > cw * 1.05 + pad * 1.2 ||
-          cy < -cw * 1.05 - pad * 1.2
-        ) {
+        if (cw < -rad || !sphereInside(planes, x, y, z, rad)) {
           return;
         }
         const near = (rad * view.focalPx) / Math.max(dist, 0.1) > 60;

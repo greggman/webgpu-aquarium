@@ -5,6 +5,7 @@
 // `material()` returns the surface description for lighting.
 
 import {createShader} from '../gpu/device.ts';
+import {sidePlanes, sphereInside} from './frustum.ts';
 import {defineStruct} from '../gpu/structs.ts';
 import {surfaceLib} from '../shaders/index.ts';
 import {vertexLayout, type BuiltMesh} from '../gen/meshgen.ts';
@@ -386,9 +387,13 @@ export async function createPropKind(
     return level;
   };
 
+  const camPlanes = new Float32Array(16);
+  const shadowPlanes = new Float32Array(16);
+
   const cull = (view: CullView) => {
     const m = view.viewProj;
-    const sm = view.shadowViewProj;
+    sidePlanes(view.viewProj, camPlanes);
+    sidePlanes(view.shadowViewProj, shadowPlanes);
     const cp = view.camPos;
     const focal = view.focalPx;
     const maxD2 = view.maxDistance * view.maxDistance;
@@ -418,19 +423,11 @@ export async function createPropKind(
         const px = (rad * focal) / Math.max(Math.sqrt(d2), 0.1);
         const level = levelFor(px, chain.length);
 
-        // Camera: distance, then clip-space sphere test against the side planes.
+        // Camera: distance, then the four side planes (w is the distance
+        // along the view direction, so it also rejects what is behind).
         if (d2 <= maxD2 + rad * rad * 4) {
-          const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
-          const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
           const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
-          const pad = rad * 1.5;
-          if (!(
-            cw < -pad ||
-            cx > cw * 1.05 + pad * 1.2 ||
-            cx < -cw * 1.05 - pad * 1.2 ||
-            cy > cw * 1.05 + pad * 1.2 ||
-            cy < -cw * 1.05 - pad * 1.2
-          )) {
+          if (cw > -rad && sphereInside(camPlanes, x, y, z, rad)) {
             const w = chain[level];
             camScratch.set(
               data.subarray(b, b + FLOATS),
@@ -447,10 +444,7 @@ export async function createPropKind(
           rad >= shadowMinRadius &&
           d2 < fadeEnd * fadeEnd * 0.6
         ) {
-          const sx = sm[0] * x + sm[4] * y + sm[8] * z + sm[12];
-          const sy = sm[1] * x + sm[5] * y + sm[9] * z + sm[13];
-          const pad = rad * Math.abs(sm[0]) * 1.5;
-          if (Math.abs(sx) <= 1 + pad && Math.abs(sy) <= 1 + pad) {
+          if (sphereInside(shadowPlanes, x, y, z, rad)) {
             const w = chain[chain.length - 1];
             shadowScratch.set(
               data.subarray(b, b + FLOATS),

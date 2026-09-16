@@ -10,6 +10,7 @@
 // drawn with GPU-written indirect draw calls.
 
 import {createShader} from '../gpu/device.ts';
+import {sidePlanes} from '../render/frustum.ts';
 import {defineStruct} from '../gpu/structs.ts';
 import {buildMesh, vertexLayout, type Patch} from '../gen/meshgen.ts';
 import {surfaceLib} from '../shaders/index.ts';
@@ -1147,6 +1148,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
 const CullStruct = defineStruct('Cull', {
   viewProj: 'mat4x4f',
+  /** Left/right/bottom/top frustum planes, normalized (see render/frustum). */
+  planes: 'mat4x4f',
   camPos: 'vec3f',
   focalPx: 'f32',
   maxDist: 'f32',
@@ -1181,10 +1184,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (inst.posScale.w <= 0.0 || d > P.maxDist + r) {
     return;
   }
+  // Distance to each side plane, in world units (so one radius of slack means
+  // the same on every side whatever the shape of the window).
+  let side = vec4f(pos, 1.0) * P.planes;
   let c = P.viewProj * vec4f(pos, 1.0);
-  let pad = r * 1.5;
-  if (c.w < -pad || c.x > c.w * 1.05 + pad * 1.2 || c.x < -c.w * 1.05 - pad * 1.2 ||
-      c.y > c.w * 1.05 + pad * 1.2 || c.y < -c.w * 1.05 - pad * 1.2) {
+  if (c.w < -r || any(side < vec4f(-r))) {
     return;
   }
   let px = r * P.focalPx / max(d, 0.1);
@@ -1877,6 +1881,7 @@ export async function createFish(
     size: CullStruct.size,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+  const cullPlanes = new Float32Array(16);
   const cullData = new ArrayBuffer(CullStruct.size);
   const cullF = new Float32Array(cullData);
   const cullU = new Uint32Array(cullData);
@@ -2183,12 +2188,13 @@ export async function createFish(
       // Cull and pick detail levels, then fill in the indirect draw counts.
       const view = fc.view;
       cullF.set(view.viewProj, 0);
-      cullF.set(view.camPos, 16);
-      cullF[19] = view.focalPx;
-      cullF[20] = view.maxDistance;
-      cullU[21] = total;
-      cullF[22] = 70;
-      cullF[23] = 14;
+      cullF.set(sidePlanes(view.viewProj, cullPlanes), 16);
+      cullF.set(view.camPos, 32);
+      cullF[35] = view.focalPx;
+      cullF[36] = view.maxDistance;
+      cullU[37] = total;
+      cullF[38] = 70;
+      cullF[39] = 14;
       device.queue.writeBuffer(cullBuf, 0, cullData);
       device.queue.writeBuffer(countsBuf, 0, countsZero);
       const cull = fc.encoder.beginComputePass({label: 'fish:cull-pass'});
