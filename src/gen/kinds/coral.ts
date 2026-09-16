@@ -745,10 +745,12 @@ export async function createCoral(
     lean = 0.25,
     low = false,
   ) => {
+    const n0 = ctx.terrain.normalAt(x, z);
     const list = (low ? lowKind : byKind).get(kind)!;
     const variant = rng.pick(list);
-    // Nothing grows on the open sand of a clearing.
-    if (rng.float() > ctx.open(x, z)) {
+    // Nothing grows on the open sand of a clearing, and a head planted on a
+    // steep wall hangs out of it sideways.
+    if (rng.float() > ctx.open(x, z) || n0[1] < 0.55) {
       return variants[variant];
     }
     const n = ctx.terrain.normalAt(x, z);

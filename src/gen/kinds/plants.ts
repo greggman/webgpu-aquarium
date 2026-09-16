@@ -502,7 +502,9 @@ export async function createPlants(
       return m > 0.35
         ? Math.min(1, (m - 0.35) * 2.5) *
             (1 - ctx.terrain.maskAt(0, x, z)) *
-            ctx.open(x, z)
+            ctx.open(x, z) *
+            // Grass takes root in sand, not on a gully wall.
+            Math.max(0, (ctx.terrain.normalAt(x, z)[1] - 0.72) / 0.28)
         : 0;
     },
     maxTries: 60000,

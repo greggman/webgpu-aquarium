@@ -559,7 +559,7 @@ export async function createCritters(
     rot?: Quat,
     lift = 0,
   ) => {
-    if (rng.float() > ctx.open(x, z)) {
+    if (rng.float() > ctx.open(x, z) || ctx.terrain.normalAt(x, z)[1] < 0.6) {
       return;
     }
     const n = ctx.terrain.normalAt(x, z);

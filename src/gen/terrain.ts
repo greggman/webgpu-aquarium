@@ -29,6 +29,9 @@ export const TerrainParams = defineStruct('TerrainParams', {
   surfaceY: 'f32',
   outcropScale: 'f32',
   spurHeight: 'f32',
+  canyonDepth: 'f32',
+  canyonWidth: 'f32',
+  canyonScale: 'f32',
 });
 
 export interface TerrainSettings {
@@ -48,6 +51,12 @@ export interface TerrainSettings {
   outcropScale: number;
   /** Height of the spur-and-groove reef ridges leading to the drop-off. */
   spurHeight: number;
+  /** Depth of the main canyon floors below the surrounding seabed. */
+  canyonDepth: number;
+  /** Half-width of a main canyon at the rim, in metres. */
+  canyonWidth: number;
+  /** Size of the channel network: smaller means longer, straighter canyons. */
+  canyonScale: number;
 }
 
 export function randomTerrainSettings(
@@ -70,6 +79,9 @@ export function randomTerrainSettings(
     surfaceY,
     outcropScale: rng.range(0.8, 1.25),
     spurHeight: rng.range(2.5, 4.5),
+    canyonDepth: rng.range(8, 13),
+    canyonWidth: rng.range(6, 9),
+    canyonScale: rng.range(0.8, 1.2),
   };
 }
 
@@ -106,6 +118,68 @@ fn spurMask(p: vec2f) -> f32 {
   return zone * rounded * knobs * lumps;
 }
 
+/**
+ * A dissected seabed: a branching network of canyons and gullies, cut into
+ * whatever the rest of the terrain built.
+ *
+ * Channel centrelines are the zero crossings of a warped fbm, so they wander
+ * and branch like drainage rather than like noise. Three scales are cut: main
+ * canyons, gullies feeding them, and fine rills on the walls. The domain is
+ * stretched along the drainage direction, so the system runs one way — toward
+ * the gap in the rim, where the floor falls away into the deep.
+ *
+ * Returns metres to cut (positive).
+ */
+fn canyonCut(p: vec2f) -> f32 {
+  let flow = vec2f(cos(P.gapAngle), sin(P.gapAngle));
+  let across = vec2f(-flow.y, flow.x);
+  // Stretched along the flow: channels run down it instead of meandering.
+  // Stretched along the flow, but by a varying amount, so the system is not a
+  // set of parallel furrows.
+  let bend = fbm2(p * 0.004 + 61.0, 2) * 0.5;
+  let g = vec2f(dot(p, flow) * (0.3 + bend * 0.5), dot(p, across)) * 0.0085 * P.canyonScale;
+  let warpV = vec2f(fbm2(g * 1.7 + 5.0, 4), fbm2(g * 1.7 + 19.0, 4));
+  let q = g + warpV * 0.7;
+
+  // Not everywhere: broad stretches of the basin stay open sand, and the
+  // dissected ground reads against them.
+  let region = smoothstep(0.1, 0.55, fbm2(p * 0.0075 + 47.0, 3) + 0.28);
+  if (region <= 0.001) {
+    return 0.0;
+  }
+
+  // Main canyons: near the zero crossing of a low-frequency field.
+  let trunk = abs(fbm2(q, 4));
+  let trunkW = P.canyonWidth * 0.019 * P.canyonScale;
+  var cut = smoothstep(trunkW, 0.0, trunk) * P.canyonDepth;
+
+  // Gullies: shallower, feeding the trunks.
+  let branch = abs(fbm2(q * 2.2 + 3.3, 4));
+  cut += smoothstep(trunkW * 0.55, 0.0, branch) * P.canyonDepth * 0.4;
+
+  // Rills: a little fine dissection of the ground between them.
+  let rill = abs(fbm2(q * 6.0 + 11.0, 3));
+  cut += smoothstep(trunkW * 0.3, 0.0, rill) * P.canyonDepth * 0.12;
+  // The three scales can otherwise stack into a trench half the depth of the
+  // basin; a canyon is deep, not bottomless.
+  cut = min(cut, P.canyonDepth * 1.1) * region;
+
+  // Deeper downstream, fading out before the rim so the basin stays enclosed.
+  let along = dot(p - P.center, flow) / max(P.basinRadius, 1.0);
+  cut *= 0.65 + 0.5 * smoothstep(-1.0, 1.0, along);
+  let r = length(p - P.center);
+  cut *= smoothstep(P.basinRadius + 6.0, P.basinRadius - 16.0, r);
+  return cut;
+}
+
+/** Ledges: flattens bands out of a slope so walls read as cut rock. */
+fn terrace(h: f32, step: f32, strength: f32) -> f32 {
+  let t = h / step;
+  let f = fract(t);
+  let shaped = floor(t) + smoothstep(0.25, 0.75, f);
+  return mix(h, shaped * step, strength);
+}
+
 fn basinHeight(p: vec2f) -> f32 {
   let warpV = vec2f(fbm2(p * 0.008, 3), fbm2(p * 0.008 + vec2f(41.0, 17.0), 3));
   let q = p + warpV * 30.0 * P.warp;
@@ -128,6 +202,14 @@ fn basinHeight(p: vec2f) -> f32 {
 
   // Spur-and-groove ridges toward the drop-off.
   h += spurMask(p) * P.spurHeight * (0.75 + 0.35 * fbm2(p * 0.07 + 9.0, 3));
+
+  // Canyons and gullies cut down through everything above: the floor is
+  // dissected, not merely bumpy. Walls get ledges so they read as cut rock.
+  let cut = canyonCut(p);
+  if (cut > 0.05) {
+    let floorNoise = fbm2(p * 0.09 + 31.0, 3) * 0.8;
+    h = terrace(h - cut + floorNoise * smoothstep(1.0, 6.0, cut), 1.6, 0.35 * smoothstep(1.0, 5.0, cut));
+  }
 
   // Ring of cliffs.
   let angle = atan2(d.y, d.x);
@@ -797,13 +879,16 @@ export async function createTerrainRenderer(
       const x1 = warp(((ix + cells) / gridCount) * 2 - 1) * worldSize * 0.5;
       const z0 = warp((iz / gridCount) * 2 - 1) * worldSize * 0.5;
       const z1 = warp(((iz + cells) / gridCount) * 2 - 1) * worldSize * 0.5;
+      // Every cell corner, not a coarse sample of them: canyon walls put
+      // metres of height inside one chunk, and a bound that misses them
+      // culls chunks that are still on screen.
       let hMin = Infinity;
       let hMax = -Infinity;
-      for (let sz = 0; sz <= 8; sz++) {
-        for (let sx = 0; sx <= 8; sx++) {
+      for (let sz = 0; sz <= cells; sz++) {
+        for (let sx = 0; sx <= cells; sx++) {
           const h = heightAt(
-            x0 + ((x1 - x0) * sx) / 8,
-            z0 + ((z1 - z0) * sz) / 8,
+            x0 + ((x1 - x0) * sx) / cells,
+            z0 + ((z1 - z0) * sz) / cells,
           );
           hMin = Math.min(hMin, h);
           hMax = Math.max(hMax, h);
@@ -813,9 +898,9 @@ export async function createTerrainRenderer(
         ix,
         iz,
         cells,
-        // Margin for peaks between samples and the skirts.
+        // Margin for the skirts that hide the seams between levels.
         min: [Math.min(x0, x1), hMin - 3.5, Math.min(z0, z1)],
-        max: [Math.max(x0, x1), hMax + 1, Math.max(z0, z1)],
+        max: [Math.max(x0, x1), hMax + 0.5, Math.max(z0, z1)],
       });
     }
   }

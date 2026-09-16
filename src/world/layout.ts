@@ -32,7 +32,7 @@ export interface Clearing {
 }
 
 export interface Landmark {
-  kind: 'pinnacle' | 'arch';
+  kind: 'pinnacle';
   x: number;
   y: number;
   z: number;

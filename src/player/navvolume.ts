@@ -31,6 +31,16 @@ export class NavVolume {
     this.o = o;
   }
 
+  /** Ground slope (dh/dx, dh/dz) at (x, z), in metres per metre. */
+  slopeAt(x: number, z: number): [number, number] {
+    const h = this.o.heightAt;
+    const e = 0.7;
+    return [
+      (h(x + e, z) - h(x - e, z)) / (2 * e),
+      (h(x, z + e) - h(x, z - e)) / (2 * e),
+    ];
+  }
+
   /** Lowest allowed camera height at (x, z), considering nearby ground. */
   floorAt(x: number, z: number): number {
     const h = this.o.heightAt;
@@ -104,19 +114,43 @@ export class NavVolume {
       }
     }
 
-    // Floor and ceiling.
-    const floor = this.floorAt(pos[0], pos[2]);
+    // Floor, walls and ceiling. Gentle ground is climbed, as before; steep
+    // ground (the side of a canyon or gully) pushes back horizontally and is
+    // slid along, so the camera goes round a wall instead of riding up it.
     const ceil = this.ceiling();
-    const minY = Math.min(floor, ceil - 0.5);
-    if (pos[1] < minY) {
-      // Glide up over the ground rather than snapping.
-      const k = Math.min(1, dt * 10);
-      pos[1] += (minY - pos[1]) * k;
-      if (pos[1] < minY - 0.6) {
-        pos[1] = minY - 0.6;
+    for (let iter = 0; iter < 2; iter++) {
+      const floor = this.floorAt(pos[0], pos[2]);
+      const minY = Math.min(floor, ceil - 0.5);
+      const deep = minY - pos[1];
+      if (deep <= 0) {
+        break;
       }
-      if (vel[1] < 0) {
+      const [gx, gz] = this.slopeAt(pos[0], pos[2]);
+      const slope = Math.hypot(gx, gz);
+      const wall = wallness(slope);
+      if (wall > 0 && slope > 1e-3) {
+        // Out of the slope, downhill, keeping whatever motion runs along it.
+        const nx = -gx / slope;
+        const nz = -gz / slope;
+        const push = Math.min(deep, 1.5) * wall * Math.min(1, dt * 12);
+        pos[0] += nx * push;
+        pos[2] += nz * push;
+        const into = -(vel[0] * nx + vel[2] * nz);
+        if (into > 0) {
+          vel[0] += nx * into;
+          vel[2] += nz * into;
+        }
+      }
+      pos[1] += deep * (1 - wall) * Math.min(1, dt * 10);
+      const allowed = minY - 0.6 - wall * 2.5;
+      if (pos[1] < allowed) {
+        pos[1] = allowed;
+      }
+      if (vel[1] < 0 && wall < 0.5) {
         vel[1] = 0;
+      }
+      if (wall <= 0) {
+        break;
       }
     }
     if (pos[1] > ceil) {
@@ -165,4 +199,10 @@ export class NavVolume {
       p[1] <= this.ceiling() + 1e-3
     );
   }
+}
+
+/** 0 on ground gentle enough to swim over, 1 on a wall. */
+function wallness(slope: number): number {
+  const t = Math.max(0, Math.min(1, (slope - 0.75) / 0.95));
+  return t * t * (3 - 2 * t);
 }

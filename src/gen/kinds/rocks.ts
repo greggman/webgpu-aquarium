@@ -9,65 +9,7 @@ import {scatter} from '../../world/scatter.ts';
 import propsWgsl from '../../shaders/props.wgsl';
 
 const surfaceWgsl = /* wgsl */ `
-/**
- * A natural arch: a thick tube swept along a half ellipse, fat at the feet and
- * worn thin at the crown, with the same strata and pitting as the boulders.
- * p2.x marks the variant; p2.y is the span, p2.z the rise, p2.w the thickness.
- */
-fn archSurface(pat: Patch, uv: vec2f) -> SurfacePoint {
-  let span = pat.p2.y;
-  let rise = pat.p2.z;
-  let thick = pat.p2.w;
-  let seedOff = pat.p1.xyz;
-
-  // Along the arch, foot to foot.
-  let t = uv.y * 3.14159265;
-  let centre = vec3f(cos(t) * span, sin(t) * rise, 0.0);
-  // Frame: tangent along the sweep, then the two cross-section axes.
-  let tangent = normalize(vec3f(-sin(t) * span, cos(t) * rise, 0.0));
-  let side = vec3f(0.0, 0.0, 1.0);
-  let up = normalize(cross(tangent, side));
-
-  // Around the tube. Wider than tall, like a worn span.
-  let a = uv.x * 6.2831853;
-  // Wider than tall, and flattened where the current has worn the top.
-  let dir = normalize(up * (cos(a) - 0.18 * max(cos(a), 0.0)) + side * sin(a) * 1.5);
-  // Fat where it meets the sand, worn thinner over the crown, but never so
-  // thin that it stops reading as rock.
-  let taper = thick * (0.8 + 1.3 * pow(1.0 - sin(t), 2.0));
-  let q = dir * 1.7 + centre * 0.8 + seedOff;
-  let lump = fbm3(q * 0.8, 3) * 0.75 + fbm3(q * 2.1, 2) * 0.22;
-  var r = taper * (1.0 + lump);
-
-  // Strata worn across the span, undercutting on some faces only.
-  let layer = dot(centre, vec3f(0.35, 0.9, 0.0)) * pat.p1.w + fbm3(q * 1.2, 3) * 1.4;
-  let f = fract(layer);
-  let ledge = smoothstep(0.0, 0.3, f) * (1.0 - smoothstep(0.5, 1.0, f));
-  r += (ledge - 0.45) * taper * 0.3;
-
-  // Pits and pockets, as on the boulders.
-  let pits = min(worley3(q * 6.0), worley3(q * 12.0) + 0.08);
-  let pocket = smoothstep(0.22, 0.0, pits) * smoothstep(-0.1, 0.35, fbm3(q * 1.3 + 11.0, 2));
-  r -= pocket * taper * 0.16;
-
-  var p = centre + dir * r;
-  // Feet flare out and dig in, so the arch grows from the seabed.
-  let foot = smoothstep(0.3, 0.0, min(uv.y, 1.0 - uv.y));
-  p += vec3f(sign(p.x) * foot * span * 0.3, -foot * rise * 0.75, 0.0);
-  // Long enough to stay buried wherever the seabed rises or falls.
-  p.y -= foot * (thick * 0.8 + rise * 0.35);
-
-  var o = sp(p, vec4f(uv, pocket, ledge));
-  // Undersides and the shaded inner curve of the span are occluded.
-  let under = clamp(-dir.y, 0.0, 1.0);
-  o.ao = clamp(0.92 - under * 0.45 - pocket * 0.5 - foot * 0.25, 0.2, 1.0);
-  return o;
-}
-
 fn surface(pat: Patch, uv: vec2f) -> SurfacePoint {
-  if (pat.p2.x > 0.5) {
-    return archSurface(pat, uv);
-  }
   let theta = uv.x * 6.2831853;
   let phi = uv.y * 3.14159265;
   // Parameterised so d/du x d/dv points outward (counter-clockwise front faces).
@@ -253,35 +195,6 @@ export async function createRocks(
       radius: 3.6,
     });
   }
-  // Arches: worn spans a diver can swim through.
-  const ARCHES = 2;
-  const archStart = variants.length;
-  for (let v = 0; v < ARCHES; v++) {
-    variants.push({
-      patches: [
-        {
-          segU: hi ? 64 : 28,
-          segV: hi ? 180 : 70,
-          params: [
-            0,
-            0,
-            0,
-            0,
-            rng.range(-50, 50),
-            rng.range(-50, 50),
-            rng.range(-50, 50),
-            rng.range(1.1, 1.8),
-            // p2: arch flag, span, rise, thickness.
-            1,
-            rng.range(1.5, 1.9),
-            rng.range(1.4, 1.8),
-            rng.range(0.42, 0.56),
-          ],
-        },
-      ],
-      radius: 2.6,
-    });
-  }
   // Low-detail stones for pebbles, rubble and distant boulders.
   const LOW = 3;
   const lowStart = variants.length;
@@ -349,13 +262,15 @@ export async function createRocks(
   ) => {
     // Clearings stay open sand; reef structure (pillars, the boulders that
     // buttress them) is placed deliberately and ignores the mask.
-    if (
-      landmark === null &&
-      !pillar &&
-      !onTop &&
-      rng.float() > ctx.open(x, z)
-    ) {
-      return;
+    if (landmark === null && !pillar && !onTop) {
+      if (rng.float() > ctx.open(x, z)) {
+        return;
+      }
+      // Canyon and gully walls are bare rock: a boulder dropped on one juts
+      // out sideways, because only its base is sunk into the ground.
+      if (ctx.terrain.normalAt(x, z)[1] < 0.62) {
+        return;
+      }
     }
     // Stacked rocks sit on whatever is already there (terrain or other rocks).
     const base = onTop ? ctx.surfaceTop(x, z) : ctx.groundY(x, z);
@@ -438,10 +353,9 @@ export async function createRocks(
     }
   }
 
-  // Landmarks. A couple of pinnacles beside the most important reefs, and
-  // often an arch standing in the open sand of a clearing: something taller
-  // than everything else, to give the reef a sense of scale and the eye
-  // somewhere to go.
+  // Landmarks: a couple of pinnacles standing off the edges of the most
+  // important reefs, taller than everything around them, to give the reef a
+  // sense of scale and the eye somewhere to go.
   const landmarkRocks = (x: number, z: number, scale: number, r: number) => {
     // Broken rock piled around the foot, so it grows out of the seabed
     // instead of being planted on it.
@@ -505,67 +419,6 @@ export async function createRocks(
       radius: scale * 0.8,
     });
   }
-  // One arch per ocean, in the first clearing flat enough to hold it.
-  let arches = rng.bool(0.85) ? 1 : 0;
-  for (const clearing of ctx.clearings) {
-    if (!arches) {
-      break;
-    }
-    const x = clearing.x + rng.range(-1, 1);
-    const z = clearing.z + rng.range(-1, 1);
-    if (ctx.terrain.normalAt(x, z)[1] < 0.86 || clearing.radius < 6) {
-      continue;
-    }
-    arches--;
-    const scale = rng.range(4, 5.2);
-    // Turned side-on to the hero reef, so the camera sees through the opening.
-    const hero = ctx.clusters[0];
-    const yaw = hero
-      ? Math.atan2(hero.x - x, hero.z - z) + Math.PI / 2
-      : rng.range(0, Math.PI * 2);
-    // Seated on the lower of its two feet, so neither hangs in the water.
-    const footAt = (sx: number): [number, number] => [
-      x + Math.cos(yaw) * sx * scale * 1.55,
-      z - Math.sin(yaw) * sx * scale * 1.55,
-    ];
-    const ground = Math.min(
-      ctx.groundY(x, z),
-      ...[-1, 1].map(sx => ctx.groundY(...footAt(sx))),
-    );
-    place(
-      x,
-      z,
-      scale,
-      (ctx.groundY(x, z) - ground) / scale + 0.1,
-      1,
-      false,
-      false,
-      false,
-      archStart + rng.int(0, ARCHES - 1),
-      yaw,
-    );
-    ctx.occupied.add(x, z, scale * 1.4);
-    ctx.landmarks.push({
-      kind: 'arch',
-      x,
-      y: ground,
-      z,
-      height: scale * 1.6,
-      radius: scale * 1.9,
-    });
-    // Only the legs block: the opening stays swimmable.
-    for (const sx of [-1, 1]) {
-      const [lx, lz] = footAt(sx);
-      for (const k of [0.3, 0.9]) {
-        ctx.obstacles.push({
-          center: [lx, y0(lx, lz) + scale * k, lz],
-          radius: scale * 0.42,
-        });
-      }
-      landmarkRocks(lx, lz, scale, scale * 0.45);
-    }
-  }
-
   // Foundation rocks under each reef cluster.
   for (const c of ctx.clusters) {
     const n = rng.int(2, 4) + (c.rank === 0 ? 2 : 0);

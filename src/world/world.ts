@@ -671,9 +671,7 @@ export function cameraSpots(
 
   // Landmark: the arch if there is one, else the tallest pinnacle, framed from
   // far enough back to take in its full height.
-  const hero2 =
-    landmarks.find(l => l.kind === 'arch') ??
-    [...landmarks].sort((a, b) => b.height - a.height)[0];
+  const hero2 = [...landmarks].sort((a, b) => b.height - a.height)[0];
   const landmark = hero2
     ? spotLookingAt(
         nav,
