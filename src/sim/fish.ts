@@ -978,6 +978,18 @@ fn groundAt(xz: vec2f) -> f32 {
   return textureSampleLevel(tTerrain, sClamp, xz / sim.worldSize + 0.5, 0.0).r;
 }
 
+/**
+ * Which way the ground falls away here, and how steeply.
+ *
+ * The terrain's surface normal is stored alongside its height, and its
+ * horizontal part points down the slope — so it is exactly the direction to
+ * swim to get away from a wall, and its length says how much of a wall this is.
+ */
+fn groundSlope(xz: vec2f) -> vec3f {
+  let t = textureSampleLevel(tTerrain, sClamp, xz / sim.worldSize + 0.5, 0.0);
+  return vec3f(t.g, 0.0, t.b);
+}
+
 fn quatFromBasis(x: vec3f, y: vec3f, z: vec3f) -> vec4f {
   let trace = x.x + y.y + z.z;
   if (trace > 0.0) {
@@ -1070,6 +1082,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let ga = groundAt(ahead.xz);
   if (ahead.y < ga + sp.band.x) {
     acc.y += (ga + sp.band.x - ahead.y) * 5.0;
+    // A wall is not something to climb over: on ground steep enough that
+    // rising would not clear it in time, swim along it instead, turning down
+    // the slope. Gentle ground still just gets swum over as before.
+    let slope = groundSlope(ahead.xz);
+    let steep = length(slope);
+    if (steep > 0.35) {
+      let close = clamp((ga + sp.band.x - ahead.y) / max(sp.band.x, 0.5), 0.0, 1.0);
+      acc += normalize(slope + vec3f(1e-5, 0.0, 0.0)) * steep * close * 9.0;
+    }
   }
 
   // Rocks.

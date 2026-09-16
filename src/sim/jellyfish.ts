@@ -2,6 +2,7 @@
 // tentacles, softly bioluminescent. Drawn in the transparent pass.
 
 import {createShader} from '../gpu/device.ts';
+import type {NavSphere} from '../player/navvolume.ts';
 import {sidePlanes, sphereInside} from '../render/frustum.ts';
 import {
   buildMesh,
@@ -379,6 +380,32 @@ export async function createJellyfish(
   let nearCount = 0;
   let farCount = 0;
   const planes = new Float32Array(16);
+
+  // Rocks, in a coarse grid: a jelly only ever looks at the handful near it.
+  const ROCK_CELL = 12;
+  const rocks = new Map<string, NavSphere[]>();
+  const rockKey = (x: number, z: number) =>
+    `${Math.floor(x / ROCK_CELL)},${Math.floor(z / ROCK_CELL)}`;
+  for (const o of ctx.obstacles) {
+    // Into every cell the sphere reaches, by cell index rather than by
+    // stepping, so the far edge is never skipped.
+    const r = o.radius + 3;
+    const x0 = Math.floor((o.center[0] - r) / ROCK_CELL);
+    const x1 = Math.floor((o.center[0] + r) / ROCK_CELL);
+    const z0 = Math.floor((o.center[2] - r) / ROCK_CELL);
+    const z1 = Math.floor((o.center[2] + r) / ROCK_CELL);
+    for (let ix = x0; ix <= x1; ix++) {
+      for (let iz = z0; iz <= z1; iz++) {
+        const k = `${ix},${iz}`;
+        const list = rocks.get(k);
+        if (list) {
+          list.push(o);
+        } else {
+          rocks.set(k, [o]);
+        }
+      }
+    }
+  }
   return {
     name: 'jellyfish',
     jellies: () => jellies,
@@ -403,6 +430,34 @@ export async function createJellyfish(
         j.pos[0] += j.vel[0] * dt;
         j.pos[1] += j.vel[1] * dt;
         j.pos[2] += j.vel[2] * dt;
+        // Rocks and walls. A jelly has no eyes and no hurry: it drifts clear
+        // rather than swerving, so the push is small and always outward.
+        for (const o of rocks.get(rockKey(j.pos[0], j.pos[2])) ?? []) {
+          const rx = j.pos[0] - o.center[0];
+          const ry = j.pos[1] - o.center[1];
+          const rz = j.pos[2] - o.center[2];
+          const rd = Math.hypot(rx, ry, rz);
+          const want = o.radius + j.scale * 2 + 0.4;
+          if (rd < want && rd > 1e-3) {
+            const push = ((want - rd) / want) * dt;
+            j.vel[0] += (rx / rd) * push * 1.4;
+            j.vel[1] += (ry / rd) * push * 0.6;
+            j.vel[2] += (rz / rd) * push * 1.4;
+          }
+        }
+        // Steep ground pushes them off it, down the slope, before they reach
+        // the floor bounce below.
+        const gh = ctx.terrain.groundAt(j.pos[0], j.pos[2]);
+        if (j.pos[1] - gh < 4 + j.scale * 3) {
+          const n = ctx.terrain.normalAt(j.pos[0], j.pos[2]);
+          const steep = Math.hypot(n[0], n[2]);
+          if (steep > 0.35) {
+            const k = (dt * steep) / Math.max(steep, 1e-3);
+            j.vel[0] += n[0] * k * 0.5;
+            j.vel[2] += n[2] * k * 0.5;
+          }
+        }
+
         // Drift gently away from the camera so it doesn't swim into them.
         const cam = fc.view.camPos;
         const ax = j.pos[0] - cam[0];
@@ -420,7 +475,7 @@ export async function createJellyfish(
         }
         j.vel[0] *= 1 - Math.min(1, dt * 0.1);
         j.vel[2] *= 1 - Math.min(1, dt * 0.1);
-        const g = ctx.terrain.heightAt(j.pos[0], j.pos[2]);
+        const g = ctx.terrain.groundAt(j.pos[0], j.pos[2]);
         if (j.pos[1] > ceiling) {
           j.vel[1] = -0.1;
         }
