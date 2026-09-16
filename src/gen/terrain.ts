@@ -842,6 +842,25 @@ fn fs(i: VOut) -> FOut {
   return o;
 }
 
+/**
+ * Debug view (?flat=1): solid colour, one light, no water, no shadows, and back
+ * faces in red. The seabed either appears or it does not, with nothing in the
+ * way of telling which.
+ */
+@fragment
+fn fsFlat(i: VOut, @builtin(front_facing) front: bool) -> FOut {
+  let t = textureSample(tTerrain, sLinearClamp, i.uv);
+  let n = normalize(vec3f(t.g, sqrt(max(1.0 - t.g * t.g - t.b * t.b, 0.0)), t.b));
+  let key = clamp(dot(n, normalize(vec3f(0.4, 0.85, 0.3))), 0.0, 1.0);
+  var o: FOut;
+  o.color = vec4f(
+    select(vec3f(1.2, 0.0, 0.0), vec3f(0.55, 0.6, 0.62) * (0.25 + 0.75 * key), front),
+    1.0,
+  );
+  o.velocity = (i.curClip.xy / i.curClip.w - i.prevClip.xy / i.prevClip.w) * vec2f(0.5, -0.5);
+  return o;
+}
+
 @vertex
 fn vsShadow(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> @builtin(position) vec4f {
   return frame.shadowViewProj * vec4f(chunkWorld(vi, ii), 1.0);
@@ -868,6 +887,7 @@ export async function createTerrainRenderer(
   gridCount: number,
   worldSize: number,
   heightAt: (x: number, z: number) => number,
+  debug = false,
 ): Promise<TerrainRenderer> {
   const module = createShader(device, 'terrain:render-shader', renderShader);
   const localLayout = device.createBindGroupLayout({
@@ -895,7 +915,7 @@ export async function createTerrainRenderer(
     vertex: {module, entryPoint: 'vs'},
     fragment: {
       module,
-      entryPoint: 'fs',
+      entryPoint: debug ? 'fsFlat' : 'fs',
       targets: [{format: targets.color}, {format: targets.velocity}],
     },
     primitive: {topology: 'triangle-list', cullMode: 'back'},

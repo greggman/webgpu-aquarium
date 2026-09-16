@@ -172,6 +172,7 @@ async function main() {
         quality.terrainGrid,
         desc.terrain.worldSize,
         (x, z) => terrain.cpu.heightAt(x, z),
+        params.get('flat') === '1',
       ),
       createBackground(device, renderer.globals.layout),
       createPresent(device, renderer.globals.layout, gpu.format),
@@ -276,7 +277,20 @@ async function main() {
   // before it has found one.
   const follow = new CreatureCam(nav, fish, jellyfish, desc.rng.fork('follow'));
   let following = false;
-  const fixedCamera = params.get('camera');
+  // ?pos=x,y,z&look=yaw,pitch puts the camera exactly somewhere, so a spot
+  // reported from one machine can be opened on another.
+  const posParam = params
+    .get('pos')
+    ?.split(',')
+    .map(Number)
+    .filter(n => Number.isFinite(n));
+  const lookParam = params
+    .get('look')
+    ?.split(',')
+    .map(Number)
+    .filter(n => Number.isFinite(n));
+  const fixedCamera =
+    params.get('camera') ?? (posParam?.length === 3 ? 'pos' : null);
   const setCamera = (
     name:
       | string
@@ -295,7 +309,20 @@ async function main() {
   };
   let attractActive = !fixedCamera;
   let lastAutoPose: CameraPose = {pos: [0, 0, 0], yaw: 0, pitch: 0, roll: 0};
-  if (fixedCamera) {
+  if (posParam?.length === 3) {
+    const [yawDeg, pitchDeg] = lookParam?.length === 2 ? lookParam : [0, 0];
+    const yaw = (yawDeg * Math.PI) / 180;
+    const pitch = (pitchDeg * Math.PI) / 180;
+    const f = forwardFromAngles(yaw, pitch);
+    setCamera({
+      pos: [posParam[0], posParam[1], posParam[2]],
+      target: [
+        posParam[0] + f[0] * 20,
+        posParam[1] + f[1] * 20,
+        posParam[2] + f[2] * 20,
+      ],
+    });
+  } else if (fixedCamera) {
     setCamera(fixedCamera);
   } else {
     camera.setPose(spots.tour[0].pos, spots.tour[0].target);
@@ -574,7 +601,10 @@ async function main() {
         `yaw ${((pose.yaw * 180) / Math.PI).toFixed(0)} pitch ${((pose.pitch * 180) / Math.PI).toFixed(0)} · ` +
         `floor ${nav.floorAt(p[0], p[2]).toFixed(1)}\n` +
         `terrain ${ground.stats.chunks} chunks · ` +
-        `${(ground.stats.triangles / 1000).toFixed(0)}k triangles`;
+        `${(ground.stats.triangles / 1000).toFixed(0)}k triangles\n` +
+        // The query string that reproduces this exact view elsewhere.
+        `?seed=${seed}&quality=${tier}&pos=${p.map(v => v.toFixed(1)).join(',')}` +
+        `&look=${((pose.yaw * 180) / Math.PI).toFixed(0)},${((pose.pitch * 180) / Math.PI).toFixed(0)}`;
     }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
