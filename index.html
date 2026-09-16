@@ -60,7 +60,14 @@
       body {
         margin: 0;
         height: 100%;
-        overflow: hidden;
+        /* No overflow:hidden. Nothing here is in normal flow — the canvas and
+           the overlays are all fixed — so there is nothing to scroll and no
+           scrollbar to suppress. Hiding it globally only means anything that
+           does overflow, such as a long error list or the unsupported-browser
+           message on a small screen, becomes unreadable. overscroll-behavior
+           stops the rubber-band and pull-to-refresh, which is what the page
+           actually wanted. */
+        overscroll-behavior: none;
         background: #02101a;
         color: #d8eef5;
         font:
@@ -165,7 +172,6 @@
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
-        justify-content: center;
         align-items: center;
         text-align: left;
         background: radial-gradient(
@@ -180,6 +186,10 @@
       #unsupported .card {
         max-width: 34rem;
         width: 100%;
+        /* Centred with auto margins rather than justify-content: a centred flex
+           item that overflows its container cannot be scrolled back to at the
+           top, which on a short screen hides the start of the message. */
+        margin: auto;
       }
       #unsupported h1 {
         font-size: 24px;
