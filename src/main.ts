@@ -117,6 +117,41 @@ async function main() {
   // Everything that must line up with the drawn seabed needs to know how
   // coarse the drawn mesh is.
   terrain.cpu.meshGrid = quality.terrainGrid;
+  // ?terrain=voxel meshes the seabed from a 3D density field instead of the
+  // height map, so it can undercut and be tunnelled through. It is built here,
+  // before anything is placed, because the field's surface — not the height
+  // map — is then the ground everything stands on.
+  const voxelMesh =
+    params.get('terrain') === 'voxel'
+      ? await (async () => {
+          const t0 = performance.now();
+          const m = await buildVoxelTerrain(
+            device,
+            terrain.texture,
+            terrain.cpu,
+            {
+              worldSize: desc.terrain.worldSize,
+              cellSize: numParam('cell') ?? 0.75,
+              minY: desc.terrain.floorDepth - 40,
+              maxY: desc.surfaceY - 3,
+              seed: desc.seed,
+              relief: numParam('relief') ?? 1,
+            },
+          );
+          console.log(
+            `[voxel] ${(m.indexCount / 3e3).toFixed(0)}k triangles, ` +
+              `${m.chunks.filter(c => c.count).length} chunks, ` +
+              `${(performance.now() - t0).toFixed(0)} ms`,
+          );
+          // Note: plants, rocks and the camera are still placed and stopped
+          // by the height map, not by this field. Where the two differ — the
+          // warp moves walls sideways, the smoothing lowers crests — things
+          // stand in mid-water over the drawn seabed. Aligning them means
+          // reading the field's top surface back per column, which is the next
+          // piece of work on this path.
+          return m;
+        })()
+      : null;
   const nav = buildNavVolume(desc, terrain.cpu);
   const gen = createGenContext(desc, terrain.cpu, nav, quality);
   nav.o.obstacles = gen.obstacles;
@@ -184,40 +219,15 @@ async function main() {
       createTaa(device),
       bloom.init(),
     ]);
-  // ?terrain=voxel meshes the seabed from a 3D density field instead of the
-  // height map, so it can undercut and be tunnelled through.
-  const voxel =
-    params.get('terrain') === 'voxel'
-      ? await (async () => {
-          const t0 = performance.now();
-          const mesh = await buildVoxelTerrain(
-            device,
-            terrain.texture,
-            terrain.cpu,
-            {
-              worldSize: desc.terrain.worldSize,
-              cellSize: numParam('cell') ?? 0.75,
-              minY: desc.terrain.floorDepth - 40,
-              maxY: desc.surfaceY - 3,
-              seed: desc.seed,
-              relief: numParam('relief') ?? 1,
-              debugStats: params.get('voxelstats') === '1',
-            },
-          );
-          console.log(
-            `[voxel] ${(mesh.indexCount / 3e3).toFixed(0)}k triangles, ` +
-              `${mesh.chunks.filter(c => c.count).length} chunks, ` +
-              `${(performance.now() - t0).toFixed(0)} ms`,
-          );
-          return createVoxelRenderer(
-            device,
-            renderer.globals.layout,
-            targetsFormats,
-            mesh,
-            params.get('flat') === '1',
-          );
-        })()
-      : null;
+  const voxel = voxelMesh
+    ? await createVoxelRenderer(
+        device,
+        renderer.globals.layout,
+        targetsFormats,
+        voxelMesh,
+        params.get('flat') === '1',
+      )
+    : null;
   const ground = voxel ?? terrainRenderer;
   renderer.systems.push(
     caustics,
@@ -406,8 +416,20 @@ async function main() {
   window.__aquarium.terrainStats = ground.stats;
   // With ?where=1, check that what is drawn from and what is placed from agree.
   let heightCheck = '';
+  /** The full query string that reproduces the current view and settings. */
+  const repro = (p: readonly number[], pose: CameraPose) => {
+    const q = new URLSearchParams(location.search);
+    q.set('seed', String(seed));
+    q.set('quality', tier);
+    q.set('pos', p.map(v => v.toFixed(1)).join(','));
+    q.set(
+      'look',
+      `${((pose.yaw * 180) / Math.PI).toFixed(0)},${((pose.pitch * 180) / Math.PI).toFixed(0)}`,
+    );
+    return q.toString();
+  };
   if (params.get('where') === '1') {
-    verifyHeightTexture(device, terrain.texture, terrain.cpu).then(r => {
+    void verifyHeightTexture(device, terrain.texture, terrain.cpu).then(r => {
       heightCheck = r;
       console.log(`[aquarium] ${r}`);
     });
@@ -613,12 +635,13 @@ async function main() {
         `pos ${p[0].toFixed(1)} ${p[1].toFixed(1)} ${p[2].toFixed(1)} · ` +
         `yaw ${((pose.yaw * 180) / Math.PI).toFixed(0)} pitch ${((pose.pitch * 180) / Math.PI).toFixed(0)} · ` +
         `floor ${nav.floorAt(p[0], p[2]).toFixed(1)}\n` +
-        `terrain ${ground.stats.chunks} chunks · ` +
+        `${voxel ? 'VOXEL terrain' : 'height-map terrain'} · ` +
+        `${ground.stats.chunks} chunks · ` +
         `${(ground.stats.triangles / 1000).toFixed(0)}k triangles\n` +
         // The query string that reproduces this exact view elsewhere.
         `${heightCheck}\n` +
-        `?seed=${seed}&quality=${tier}&pos=${p.map(v => v.toFixed(1)).join(',')}` +
-        `&look=${((pose.yaw * 180) / Math.PI).toFixed(0)},${((pose.pitch * 180) / Math.PI).toFixed(0)}`;
+        // Every option in play, so a reported view opens in the same mode.
+        `?${repro(p, pose)}`;
     }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
