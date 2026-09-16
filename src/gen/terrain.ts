@@ -366,6 +366,13 @@ export class TerrainData {
   readonly masks: Float32Array;
   /** Vertices per side of the drawn mesh; set once the tier is known. */
   meshGrid = 0;
+  /** Ground heights from elsewhere (the volumetric terrain), if in use. */
+  private ground: {grid: number; data: Float32Array} | null = null;
+
+  /** Use these heights as the ground rather than the height map. */
+  setGroundOverride(grid: number, data: Float32Array) {
+    this.ground = {grid, data};
+  }
   constructor(
     size: number,
     worldSize: number,
@@ -416,6 +423,27 @@ export class TerrainData {
    * blocked by a ridge that was never drawn.
    */
   groundAt(x: number, z: number): number {
+    const o = this.ground;
+    if (o) {
+      const g = o.grid;
+      const fx = Math.min(
+        Math.max((x / this.worldSize + 0.5) * g - 0.5, 0),
+        g - 1.001,
+      );
+      const fz = Math.min(
+        Math.max((z / this.worldSize + 0.5) * g - 0.5, 0),
+        g - 1.001,
+      );
+      const ix = Math.floor(fx);
+      const iz = Math.floor(fz);
+      const tx = fx - ix;
+      const tz = fz - iz;
+      const at = (a: number, b: number) => o.data[b * g + a];
+      return (
+        (at(ix, iz) + (at(ix + 1, iz) - at(ix, iz)) * tx) * (1 - tz) +
+        (at(ix, iz + 1) + (at(ix + 1, iz + 1) - at(ix, iz + 1)) * tx) * tz
+      );
+    }
     const grid = this.meshGrid;
     if (!grid) {
       return this.heightAt(x, z);

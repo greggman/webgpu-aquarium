@@ -228,11 +228,64 @@ fn density(p: vec3f) -> f32 {
   let q = p * 0.031 + P.seed * 0.7 + 11.0;
   let tube = max(abs(fbm3(q, 3)), abs(fbm3(q * 1.27 + 5.0, 3)));
   let cover = smoothstep(4.0, 12.0, below) * smoothstep(30.0, 18.0, below) * region;
-  d = max(d, (0.075 - tube) * 30.0 * cover * P.relief);
+  // Carving has to fade out by *blending*, not by scaling what is being
+  // maxed in. Scaled to nothing the carve is zero, and max(d, 0) then clamps
+  // the field to non-negative — reading as water — through the top few metres
+  // and everywhere the tunnels do not reach. That is one hole in the seabed
+  // per column, which is exactly what it produced.
+  let carve = (0.075 - tube) * 30.0 * P.relief;
+  d = mix(d, max(d, carve), cover);
   return d;
 }
 
 @group(2) @binding(0) var<storage, read_write> field: array<f32>;
+
+/**
+ * The top of the rock in each column: march down from clear water to the first
+ * solid sample, then refine.
+ *
+ * Everything that stands on the seabed is placed from a height, and with a
+ * volumetric terrain the height map is no longer where the seabed is. A bracket
+ * guessed from the height map is not safe either — the warp samples the terrain
+ * from a shifted place, so the surface in a column can be metres from what the
+ * height map says there. Columns where no rock is found at all are marked, and
+ * the caller falls back to the height map for them.
+ */
+@compute @workgroup_size(8, 8)
+fn top_main(@builtin(global_invocation_id) id: vec3u) {
+  let n = u32(P.pad);
+  if (any(id.xy >= vec2u(n))) {
+    return;
+  }
+  let xz = ((vec2f(id.xy) + 0.5) / f32(n) - 0.5) * P.worldSize;
+  let base = baseHeight(xz);
+  let step = 0.5;
+  let stop = base - 40.0;
+  var y = base + 12.0;
+  var found = 1e9;
+  while (y > stop) {
+    if (density(vec3f(xz.x, y, xz.y)) < 0.0) {
+      found = y;
+      break;
+    }
+    y -= step;
+  }
+  if (found > 1e8) {
+    field[id.y * n + id.x] = 1e9;
+    return;
+  }
+  var lo = found;
+  var hi = found + step;
+  for (var i = 0; i < 8; i++) {
+    let mid = (lo + hi) * 0.5;
+    if (density(vec3f(xz.x, mid, xz.y)) < 0.0) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  field[id.y * n + id.x] = (lo + hi) * 0.5;
+}
 
 @compute @workgroup_size(4, 4, 4)
 fn density_main(@builtin(global_invocation_id) id: vec3u) {
@@ -410,6 +463,105 @@ export interface VoxelMesh {
   chunks: VoxelChunk[];
   vertexCount: number;
   indexCount: number;
+  /** Top of the rock per column, on a `topGrid` square over the world. */
+  top: Float32Array;
+  topGrid: number;
+}
+
+/** Columns per side for the ground-height grid read back to the CPU. */
+const TOP_GRID = 512;
+
+/**
+ * Runs the top-surface pass and reads it back, filling in any column where no
+ * rock was found from the height map, so the result is always usable.
+ */
+async function meshTopSurface(
+  device: GPUDevice,
+  module: GPUShaderModule,
+  paramsLayout: GPUBindGroupLayout,
+  heightLayout: GPUBindGroupLayout,
+  outLayout: GPUBindGroupLayout,
+  heightGroup: GPUBindGroup,
+  cpu: TerrainData,
+  s: VoxelSettings,
+): Promise<Float32Array> {
+  const buf = device.createBuffer({
+    label: 'voxel:top',
+    size: TOP_GRID * TOP_GRID * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  const params = device.createBuffer({
+    label: 'voxel:top-params',
+    size: PARAM_STRIDE,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  // `pad` carries the grid size for this pass; the origin is unused.
+  device.queue.writeBuffer(
+    params,
+    0,
+    new Float32Array([
+      0,
+      0,
+      0,
+      s.cellSize,
+      s.worldSize,
+      s.seed % 1024,
+      s.relief,
+      TOP_GRID,
+    ]),
+  );
+  const pipeline = await device.createComputePipelineAsync({
+    label: 'voxel:top-pipeline',
+    layout: device.createPipelineLayout({
+      label: 'voxel:top-layout',
+      bindGroupLayouts: [paramsLayout, heightLayout, outLayout],
+    }),
+    compute: {module, entryPoint: 'top_main'},
+  });
+  const enc = device.createCommandEncoder({label: 'voxel:top-encoder'});
+  const pass = enc.beginComputePass({label: 'voxel:top-pass'});
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(
+    0,
+    device.createBindGroup({
+      label: 'voxel:top-params-bind-group',
+      layout: paramsLayout,
+      entries: [{binding: 0, resource: {buffer: params, size: 32}}],
+    }),
+    [0],
+  );
+  pass.setBindGroup(1, heightGroup);
+  pass.setBindGroup(
+    2,
+    device.createBindGroup({
+      label: 'voxel:top-out-bind-group',
+      layout: outLayout,
+      entries: [{binding: 0, resource: {buffer: buf}}],
+    }),
+  );
+  pass.dispatchWorkgroups(Math.ceil(TOP_GRID / 8), Math.ceil(TOP_GRID / 8));
+  pass.end();
+  device.queue.submit([enc.finish({label: 'voxel:top'})]);
+  const top = new Float32Array(await readBuffer(device, buf));
+  buf.destroy();
+  let missing = 0;
+  let zero = 0;
+  for (let i = 0; i < top.length; i++) {
+    if (top[i] === 0) {
+      zero++;
+    }
+    if (top[i] > 1e8) {
+      missing++;
+      const x = ((i % TOP_GRID) / TOP_GRID - 0.5) * s.worldSize;
+      const z = (Math.floor(i / TOP_GRID) / TOP_GRID - 0.5) * s.worldSize;
+      top[i] = cpu.heightAt(x, z);
+    }
+  }
+  console.log(
+    `[voxel] ground surface: ${((missing / top.length) * 100).toFixed(1)}% no rock found, ` +
+      `${((zero / top.length) * 100).toFixed(1)}% never written`,
+  );
+  return top;
 }
 
 /** Meshes the field into one vertex and index buffer, chunk by chunk. */
@@ -669,6 +821,17 @@ export async function buildVoxelTerrain(
   });
   device.queue.submit([encoder.finish({label: 'voxel:build'})]);
 
+  const top = await meshTopSurface(
+    device,
+    densityModule,
+    paramsLayout,
+    heightLayout,
+    fieldOutLayout,
+    heightGroup,
+    cpu,
+    s,
+  );
+
   const totals = new Uint32Array(await readBuffer(device, tally));
   const chunks: VoxelChunk[] = boxes.map((b, i) => {
     const endIndices = totals[i * 2 + 1];
@@ -692,6 +855,8 @@ export async function buildVoxelTerrain(
     chunks,
     vertexCount: boxes.length ? totals[(boxes.length - 1) * 2] : 0,
     indexCount: boxes.length ? totals[(boxes.length - 1) * 2 + 1] : 0,
+    top,
+    topGrid: TOP_GRID,
   };
 }
 

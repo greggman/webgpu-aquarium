@@ -143,12 +143,9 @@ async function main() {
               `${m.chunks.filter(c => c.count).length} chunks, ` +
               `${(performance.now() - t0).toFixed(0)} ms`,
           );
-          // Note: plants, rocks and the camera are still placed and stopped
-          // by the height map, not by this field. Where the two differ — the
-          // warp moves walls sideways, the smoothing lowers crests — things
-          // stand in mid-water over the drawn seabed. Aligning them means
-          // reading the field's top surface back per column, which is the next
-          // piece of work on this path.
+          // The field's surface, not the height map, is now the ground that
+          // plants are rooted in and the camera is stopped by.
+          terrain.cpu.setGroundOverride(m.topGrid, m.top);
           return m;
         })()
       : null;
