@@ -271,7 +271,7 @@ export async function createGroundCover(
 
   // A smaller patch on phones: the cost is per blade on screen, and they have
   // fewer pixels to spend.
-  const grid = quality.tierIndex >= 2 ? GRID : Math.round(GRID * 0.7);
+  const grid = quality.detail ? GRID : Math.round(GRID * 0.7);
   const radius = (grid * CELL) / 2 - CELL * 2;
   const data = new Float32Array(4);
 

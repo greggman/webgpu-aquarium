@@ -499,7 +499,7 @@ export async function createCritters(
   ctx: GenContext,
 ): Promise<RenderSystem> {
   const rng = ctx.rng('critters');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   const aux = new AuxBuilder();
   const variants: Variant[] = [];
   const byKind = new Map<CritterKind, number[]>();

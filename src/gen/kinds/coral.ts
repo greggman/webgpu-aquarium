@@ -673,7 +673,7 @@ export async function createCoral(
   ctx: GenContext,
 ): Promise<RenderSystem> {
   const rng = ctx.rng('coral');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   const aux = new AuxBuilder();
   const variants: VariantInfo[] = [];
   const byKind = new Map<CoralKind, number[]>();

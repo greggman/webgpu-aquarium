@@ -213,7 +213,7 @@ export async function createJellyfish(
 ): Promise<JellyfishSystem> {
   const device = renderer.device;
   const rng = ctx.rng('jellyfish');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   // Blooms of jellies drifting through the whole basin.
   const count = Math.max(
     40,

@@ -120,7 +120,7 @@ export async function createRocks(
   ctx: GenContext,
 ): Promise<RenderSystem> {
   const rng = ctx.rng('rocks');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   const variants: {patches: Patch[]; radius: number}[] = [];
   const VARIANTS = 10;
   for (let v = 0; v < VARIANTS; v++) {

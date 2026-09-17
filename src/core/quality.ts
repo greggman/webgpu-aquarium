@@ -22,6 +22,13 @@ export interface Quality {
   grain: boolean;
   /** Multiplier for creature/plant counts. */
   density: number;
+  /**
+   * Build the detailed meshes and the larger scatter counts. Not the same
+   * question as "is this a fast machine": a phone draws about a sixth of the
+   * pixels of a 1080p window, and the frame is dominated by shading them, so a
+   * phone can afford detail that a low-end desktop at full resolution cannot.
+   */
+  detail: boolean;
   causticsSize: number;
   /** Refresh the caustics one frame in this many. */
   causticsStride: number;
@@ -31,9 +38,13 @@ export interface Quality {
 const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
   mobile: {
     // Phones render in CSS pixels (a third to a quarter of their device
-    // pixels) already, so no further scaling unless the frame rate needs it.
-    renderScale: 1,
-    minRenderScale: 0.6,
+    // pixels) already, so a frame is a sixth of a 1080p one. Measured on an
+    // iPhone 15 Pro, the opaque pass is about 80% of the frame and is bound by
+    // shading pixels, not by triangles: the shadow pass puts through more
+    // geometry in an eighth of the time. So buy content and spend the savings
+    // on resolution, which is the cheapest thing here to give up.
+    renderScale: 0.85,
+    minRenderScale: 0.5,
     maxRenderScale: 1,
     maxCanvasPixels: 1600 * 900,
     terrainGrid: 256,
@@ -44,10 +55,13 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     dof: false,
     taa: true,
     grain: false,
-    density: 0.45,
+    density: 0.85,
+    detail: true,
     causticsSize: 256,
     causticsStride: 2,
-    targetFrameMs: 1000 / 30,
+    // Aim for 60, not 30: the same phone holds 60 on the high tier at 75%
+    // scale, so there is no reason to settle for half of it.
+    targetFrameMs: 1000 / 60,
   },
   medium: {
     renderScale: 0.8,
@@ -63,6 +77,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     taa: true,
     grain: true,
     density: 0.6,
+    detail: false,
     causticsSize: 512,
     causticsStride: 2,
     targetFrameMs: 1000 / 60,
@@ -83,6 +98,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     taa: true,
     grain: true,
     density: 1,
+    detail: true,
     causticsSize: 512,
     causticsStride: 1,
     targetFrameMs: 1000 / 60,
@@ -101,6 +117,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     taa: true,
     grain: true,
     density: 1.3,
+    detail: true,
     causticsSize: 1024,
     causticsStride: 1,
     targetFrameMs: 1000 / 60,

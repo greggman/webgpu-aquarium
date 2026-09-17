@@ -1712,7 +1712,7 @@ export async function createFish(
 ): Promise<FishSystem> {
   const device = renderer.device;
   const rng = ctx.rng('fish');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   const speciesList = inventSpecies(rng, ctx);
 
   // Variant s * LODS + level.

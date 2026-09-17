@@ -454,7 +454,7 @@ export async function createPlants(
   ctx: GenContext,
 ): Promise<RenderSystem[]> {
   const rng = ctx.rng('plants');
-  const hi = ctx.quality.tierIndex >= 2;
+  const hi = ctx.quality.detail;
   const aux = new AuxBuilder();
   const variants: Variant[] = [];
   const grassVariants: number[] = [];
