@@ -45,6 +45,13 @@ import {CreatureCam} from './player/follow.ts';
 import {createJellyfish} from './sim/jellyfish.ts';
 import {createParticles} from './render/particles.ts';
 import {readBuffer} from './gpu/util.ts';
+import {
+  loadSettings,
+  saveSettings,
+  reloadKeepingSeed,
+  takeKeptSeed,
+  type Settings,
+} from './core/settings.ts';
 
 const params = new URLSearchParams(location.search);
 /** Systems whose opaque shaders use discard. */
@@ -58,8 +65,11 @@ async function main() {
   // New ocean: reload, keeping any other URL options but dropping the seed so
   // a later refresh gives another one (the seed is random when unset).
   const regen = document.getElementById('regenerate') as HTMLButtonElement;
+  const gear = document.getElementById('settings') as HTMLButtonElement;
+  const settings = loadSettings();
   if (params.get('hud') === '0') {
     regen.hidden = true;
+    gear.hidden = true;
   }
   regen.addEventListener('click', e => {
     e.stopPropagation();
@@ -74,9 +84,10 @@ async function main() {
       location.replace(url);
     }
   });
-  // Don't let presses on the button count as camera input.
+  // Don't let presses on the buttons count as camera input.
   for (const type of ['pointerdown', 'mousedown', 'touchstart']) {
     regen.addEventListener(type, e => e.stopPropagation());
+    gear.addEventListener(type, e => e.stopPropagation());
   }
   const loading = document.getElementById('loading')!;
 
@@ -86,9 +97,16 @@ async function main() {
   const gpuProfiler =
     params.get('profile') === 'gpu' ? GpuProfiler.install(device) : null;
   window.__aquarium.gpuProfile = () => gpuProfiler?.summary() ?? null;
-  const tier = detectTier(gpu.info, params.get('quality'));
+  const tier = detectTier(
+    gpu.info,
+    params.get('quality') ??
+      (settings.quality === 'auto' ? null : settings.quality),
+  );
   const quality = getQuality(tier);
-  const seed = numParam('seed') ?? Math.floor(Math.random() * 1e9);
+  // A quality change has to rebuild the world, so it carries the seed across
+  // the reload: the viewer changed a setting, not the ocean they were in.
+  const seed =
+    numParam('seed') ?? takeKeptSeed() ?? Math.floor(Math.random() * 1e9);
   const desc = describeWorld(seed, params.get('style'));
   console.log(
     `[aquarium] seed ${seed}, water "${desc.water.name}", tier ${tier}`,
@@ -308,15 +326,79 @@ async function main() {
     name: 'bloom',
     resize: t => bloom.resize(t),
     run: (ctx, input) => {
-      bloom.run(ctx, input);
+      if (settings.bloom) {
+        bloom.run(ctx, input);
+      }
       return input;
     },
   });
   renderer.post = renderer.post.filter(p => !disabled.has(p.name));
-  present.setGrade({
-    ...desc.water.grade,
-    grain: quality.grain ? desc.water.grade.grain : 0,
+
+  // Applying a change is re-filtering the system list, which the frame loop
+  // reads fresh. Anything that needs telling about a resize stays in its list
+  // and does nothing instead, so that turning it back on after the window has
+  // changed size does not find it holding textures of the wrong shape: bloom
+  // checks the setting inside its own run, and particles keep their place.
+  // Quality is the exception and needs a rebuild, since how much there is to
+  // draw is settled when the world is generated.
+  const allSystems = renderer.systems;
+  const applySettings = () => {
+    const off = new Set<string>();
+    if (!settings.grass) {
+      off.add('cover');
+    }
+    renderer.systems = allSystems
+      .filter(s => !off.has(s.name))
+      .map(s =>
+        s.name === 'particles' && !settings.dust
+          ? {...s, drawTransparent: undefined}
+          : s,
+      );
+    present.setGrade({
+      ...desc.water.grade,
+      grain: quality.grain ? desc.water.grade.grain : 0,
+      // The pass may be gone, leaving a stale bloom texture behind, so the
+      // strength has to go to zero as well rather than instead.
+      bloom: settings.bloom ? desc.water.grade.bloom : 0,
+    });
+  };
+  applySettings();
+
+  const dialog = document.getElementById(
+    'settings-dialog',
+  ) as HTMLDialogElement;
+  const qualitySelect = document.getElementById(
+    'set-quality',
+  ) as HTMLSelectElement;
+  const toggles: [keyof Settings, HTMLInputElement][] = [
+    ['bloom', document.getElementById('set-bloom') as HTMLInputElement],
+    ['grass', document.getElementById('set-grass') as HTMLInputElement],
+    ['dust', document.getElementById('set-dust') as HTMLInputElement],
+  ];
+  gear.addEventListener('click', e => {
+    e.stopPropagation();
+    qualitySelect.value = settings.quality;
+    for (const [key, box] of toggles) {
+      box.checked = settings[key] as boolean;
+    }
+    dialog.showModal();
   });
+  for (const [key, box] of toggles) {
+    box.addEventListener('change', () => {
+      (settings[key] as boolean) = box.checked;
+      saveSettings(settings);
+      applySettings();
+    });
+  }
+  qualitySelect.addEventListener('change', () => {
+    settings.quality = qualitySelect.value as Settings['quality'];
+    saveSettings(settings);
+    reloadKeepingSeed(seed);
+  });
+  (document.getElementById('set-done') as HTMLButtonElement).addEventListener(
+    'click',
+    () => dialog.close(),
+  );
   renderer.present = (ctx, input, view) =>
     present.run(ctx, input, bloom.result, view);
 

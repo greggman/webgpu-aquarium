@@ -108,7 +108,8 @@
         opacity: 0;
         transition: opacity 1.5s;
       }
-      #regenerate {
+      #regenerate,
+      #settings {
         position: fixed;
         top: max(12px, env(safe-area-inset-top));
         right: max(12px, env(safe-area-inset-right));
@@ -131,12 +132,79 @@
           opacity 0.2s,
           transform 0.4s;
       }
+      #settings {
+        right: auto;
+        left: max(12px, env(safe-area-inset-left));
+      }
       #regenerate:hover,
-      #regenerate:focus-visible {
+      #regenerate:focus-visible,
+      #settings:hover,
+      #settings:focus-visible {
         opacity: 1;
       }
       #regenerate:active {
         transform: rotate(180deg);
+      }
+      #settings:active {
+        transform: rotate(60deg);
+      }
+      #settings-dialog {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 14px;
+        background: rgba(2, 16, 26, 0.82);
+        color: #e6f6fb;
+        padding: 18px 20px;
+        min-width: min(19rem, calc(100vw - 48px));
+        -webkit-backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px);
+      }
+      #settings-dialog::backdrop {
+        background: rgba(0, 10, 18, 0.45);
+      }
+      #settings-dialog h2 {
+        margin: 0 0 14px;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        opacity: 0.75;
+      }
+      #settings-dialog label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+        font-size: 15px;
+      }
+      #settings-dialog select {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.08);
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 7px;
+        padding: 5px 8px;
+        font: inherit;
+      }
+      #settings-dialog input[type='checkbox'] {
+        width: 17px;
+        height: 17px;
+        accent-color: #7fd8ef;
+      }
+      #settings-dialog .note {
+        margin: -6px 0 14px;
+        font-size: 12px;
+        opacity: 0.6;
+      }
+      #settings-dialog .done {
+        width: 100%;
+        margin-top: 4px;
+        padding: 9px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
       }
       #regenerate[hidden] {
         display: none;
@@ -269,6 +337,37 @@
         />
       </svg>
     </button>
+    <button id="settings" type="button" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" stroke-width="1.9" />
+        <circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.9" />
+        <path
+          d="M19.2 12.0L21.7 12.0M17.1 17.1L18.9 18.9M12.0 19.2L12.0 21.7M6.9 17.1L5.1 18.9M4.8 12.0L2.3 12.0M6.9 6.9L5.1 5.1M12.0 4.8L12.0 2.3M17.1 6.9L18.9 5.1"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+    <dialog id="settings-dialog">
+      <h2>Settings</h2>
+      <label>
+        Quality
+        <select id="set-quality">
+          <option value="auto">Automatic</option>
+          <option value="mobile">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </label>
+      <p class="note">Changing this rebuilds the reef.</p>
+      <label><input type="checkbox" id="set-bloom" /> Glow</label>
+      <label><input type="checkbox" id="set-grass" /> Seagrass</label>
+      <label><input type="checkbox" id="set-dust" /> Drifting specks</label>
+      <button class="done" id="set-done" type="button">Done</button>
+    </dialog>
     <pre id="errors" hidden></pre>
     <script type="module" src="main.js"></script>
   </body>
