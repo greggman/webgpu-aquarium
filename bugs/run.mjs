@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import {startServer} from './scripts/serve.mjs';
+import {startServer} from '../scripts/serve.mjs';
 const PORT = 4455, base = `http://localhost:${PORT}`;
 const send = async (m, r, b) => {
   const res = await fetch(`${base}${r}`, {method: m, headers: {'Content-Type': 'application/json'}, body: b === undefined ? undefined : JSON.stringify(b)});
@@ -8,7 +8,7 @@ const send = async (m, r, b) => {
   return j.value;
 };
 const file = process.argv[2], which = process.argv[3] ?? 'safari';
-const {server, port} = await startServer('.', 0);
+const {server, port} = await startServer(new URL('..', import.meta.url).pathname, 0);
 const url = `http://localhost:${port}/${file}`;
 if (which === 'chrome') {
   const puppeteer = (await import('puppeteer')).default;
