@@ -1266,8 +1266,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
  * that can discard defeats hidden-surface removal on tile-based GPUs, and a
  * big school overlapping itself then costs several times the frame budget.
  */
-const renderWgslFor = (allowDiscard: boolean) => {
-  const discard = allowDiscard ? 'discard;' : '';
+const renderWgsl = (() => {
   return /* wgsl */ `
 ${surfaceLib}
 ${propsWgsl}
@@ -1349,8 +1348,16 @@ fn vs(v: VIn) -> VOut {
   let sp = species[u32(inst.anim.w)];
   let local = swim(v.position.xyz, v.uv, inst.anim.x, inst.anim.z, sp);
   let prevLocal = swim(v.position.xyz, v.uv, inst.anim.y, inst.anim.z, sp);
-  let world = quatRotate(inst.rot, local * inst.posScale.w) + inst.posScale.xyz;
-  let prevWorld = quatRotate(inst.prevRot, prevLocal * inst.prevPosScale.w) + inst.prevPosScale.xyz;
+  // A fish that swims right up to the lens is taken away rather than left to
+  // fill the frame with a wall of blurred scales. It used to be dithered out
+  // per pixel, which needs discard, and a fish shader that discards leaves
+  // undefined values in the colour target in WebKit. Shrinking it to nothing
+  // here does the same job: at zero every triangle of the fish has no area, so
+  // none of them are drawn, and the shader never has to refuse a fragment.
+  let nearest = length(frame.camPos - inst.posScale.xyz) - inst.posScale.w * 0.6;
+  let shrink = smoothstep(0.35, 0.9, nearest);
+  let world = quatRotate(inst.rot, local * inst.posScale.w * shrink) + inst.posScale.xyz;
+  let prevWorld = quatRotate(inst.prevRot, prevLocal * inst.prevPosScale.w * shrink) + inst.prevPosScale.xyz;
   var o: VOut;
   o.pos = frame.viewProj * vec4f(world, 1.0);
   o.world = world;
@@ -1420,6 +1427,13 @@ struct FOut {
 
 @fragment
 fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
+  // Declared and filled in before anything can discard. A discarded fragment
+  // must not write, so what the outputs hold ought not to matter — but leaving
+  // them undefined at the point of the discard is what put NaNs on the screen
+  // in Safari, in blocks, once bloom had spread them.
+  var o: FOut;
+  o.color = vec4f(0.0, 0.0, 0.0, 1.0);
+  o.velocity = vec2f(0.0);
   let toEye = frame.camPos - i.world;
   let V = select(
     vec3f(0.0, 0.0, 1.0),
@@ -1446,13 +1460,9 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let inst = instances[i.instance];
   let sp = species[u32(inst.anim.w)];
   let part = u32(i.uv.w + 0.5);
-  // Fish right in front of the lens dissolve instead of filling the frame
-  // with a blurry blob.
-  let camDist = length(frame.camPos - i.world);
-  if (ign(i.pos.xy, frame.frameIndex * 5u + i.instance) > smoothstep(0.35, 1.1, camDist)) {
-    ${discard}
-  }
   var s = defaultSurface();
+  // How much of this pixel is gaps rather than tissue (fin webbing).
+  var seeThrough = 0.0;
   s.normal = n;
   s.ao = i.ao;
   s.f0 = 0.04;
@@ -1534,27 +1544,36 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     // resolves into a soft, partially transparent fin; the rays stay denser.
     let rayLine = smoothstep(0.7, 0.97, sin(i.uv.x * 48.0) * 0.5 + 0.5);
     let edgeFade = 1.0 - smoothstep(0.7, 1.0, i.uv.y) * 0.6;
-    let opacity = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
-    if (ign(i.pos.xy, frame.frameIndex * 7u + i.instance) > opacity) {
-      ${discard}
-    }
+    // How much of the membrane is actually there. This used to dither the fin
+    // away per pixel so it read as see-through; without discard the fin stays
+    // solid, so the same number drives how much light passes through it
+    // instead. The webbing between the rays transmits nearly everything.
+    let webbing = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
     // Fins carry a little of the body colour and glow only softly when backlit.
     s.albedo = mix(sp.colFin.rgb, sp.colTop.rgb, 0.3) * mix(0.85, 1.0, rayLine) * inst.tint.rgb;
     s.translucency = max(sp.colFin.w, 0.6) * 0.55;
+    seeThrough = 1.0 - webbing;
     s.roughness = 0.45;
     if (part == ${Part.Tail}u && u32(sp.colTop.w + 0.5) == ${Pattern.Clown}u) {
       s.albedo = mix(s.albedo, vec3f(0.02), smoothstep(0.8, 0.95, i.uv.y));
     }
   }
 
-  let lit = shadeSurface(s, i.world, -1.0);
-  var o: FOut;
-  o.color = vec4f(applyWater(lit, i.world), 1.0);
+  var lit = shadeSurface(s, i.world, -1.0);
+  // The webbing between a fin's rays is mostly holes, and used to be dithered
+  // out per pixel so the water showed through. Without discard the fin is
+  // solid, so put the water back the only way left: mix in the colour that
+  // would have arrived through the gaps. Fins are thin and nearly always seen
+  // against open water, so the water's own colour is a fair stand-in.
+  lit = mix(lit, inscatterColor(i.world.y, -V), seeThrough * 0.75);
+  let watered = applyWater(lit, i.world);
+  o.color = vec4f(watered, 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
   return o;
 }
 `;
-};
+})();
+
 // Soft contact shadows: a blurred dark blob on the ground under each fish
 // swimming close to the bottom, offset along the sun and fading with height.
 // (The shadow map only has the bigger fish, and too few texels for these.)
@@ -1913,16 +1932,8 @@ export async function createFish(
     }),
   );
 
-  const renderModule = createShader(
-    device,
-    'fish:render-shader',
-    renderWgslFor(true),
-  );
-  const bodyModule = createShader(
-    device,
-    'fish:body-render-shader',
-    renderWgslFor(false),
-  );
+  const renderModule = createShader(device, 'fish:render-shader', renderWgsl);
+
   const castsShadow = speciesList.map(s => s.length[1] >= 0.3);
   const S = speciesList.length;
   const buckets = S * LODS;
@@ -2091,9 +2102,8 @@ export async function createFish(
         depthCompare: 'greater',
       },
     });
-  const [pipeline, bodyPipeline, shadowPipeline] = await Promise.all([
-    colorPipeline('fish:fin-pipeline', renderModule),
-    colorPipeline('fish:body-pipeline', bodyModule),
+  const [pipeline, shadowPipeline] = await Promise.all([
+    colorPipeline('fish:render-pipeline', renderModule),
     device.createRenderPipelineAsync({
       label: 'fish:shadow-pipeline',
       layout,
@@ -2280,9 +2290,9 @@ export async function createFish(
       args.end();
     },
     drawOpaque: pass => {
-      bind(pass, bodyPipeline);
-      drawVisible(pass, false);
+      // Body and fins share one pipeline now that neither discards.
       bind(pass, pipeline);
+      drawVisible(pass, false);
       drawVisible(pass, true);
     },
     // Only fish big enough to cast a readable shadow go into the shadow map,

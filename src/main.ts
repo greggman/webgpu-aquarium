@@ -466,6 +466,7 @@ async function main() {
     let nan = 0;
     let inf = 0;
     const px: {x: number; y: number; v: number}[] = [];
+    const nanAt: {x: number; y: number}[] = [];
     for (let y = 0; y < t.height; y++) {
       const row = (y * bytesPerRow) / 2;
       for (let x = 0; x < t.width; x++) {
@@ -476,6 +477,9 @@ async function main() {
         );
         if (Number.isNaN(v)) {
           nan++;
+          if (nanAt.length < 12) {
+            nanAt.push({x, y});
+          }
         } else if (!Number.isFinite(v)) {
           inf++;
         } else if (v > 8) {
@@ -484,7 +488,7 @@ async function main() {
       }
     }
     px.sort((a, b) => b.v - a.v);
-    return {nan, inf, over8: px.length, top: px.slice(0, 12)};
+    return {nan, inf, over8: px.length, top: px.slice(0, 12), nanAt};
   };
   window.__aquarium.scanHdr = scanHdr;
   window.__aquarium.info = {
@@ -565,8 +569,7 @@ async function main() {
   }
   setTimeout(() => hud.classList.add('hidden'), 8000);
 
-  const frame = (now: number) => {
-    requestAnimationFrame(frame);
+  const renderFrame = (now: number) => {
     const frameMs = now - lastFrameStart;
     lastFrameStart = now;
     if (!firstFrame && frameMs > 0) {
@@ -799,6 +802,21 @@ async function main() {
       }
       void device.queue.onSubmittedWorkDone().then(markReady);
     }
+  };
+  const frame = (now: number) => {
+    requestAnimationFrame(frame);
+    renderFrame(now);
+  };
+  // Renders a frame without waiting for the browser to schedule one. Safari's
+  // automation window is hidden, so requestAnimationFrame never fires in it
+  // and a test driving Safari would otherwise sit at frame zero for ever.
+  let pumpNow = performance.now();
+  window.__aquarium.pump = (frames = 1, dtMs = 1000 / 60) => {
+    for (let i = 0; i < frames; i++) {
+      pumpNow += dtMs;
+      renderFrame(pumpNow);
+    }
+    return device.queue.onSubmittedWorkDone();
   };
   requestAnimationFrame(frame);
 }
