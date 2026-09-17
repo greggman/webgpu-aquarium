@@ -258,6 +258,21 @@ async function main() {
     (params.get('disable') ?? '').split(',').filter(Boolean),
   );
   renderer.systems = renderer.systems.filter(s => !disabled.has(s.name));
+  // Finer switches for bisecting a system whose drawing misbehaves, without
+  // turning off the simulation that feeds the rest of the world:
+  // ?disable=fish-opaque / fish-shadow / fish-blobs.
+  renderer.systems = renderer.systems.map(s =>
+    s.name === 'fish'
+      ? {
+          ...s,
+          drawOpaque: disabled.has('fish-opaque') ? undefined : s.drawOpaque,
+          drawShadow: disabled.has('fish-shadow') ? undefined : s.drawShadow,
+          drawTransparent: disabled.has('fish-blobs')
+            ? undefined
+            : s.drawTransparent,
+        }
+      : s,
+  );
   const dof =
     quality.dof && !disabled.has('dof') ? await createDof(device) : null;
   const autoFocus = new AutoFocus(device);
