@@ -258,6 +258,14 @@ async function main() {
   const disabled = new Set(
     (params.get('disable') ?? '').split(',').filter(Boolean),
   );
+  // ?only=fish keeps just the named systems and clears to black, so whatever
+  // one of them is drawing wrong has nothing else in front of it. Everything
+  // after the scene — bloom, TAA, tone mapping — still runs, since a stray
+  // pixel usually only becomes visible once those have spread it.
+  const only = new Set((params.get('only') ?? '').split(',').filter(Boolean));
+  if (only.size) {
+    renderer.systems = renderer.systems.filter(s => only.has(s.name));
+  }
   renderer.systems = renderer.systems.filter(s => !disabled.has(s.name));
   // Finer switches for bisecting a system whose drawing misbehaves, without
   // turning off the simulation that feeds the rest of the world:
@@ -426,7 +434,7 @@ async function main() {
   // Reads the scene's HDR buffer back and reports its brightest pixels. Bloom
   // turns one extreme pixel into a block, so when blocks appear this says
   // whether the scene handed bloom something absurd, and where.
-  window.__aquarium.scanHdr = async () => {
+  const scanHdr = async () => {
     const t = renderer.targets;
     const bytesPerRow = Math.ceil((t.width * 8) / 256) * 256;
     const buf = device.createBuffer({
@@ -478,6 +486,7 @@ async function main() {
     px.sort((a, b) => b.v - a.v);
     return {nan, inf, over8: px.length, top: px.slice(0, 12)};
   };
+  window.__aquarium.scanHdr = scanHdr;
   window.__aquarium.info = {
     seed,
     tier,
@@ -537,6 +546,14 @@ async function main() {
   let cpuMs = 0;
   let gpuPending = false;
   const profile = params.has('profile');
+  const watching = params.get('watch') === '1';
+  let watchBusy = false;
+  let watchWorst: {
+    frame: number;
+    max: number;
+    nan: number;
+    inf: number;
+  } | null = null;
 
   hud.textContent =
     `seed ${seed} · ${desc.water.name} · ${tier}\n` +
@@ -731,6 +748,39 @@ async function main() {
         `${heightCheck}\n` +
         // Every option in play, so a reported view opens in the same mode.
         `?${repro(p, pose)}`;
+    }
+    // ?watch=1 hunts the pixel behind a flash. Bloom turns one extreme value
+    // into a block, and by the time it is a block it is spread over the
+    // screen, so this reads the scene buffer back before any of that and
+    // reports what was actually in it, and where. It keeps the worst frame
+    // seen, since a flash is over before anyone can look.
+    if (watching && frameIndex % 12 === 0 && !watchBusy) {
+      watchBusy = true;
+      void scanHdr()
+        .then(r => {
+          const max = r.top[0]?.v ?? 0;
+          if (r.nan || r.inf || max > (watchWorst?.max ?? 64)) {
+            watchWorst = {frame: frameIndex, max, nan: r.nan, inf: r.inf};
+
+            console.log(
+              `[watch] frame ${frameIndex}: nan ${r.nan}, inf ${r.inf}, ` +
+                `over 8 ${r.over8}, brightest ${max.toFixed(1)} at ` +
+                r.top
+                  .slice(0, 4)
+                  .map(t => `(${t.x},${t.y})=${t.v.toFixed(0)}`)
+                  .join(' '),
+            );
+          }
+        })
+        .finally(() => (watchBusy = false));
+    }
+    if (watching && frameIndex % 12 === 0) {
+      hud.classList.remove('hidden');
+      hud.hidden = false;
+      hud.textContent = watchWorst
+        ? `watch: worst frame ${watchWorst.frame} · nan ${watchWorst.nan} · ` +
+          `inf ${watchWorst.inf} · brightest ${watchWorst.max.toFixed(0)}`
+        : 'watch: scene buffer clean so far';
     }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
