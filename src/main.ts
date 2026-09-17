@@ -793,6 +793,7 @@ async function main() {
     }
     if (profile && frameIndex % 15 === 0) {
       hud.classList.remove('hidden');
+      hud.classList.add('profile');
       hud.hidden = false;
       hud.textContent =
         `${fpsAvg.toFixed(0)} fps · gpu ~${gpuMs.toFixed(1)} ms · cpu ${cpuMs.toFixed(1)} ms · ${renderer.targets.width}x${renderer.targets.height} (${(dynres.scale * 100).toFixed(0)}%) · ${tier}` +

@@ -94,6 +94,16 @@
         text-shadow: 0 1px 2px #000;
         white-space: pre;
       }
+      /* The GPU profile is a long sorted list. Anchor it to the top instead, so
+         that the total and the most expensive passes stay on screen and it is
+         the cheap tail that falls off, and make it small enough to fit a phone:
+         the page takes every touch for the camera, so it cannot be scrolled. */
+      #hud.profile {
+        top: max(10px, env(safe-area-inset-top));
+        bottom: auto;
+        font: clamp(8px, 2.5vw, 12px) / 1.3 ui-monospace, SFMono-Regular,
+          Menlo, monospace;
+      }
       #hud.hidden {
         opacity: 0;
         transition: opacity 1.5s;

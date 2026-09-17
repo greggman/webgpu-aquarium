@@ -20,6 +20,16 @@ type AnyFn = (...args: unknown[]) => unknown;
 
 const MAX_QUERIES = 128;
 
+/** Trims the label down to what is worth reading on a phone. */
+function short(label: string): string {
+  return label
+    .replace(/^frame:/, '')
+    .replace(/^mips:pass:/, 'mip:')
+    .replace(/:texture:/, ':')
+    .replace(/-pass/g, '')
+    .replace(/ › /g, '›');
+}
+
 export class GpuProfiler {
   readonly stats = new Map<string, PassStats>();
   private device: GPUDevice;
@@ -210,15 +220,37 @@ export class GpuProfiler {
 
   /** A readable table, most expensive first. */
   summary(): string {
-    const rows = [...this.stats.entries()]
-      .filter(([, s]) => s.ms > 0.005 || s.draws > 0.5)
+    const all = [...this.stats.entries()];
+    // A timestamp belongs to a render pass, so the debug groups inside one
+    // cannot carry a time of their own and would otherwise fill the screen
+    // with rows reading 0.00 ms. Roll them up under their pass instead.
+    const timed = all
+      .filter(([, s]) => s.ms > 0.005)
       .sort((a, b) => b[1].ms - a[1].ms);
-    const total = rows.reduce((n, [, s]) => n + s.ms, 0);
+    const geometry = new Map<string, {triangles: number; draws: number}>();
+    for (const [k, s] of all) {
+      if (s.ms > 0.005 || s.draws < 0.5) {
+        continue;
+      }
+      const pass = short(k.split(' › ')[0]);
+      const g = geometry.get(pass) ?? {triangles: 0, draws: 0};
+      g.triangles += s.triangles;
+      g.draws += s.draws;
+      geometry.set(pass, g);
+    }
+    const total = timed.reduce((n, [, s]) => n + s.ms, 0);
     return [
-      `gpu frame span: ${this.frameMs.toFixed(1)} ms (sum of passes ${total.toFixed(1)} ms)`,
-      ...rows.map(
-        ([k, s]) =>
-          `${s.ms.toFixed(2).padStart(6)} ms  ${(s.triangles / 1e3).toFixed(0).padStart(6)}k tris ${s.draws.toFixed(0).padStart(4)} draws  ${k}`,
+      `gpu frame ${this.frameMs.toFixed(1)} ms · passes ${total.toFixed(1)} ms · ${timed.length} timed`,
+      ...timed.map(([k, s]) => {
+        const geo =
+          s.draws > 0.5
+            ? `${(s.triangles / 1e3).toFixed(0).padStart(5)}k ${s.draws.toFixed(0).padStart(3)}d`
+            : ''.padStart(10);
+        return `${s.ms.toFixed(2).padStart(5)} ${geo} ${short(k)}`;
+      }),
+      ...[...geometry].map(
+        ([k, g]) =>
+          `      ${(g.triangles / 1e3).toFixed(0).padStart(5)}k ${g.draws.toFixed(0).padStart(3)}d ${k} (untimed)`,
       ),
     ].join('\n');
   }
