@@ -4,6 +4,10 @@ export interface DevHooks {
   errors: string[];
   ready: Promise<void>;
   frame: number;
+  /** Every shader handed to the device, by label. Shaders here are assembled
+   * from chunks, so this is the only way to see what actually compiled —
+   * needed when reporting a driver fault against one of them. */
+  shaders: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -18,6 +22,7 @@ window.__aquarium = {
   errors: [],
   ready: new Promise<void>(r => (resolveReady = r)),
   frame: 0,
+  shaders: {},
 };
 
 export function markReady() {
@@ -178,6 +183,7 @@ export function createShader(
   label: string,
   code: string,
 ): GPUShaderModule {
+  window.__aquarium.shaders[label] = code;
   const module = device.createShaderModule({label, code});
   void module.getCompilationInfo().then(info => {
     const lines = code.split('\n');
