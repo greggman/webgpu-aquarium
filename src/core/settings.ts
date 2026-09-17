@@ -12,6 +12,9 @@ export interface Settings {
   /** 'auto' leaves the tier to detectTier. */
   quality: Tier | 'auto';
   bloom: boolean;
+  shadows: boolean;
+  volumetrics: boolean;
+  dof: boolean;
   grass: boolean;
   dust: boolean;
 }
@@ -31,6 +34,9 @@ const SEED_KEY = 'aquarium:seed';
 const DEFAULTS: Settings = {
   quality: 'auto',
   bloom: true,
+  shadows: true,
+  volumetrics: true,
+  dof: true,
   grass: true,
   dust: true,
 };
@@ -48,6 +54,9 @@ export function loadSettings(): Settings {
         ? (v.quality as Settings['quality'])
         : 'auto',
       bloom: v.bloom !== false,
+      shadows: v.shadows !== false,
+      volumetrics: v.volumetrics !== false,
+      dof: v.dof !== false,
       grass: v.grass !== false,
       dust: v.dust !== false,
     };

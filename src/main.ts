@@ -128,9 +128,7 @@ async function main() {
     quality.shadowSize,
     quality.tierIndex >= 2 ? 45 : 35,
   );
-  renderer.shadowMap = (params.get('disable') ?? '').includes('shadows')
-    ? null
-    : shadow.texture;
+  const shadowsAllowed = !(params.get('disable') ?? '').includes('shadows');
   const detail = createDetailTexture(device, desc.rng.fork('detail').nextU32());
   const terrain = await generateTerrain(device, desc.terrain);
   renderer.setTextures({
@@ -320,7 +318,12 @@ async function main() {
   }
   renderer.post.push(taa);
   if (dof) {
-    renderer.post.push(dof);
+    // Kept in the list whether or not it is wanted, so that it still hears
+    // about resizes; when it is off it hands the frame straight through.
+    renderer.post.push({
+      ...dof,
+      run: (ctx, input) => (settings.dof ? dof.run(ctx, input) : input),
+    });
   }
   renderer.post.push({
     name: 'bloom',
@@ -349,11 +352,18 @@ async function main() {
     }
     renderer.systems = allSystems
       .filter(s => !off.has(s.name))
-      .map(s =>
-        s.name === 'particles' && !settings.dust
-          ? {...s, drawTransparent: undefined}
-          : s,
-      );
+      .map(s => {
+        if (s.name === 'particles' && !settings.dust) {
+          return {...s, drawTransparent: undefined};
+        }
+        if (s.name === 'volumetrics' && !settings.volumetrics) {
+          return {...s, afterOpaque: undefined};
+        }
+        return s;
+      });
+    renderer.setShadows(
+      shadowsAllowed && settings.shadows ? shadow.texture : null,
+    );
     present.setGrade({
       ...desc.water.grade,
       grain: quality.grain ? desc.water.grade.grain : 0,
@@ -370,11 +380,14 @@ async function main() {
   const qualitySelect = document.getElementById(
     'set-quality',
   ) as HTMLSelectElement;
-  const toggles: [keyof Settings, HTMLInputElement][] = [
-    ['bloom', document.getElementById('set-bloom') as HTMLInputElement],
-    ['grass', document.getElementById('set-grass') as HTMLInputElement],
-    ['dust', document.getElementById('set-dust') as HTMLInputElement],
-  ];
+  const toggles: [keyof Settings, HTMLInputElement][] = (
+    ['bloom', 'volumetrics', 'shadows', 'dof', 'grass', 'dust'] as const
+  ).map(k => [k, document.getElementById(`set-${k}`) as HTMLInputElement]);
+  // Depth of field is not built at every quality, and a switch that does
+  // nothing is worse than no switch.
+  if (!quality.dof) {
+    (document.getElementById('row-dof') as HTMLElement).hidden = true;
+  }
   gear.addEventListener('click', e => {
     e.stopPropagation();
     qualitySelect.value = settings.quality;

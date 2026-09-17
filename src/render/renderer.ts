@@ -102,6 +102,30 @@ export class Renderer {
       usage:
         GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
     });
+    // Cleared to the far plane, so sampling it with the shadow comparison
+    // reads as fully lit everywhere. It stands in for the real map both while
+    // that map is being drawn and when the viewer has turned shadows off; left
+    // at its zero fill it would instead read as shadowed everywhere.
+    const clear = d.createCommandEncoder({
+      label: 'renderer:clear-dummy-shadow',
+    });
+    clear
+      .beginRenderPass({
+        label: 'renderer:clear-dummy-shadow-pass',
+        colorAttachments: [],
+        depthStencilAttachment: {
+          view: this.dummyShadow.createView({
+            label: 'renderer:dummy-shadow-view',
+          }),
+          depthLoadOp: 'clear',
+          depthClearValue: 1,
+          depthStoreOp: 'store',
+        },
+      })
+      .end();
+    d.queue.submit([
+      clear.finish({label: 'renderer:clear-dummy-shadow-commands'}),
+    ]);
     this.textures = {
       shadow: this.dummyShadow,
       caustics: createSolidTexture(
@@ -136,6 +160,15 @@ export class Renderer {
       ),
     };
     this.rebuildGlobals();
+  }
+
+  /**
+   * Turns the sun's shadows on or off: `null` skips the pass that draws the
+   * map and points the lighting at one that reads as fully lit.
+   */
+  setShadows(map: GPUTexture | null) {
+    this.shadowMap = map;
+    this.setTextures({shadow: map ?? this.dummyShadow});
   }
 
   setTextures(t: Partial<GlobalTextures>) {
