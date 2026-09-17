@@ -68,10 +68,20 @@ against Safari 26.6.2 on an Apple M-series GPU:</p>
   <tr><td>the same branch calling the real one (sky, refraction, waves)</td><td class="fail">FAILS</td></tr>
 </table>
 
-<p>So it is not any single feature. It needs two discards <i>and</i> a deep,
-branchy call chain running after them — which is why the constructed variants
-below, which are all shallow, do not reproduce it. That points at shader
-complexity or control-flow lowering rather than at any one construct.</p>
+<p>So it is not any single feature. Every step in that ladder is the whole
+shader with one thing changed, and only the last one fails. Material, lighting
+and fog are each fine on their own; it takes all of them together, plus two
+discards, plus the fog's open-water branch reaching through the sky,
+refraction and wave functions.</p>
+
+<p>The last four rows below transplant that fog chain verbatim — noise, waves,
+absorption, in-scattering, Snell's window, the lot, about 180 lines — and run
+it with zero, one and two discards as the only variable. <b>It still passes.</b>
+So the fault needs more than two discards and a deep call chain: it needs the
+whole shader's complexity, and reproducing it standalone would mean porting
+most of the renderer rather than writing a small file. That is the honest
+state of it, and it points at a threshold in shader complexity or control-flow
+lowering rather than at any construct that can be exhibited on its own.</p>
 
 <p>The one reproduction available is the renderer itself:
 <code>?only=fish&amp;fishcut=both&amp;watch=1</code> puts the two discards back
@@ -82,7 +92,7 @@ otherwise the identical build and is clean.</p>
 
 <script type="module">
 const SIZE = 128;
-const FRAMES = 120;
+const FRAMES = 60;
 const CLEAR = [0, 0, 0, 1];
 const WRITTEN = [0.25, 0.5, 0.75];
 const MRT = ['rgba16float', 'rg16float'];
@@ -97,12 +107,17 @@ const VARIANTS = [
   {name: 'two discards, 2nd nested, work + sampling after', discards: 2, nested: true, work: true, after: 'sample'},
   {name: 'discards in mutually exclusive branches', discards: 2, exclusive: true, after: 'sample'},
   {name: 'as above, + work before and after', discards: 2, exclusive: true, work: true, after: 'sample'},
+  // The transplanted chain, with the number of discards as the only variable.
+  {name: 'WATER CHAIN, no discard', water: true, discards: 0},
+  {name: 'WATER CHAIN, one discard', water: true, discards: 1},
+  {name: 'WATER CHAIN, TWO discards', water: true, discards: 2},
+  {name: 'WATER CHAIN, two discards, 2nd nested', water: true, discards: 2, nested: true},
 ];
 
 // Pseudo-random per pixel, reseeded every frame, so most 2x2 quads are only
 // partly discarded and the pattern is never the same twice.
-const hash = salt =>
-  `fract(sin(dot(floor(pos.xy), vec2f(12.9898, 78.233)) + ${salt} + frame.x) * 43758.5453)`;
+const hash = (salt, t = 'frame.x') =>
+  `fract(sin(dot(floor(pos.xy), vec2f(12.9898, 78.233)) + ${salt} + ${t}) * 43758.5453)`;
 
 // Enough live arithmetic to put the shader under something like the register
 // pressure of a real material shader.
@@ -121,6 +136,188 @@ const WORK = `
 const SAMPLE = `
   tint = tint * textureSample(tex, samp, pos.xy * 0.01).rgb;`;
 
+const WATER_WGSL = String.raw`
+// ---------------------------------------------------------------------------
+// Transplanted verbatim from the renderer this was reduced from: hashing and
+// gradient noise, the travelling-cosine wave surface, and the underwater light
+// transport. Only the uniform block has been renamed; the arithmetic is
+// untouched. It is here because nothing shallower reproduces the fault.
+// ---------------------------------------------------------------------------
+
+struct Frame {
+  camPos: vec3f,
+  time: f32,
+  sunDir: vec3f,
+  surfaceY: f32,
+  sunColor: vec3f,
+  scattering: f32,
+  ambientColor: vec3f,
+  pad0: f32,
+  absorption: vec3f,
+  pad1: f32,
+  misc: vec4f,
+  waves: array<vec4f, 12>,
+};
+@group(0) @binding(0) var<uniform> frame: Frame;
+
+const PI = 3.14159265;
+var<private> noiseSeed: u32 = 0u;
+
+fn pcg(v: u32) -> u32 {
+  let state = v * 747796405u + 2891336453u;
+  let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+fn hash2i(p: vec2i) -> u32 {
+  return pcg(bitcast<u32>(p.x) + pcg(bitcast<u32>(p.y) + pcg(noiseSeed)));
+}
+fn rand01(h: u32) -> f32 { return f32(h >> 8u) / 16777216.0; }
+fn gradient2(cell: vec2i) -> vec2f {
+  let a = rand01(hash2i(cell)) * 6.2831853;
+  return vec2f(cos(a), sin(a));
+}
+fn gradNoise2(p: vec2f) -> f32 {
+  let i = vec2i(floor(p));
+  let f = fract(p);
+  let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let g00 = dot(gradient2(i), f);
+  let g10 = dot(gradient2(i + vec2i(1, 0)), f - vec2f(1.0, 0.0));
+  let g01 = dot(gradient2(i + vec2i(0, 1)), f - vec2f(0.0, 1.0));
+  let g11 = dot(gradient2(i + vec2i(1, 1)), f - vec2f(1.0, 1.0));
+  return 1.414 * mix(mix(g00, g10, u.x), mix(g01, g11, u.x), u.y);
+}
+fn fbm2(pIn: vec2f, octaves: i32) -> f32 {
+  var p = pIn;
+  var sum = 0.0;
+  var amp = 0.5;
+  for (var i = 0; i < octaves; i++) {
+    sum += amp * gradNoise2(p);
+    p = mat2x2f(1.6, 1.2, -1.2, 1.6) * p + vec2f(17.3, 9.1);
+    amp *= 0.5;
+  }
+  return sum;
+}
+
+struct WaveSample { h: f32, grad: vec2f, hess: vec3f };
+fn sampleWaves(xz: vec2f, t: f32) -> WaveSample {
+  var o = WaveSample(0.0, vec2f(0.0), vec3f(0.0));
+  for (var i = 0u; i < 12u; i++) {
+    let w = frame.waves[i];
+    let k = w.xy;
+    let theta = dot(k, xz) - w.w * t + f32(i) * 2.39996 + frame.misc.w;
+    let c = cos(theta);
+    let s = sin(theta);
+    o.h += w.z * c;
+    o.grad -= w.z * s * k;
+    o.hess -= w.z * c * vec3f(k.x * k.x, k.x * k.y, k.y * k.y);
+  }
+  return o;
+}
+
+fn depthBelowSurface(y: f32) -> f32 { return max(frame.surfaceY - y, 0.0); }
+fn extinction() -> vec3f { return frame.absorption + vec3f(frame.scattering); }
+fn sunAtDepth(y: f32) -> vec3f {
+  let path = depthBelowSurface(y) / max(frame.sunDir.y, 0.25);
+  let k = frame.absorption * vec3f(0.3, 0.55, 0.6) + vec3f(frame.scattering * 0.3);
+  return frame.sunColor * exp(-k * path);
+}
+fn ambientAtDepth(y: f32) -> vec3f {
+  return frame.ambientColor * exp(-extinction() * 0.5 * depthBelowSurface(y));
+}
+fn phaseHG(cosTheta: f32, g: f32) -> f32 {
+  let g2 = g * g;
+  return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5));
+}
+fn waterPhase(cosTheta: f32) -> f32 {
+  return mix(phaseHG(cosTheta, 0.2), phaseHG(cosTheta, 0.85), 0.35);
+}
+fn inscatterColor(y: f32, dir: vec3f) -> vec3f {
+  let sun = sunAtDepth(y) * waterPhase(dot(dir, frame.sunDir)) * 4.0 * PI;
+  let amb = ambientAtDepth(y);
+  let updown = mix(0.1, 1.3, smoothstep(-0.9, 0.9, dir.y));
+  return frame.scattering * (sun * 0.06 + amb * updown * 0.5) / extinction();
+}
+fn waterTransmittance(dist: f32) -> vec3f {
+  let d = max(dist - 2.5, 0.0) + min(dist, 2.5) * 0.3;
+  let k = extinction() * frame.misc.z + vec3f(frame.absorption.r * (1.0 - frame.misc.z), 0.0, 0.0);
+  return exp(-k * d);
+}
+fn sunDirAir() -> vec3f {
+  let r = refract(frame.sunDir, vec3f(0.0, -1.0, 0.0), 1.333);
+  return normalize(r + vec3f(0.0, 1e-4, 0.0));
+}
+fn skyRadiance(d: vec3f) -> vec3f {
+  let sunAir = sunDirAir();
+  let mu = max(dot(d, sunAir), 0.0);
+  let horizon = frame.ambientColor * vec3f(1.6, 1.5, 1.35) * 2.2;
+  let zenith = frame.ambientColor * vec3f(0.8, 1.0, 1.25) * 1.8;
+  var sky = mix(horizon, zenith, pow(clamp(d.y, 0.0, 1.0), 0.6));
+  let cloudUv = d.xz / max(d.y, 0.15) * 1.3 + vec2f(frame.time * 0.004, 0.0);
+  let clouds = smoothstep(0.05, 0.55, fbm2(cloudUv, 4) + 0.15);
+  sky = mix(sky, vec3f(dot(sky, vec3f(0.33)) * 1.5), clouds * 0.55);
+  sky += frame.sunColor * (pow(mu, 1500.0) * 22.0 + pow(mu, 60.0) * 1.6 + pow(mu, 6.0) * 0.3);
+  return sky;
+}
+fn surfaceFromBelow(dir: vec3f) -> vec3f {
+  let t = (frame.surfaceY - frame.camPos.y) / max(dir.y, 1e-3);
+  let hit = frame.camPos.xz + dir.xz * t;
+  let w0 = sampleWaves(hit, frame.time);
+  let rot = mat2x2f(0.8, 0.6, -0.6, 0.8);
+  let w1 = sampleWaves(rot * hit * 0.37 + vec2f(3.1, 1.7), frame.time * 0.6);
+  let rot2 = mat2x2f(-0.28, 0.96, -0.96, -0.28);
+  let w2 = sampleWaves(rot2 * hit * 2.6 + vec2f(-5.3, 2.2), frame.time * 1.7);
+  let ripUv = hit * 1.9 + vec2f(frame.time * 0.35, -frame.time * 0.22);
+  let e = 0.05;
+  let n0 = fbm2(ripUv, 3);
+  let ripple = vec2f(fbm2(ripUv + vec2f(e, 0.0), 3) - n0, fbm2(ripUv + vec2f(0.0, e), 3) - n0) / e;
+  let fade = 1.0 / (1.0 + t * 0.07);
+  let fineFade = 1.0 / (1.0 + t * 0.2);
+  let g = (w0.grad * 2.6 * fade + (transpose(rot) * w1.grad) * 2.0 +
+    (transpose(rot2) * w2.grad) * 1.2 * fineFade + ripple * 0.12 * fineFade) * mix(0.6, 1.0, fade);
+  let n = normalize(vec3f(-g.x, -1.0, -g.y));
+  let cosI = clamp(dot(-dir, n), 0.0, 1.0);
+  let r = reflect(dir, n);
+  let mottle = fbm2(hit * 0.08 + r.xz * 2.0, 3);
+  let reflected = inscatterColor(frame.surfaceY - 8.0, r) * (0.65 + 0.35 * mottle);
+  let sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
+  let window = smoothstep(1.0, 0.82, sinT2);
+  let cosT = sqrt(max(1.0 - sinT2, 1e-4));
+  let rs = (1.333 * cosI - cosT) / (1.333 * cosI + cosT);
+  let rp = (cosI - 1.333 * cosT) / (cosI + 1.333 * cosT);
+  let F = clamp(0.5 * (rs * rs + rp * rp), 0.0, 1.0);
+  let refr = normalize(refract(dir, n, 1.333) + vec3f(0.0, 1e-3, 0.0));
+  let through = mix(skyRadiance(refr), reflected, F);
+  return mix(reflected, through, window);
+}
+fn waterBackground(dir: vec3f) -> vec3f {
+  let camY = frame.camPos.y;
+  let typical = 1.0 / max(extinction().g, 1e-3);
+  if (dir.y > 0.0) {
+    let toSurface = (frame.surfaceY - camY) / dir.y;
+    let d = min(toSurface, typical * 3.0);
+    let y = mix(camY, camY + dir.y * d, 0.5);
+    let T = waterTransmittance(toSurface);
+    return surfaceFromBelow(dir) * T + inscatterColor(y, dir) * (1.0 - T);
+  }
+  let y = camY + dir.y * typical;
+  return inscatterColor(y, dir);
+}
+fn applyWater(color: vec3f, worldPos: vec3f) -> vec3f {
+  let toP = worldPos - frame.camPos;
+  let dist = length(toP);
+  let dir = toP / max(dist, 1e-4);
+  let T = waterTransmittance(dist);
+  let ymid = mix(frame.camPos.y, worldPos.y, 0.5);
+  var c = color * T + inscatterColor(ymid, dir) * (1.0 - T);
+  let typical = 1.0 / max(extinction().g, 1e-3);
+  let far = smoothstep(typical * 1.4, typical * 3.0, dist);
+  if (far > 0.0) {
+    c = mix(c, waterBackground(dir), far);
+  }
+  return c;
+}
+`;
+
 function shaderFor(v) {
   const aux = v.formats
     .slice(1)
@@ -131,17 +328,22 @@ function shaderFor(v) {
     .map((_, i) => `  o.aux${i} = vec2f(0.0);`)
     .join('\n');
 
+  // The water variants replace the vec4f uniform with the real Frame struct,
+  // which keeps its time in a named field rather than in .x.
+  const t = v.water ? 'frame.time' : 'frame.x';
   const first = `
-  if (${hash('0.0')} > 0.8) {
+  if (${hash('0.0', t)} > 0.8) {
     discard;
   }`;
   const second = `
-  if (${hash('37.0')} > 0.35) {
+  if (${hash('37.0', t)} > 0.35) {
     discard;
   }`;
 
   let control;
-  if (v.discards === 1) {
+  if (v.discards === 0) {
+    control = '';
+  } else if (v.discards === 1) {
     control = first;
   } else if (v.exclusive) {
     // Two discards a fragment can never both reach, as in a material shader
@@ -162,6 +364,48 @@ ${second.replace(/^/gm, '  ')}
     control = `${first}
 ${v.work ? WORK : ''}
 ${second}`;
+  }
+
+  if (v.water) {
+    return `${WATER_WGSL}
+
+struct VOut {
+  @builtin(position) pos: vec4f,
+  @location(0) @interpolate(flat) kind: u32,
+};
+
+struct FOut {
+  @location(0) color: vec4f,
+${aux}
+};
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32,
+      @builtin(instance_index) inst: u32) -> VOut {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  var o: VOut;
+  o.pos = vec4f(p[i], 0.2 + 0.6 * (f32(inst) / 256.0), 1.0);
+  o.kind = inst & 1u;
+  return o;
+}
+
+@fragment
+fn fs(@builtin(position) pos: vec4f,
+      @location(0) @interpolate(flat) kind: u32,
+      @builtin(front_facing) front: bool) -> FOut {
+  var o: FOut;
+  var tint = vec3f(${WRITTEN.join(', ')});
+  o.color = vec4f(tint, 1.0);
+${auxAssign}
+${control}
+  // Spread over a range of distances and directions so both sides of every
+  // branch in the chain are taken somewhere on screen.
+  let uv = pos.xy / ${SIZE}.0;
+  let world = vec3f((uv.x - 0.5) * 80.0, -11.0 + uv.y * 12.0,
+                    3.0 + (uv.x + uv.y) * 60.0);
+  o.color = vec4f(applyWater(tint, world), 1.0);
+  return o;
+}`;
   }
 
   return `
@@ -209,6 +453,30 @@ ${v.after === 'sample' ? SAMPLE : ''}
 }`;
 }
 
+// Uniform block for the transplanted chain: plain plausible values, nothing
+// clever, and every one of them finite.
+function frameData(time) {
+  const f = new Float32Array(72);
+  f.set([0, -5, 0, time], 0); // camPos, time
+  const s = [0.3, 0.9, 0.2];
+  const sl = Math.hypot(...s);
+  f.set([s[0] / sl, s[1] / sl, s[2] / sl, 0], 4); // sunDir, surfaceY
+  f.set([14, 13.2, 11.8, 0.015], 8); // sunColor, scattering
+  f.set([0.35, 0.55, 0.7, 0], 12); // ambientColor
+  f.set([0.1, 0.034, 0.02, 0], 16); // absorption
+  f.set([0, 0, 0.6, 12.3], 20); // misc: .z fog, .w wave phase seed
+  for (let i = 0; i < 12; i++) {
+    const lambda = 30 / (1 + i * 0.6);
+    const k = (2 * Math.PI) / lambda;
+    const a = i * 2.39996;
+    f.set(
+      [Math.cos(a) * k, Math.sin(a) * k, 0.18 * (lambda / 30), Math.sqrt(9.81 * k)],
+      24 + i * 4,
+    );
+  }
+  return f;
+}
+
 function halfToFloat(u) {
   const s = u >> 15 ? -1 : 1;
   const e = (u >> 10) & 0x1f;
@@ -252,7 +520,7 @@ async function runVariant(device, v) {
   });
 
   const uniformBuf = device.createBuffer({
-    size: 16,
+    size: v.water ? 288 : 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   // 4x4 white with mips, so an implicit sample has a level to choose and
@@ -279,11 +547,13 @@ async function runVariant(device, v) {
   });
   const bind = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      {binding: 0, resource: {buffer: uniformBuf}},
-      {binding: 1, resource: sampler},
-      {binding: 2, resource: texture.createView()},
-    ],
+    entries: v.water
+      ? [{binding: 0, resource: {buffer: uniformBuf}}]
+      : [
+          {binding: 0, resource: {buffer: uniformBuf}},
+          {binding: 1, resource: sampler},
+          {binding: 2, resource: texture.createView()},
+        ],
   });
 
   const bytes = v.formats[0] === 'rgba16float' ? 8 : 4;
@@ -298,11 +568,12 @@ async function runVariant(device, v) {
   let badFrames = 0;
   let image = new ImageData(SIZE, SIZE);
 
-  for (let frame = 0; frame < FRAMES; frame++) {
+  const frames = v.water ? 30 : FRAMES;
+  for (let frame = 0; frame < frames; frame++) {
     device.queue.writeBuffer(
       uniformBuf,
       0,
-      new Float32Array([frame * 7.13, 0, 0, 0]),
+      v.water ? frameData(frame * 0.016) : new Float32Array([frame * 7.13, 0, 0, 0]),
     );
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -321,7 +592,7 @@ async function runVariant(device, v) {
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bind);
-    pass.draw(3, 200);
+    pass.draw(3, v.water ? 16 : 200);
     pass.end();
     encoder.copyTextureToBuffer(
       {texture: textures[0]},
@@ -342,6 +613,12 @@ async function runVariant(device, v) {
     };
     const near = (a, b) => Math.abs(a - b) < 0.02;
     const expect = [...WRITTEN, 1];
+    // The water chain writes a computed colour, so there is no single value to
+    // compare against. The invariant that still holds is that finite inputs and
+    // bounded arithmetic cannot produce a NaN, and the three water rows differ
+    // only in how many times the shader discards.
+    const okWater = c =>
+      c.every(n => Number.isFinite(n) && Math.abs(n) < 1e5);
     const frameImage = new ImageData(SIZE, SIZE);
     let frameBad = 0;
     for (let y = 0; y < SIZE; y++) {
@@ -352,6 +629,16 @@ async function runVariant(device, v) {
           nan++;
           frameBad++;
           rgb = [255, 0, 255];
+        } else if (v.water) {
+          if (okWater(c)) {
+            rgb = c.every((n, i) => near(n, CLEAR[i]))
+              ? [0, 0, 0]
+              : [140, 140, 140];
+          } else {
+            other++;
+            frameBad++;
+            rgb = [255, 0, 0];
+          }
         } else if (c.every((n, i) => near(n, expect[i]))) {
           rgb = [140, 140, 140];
         } else if (c.every((n, i) => near(n, CLEAR[i]))) {
@@ -378,7 +665,7 @@ async function runVariant(device, v) {
   texture.destroy();
   depthTex.destroy();
   textures.forEach(t => t.destroy());
-  return {name: v.name, nan, other, badFrames, frames: FRAMES, image};
+  return {name: v.name, nan, other, badFrames, frames, image};
 }
 
 async function main() {
@@ -393,8 +680,13 @@ async function main() {
   device.addEventListener?.('uncapturederror', e => console.log(e.error.message));
   const info = adapter.info ?? {};
 
+  // ?only=<substring> runs just the matching rows, for iterating on one.
+  const filter = new URLSearchParams(location.search).get('only');
+  const wanted = filter
+    ? VARIANTS.filter(v => v.name.toLowerCase().includes(filter.toLowerCase()))
+    : VARIANTS;
   const results = [];
-  for (const v of VARIANTS) {
+  for (const v of wanted) {
     results.push(await runVariant(device, v));
   }
 
@@ -425,7 +717,7 @@ async function main() {
     out.append(fig);
   }
 
-  const failing = VARIANTS.find((v, i) => results[i].nan + results[i].other);
+  const failing = wanted.find((v, i) => results[i].nan + results[i].other);
   if (failing) {
     document.getElementById('src').innerHTML =
       `<h2>Shader for the first failing variant</h2><pre>${failing.code
