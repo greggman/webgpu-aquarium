@@ -44,6 +44,7 @@ import {createFish} from './sim/fish.ts';
 import {CreatureCam} from './player/follow.ts';
 import {createJellyfish} from './sim/jellyfish.ts';
 import {createParticles} from './render/particles.ts';
+import {readBuffer} from './gpu/util.ts';
 
 const params = new URLSearchParams(location.search);
 /** Systems whose opaque shaders use discard. */
@@ -421,6 +422,61 @@ async function main() {
     const ms = (performance.now() - t0) / frames;
     renderer.present = present;
     return ms;
+  };
+  // Reads the scene's HDR buffer back and reports its brightest pixels. Bloom
+  // turns one extreme pixel into a block, so when blocks appear this says
+  // whether the scene handed bloom something absurd, and where.
+  window.__aquarium.scanHdr = async () => {
+    const t = renderer.targets;
+    const bytesPerRow = Math.ceil((t.width * 8) / 256) * 256;
+    const buf = device.createBuffer({
+      label: 'scanHdr:readback',
+      size: bytesPerRow * t.height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    const encoder = device.createCommandEncoder({label: 'scanHdr:encoder'});
+    encoder.copyTextureToBuffer(
+      {texture: t.color},
+      {buffer: buf, bytesPerRow},
+      [t.width, t.height],
+    );
+    device.queue.submit([encoder.finish()]);
+    const raw = new Uint16Array(await readBuffer(device, buf));
+    buf.destroy();
+    const half = (u: number) => {
+      const s = u >> 15 ? -1 : 1;
+      const e = (u >> 10) & 0x1f;
+      const f = u & 0x3ff;
+      if (e === 0x1f) {
+        return f ? NaN : s * Infinity;
+      }
+      if (e === 0) {
+        return s * f * 2 ** -24;
+      }
+      return s * (1 + f / 1024) * 2 ** (e - 15);
+    };
+    let nan = 0;
+    let inf = 0;
+    const px: {x: number; y: number; v: number}[] = [];
+    for (let y = 0; y < t.height; y++) {
+      const row = (y * bytesPerRow) / 2;
+      for (let x = 0; x < t.width; x++) {
+        const v = Math.max(
+          half(raw[row + x * 4]),
+          half(raw[row + x * 4 + 1]),
+          half(raw[row + x * 4 + 2]),
+        );
+        if (Number.isNaN(v)) {
+          nan++;
+        } else if (!Number.isFinite(v)) {
+          inf++;
+        } else if (v > 8) {
+          px.push({x, y, v});
+        }
+      }
+    }
+    px.sort((a, b) => b.v - a.v);
+    return {nan, inf, over8: px.length, top: px.slice(0, 12)};
   };
   window.__aquarium.info = {
     seed,

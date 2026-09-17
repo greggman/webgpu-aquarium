@@ -990,22 +990,30 @@ fn groundSlope(xz: vec2f) -> vec3f {
   return vec3f(t.g, 0.0, t.b);
 }
 
-fn quatFromBasis(x: vec3f, y: vec3f, z: vec3f) -> vec4f {
-  let trace = x.x + y.y + z.z;
-  if (trace > 0.0) {
-    let s = 0.5 / sqrt(trace + 1.0);
-    return vec4f((y.z - z.y) * s, (z.x - x.z) * s, (x.y - y.x) * s, 0.25 / s);
-  }
-  if (x.x > y.y && x.x > z.z) {
-    let s = 2.0 * sqrt(1.0 + x.x - y.y - z.z);
-    return vec4f(0.25 * s, (x.y + y.x) / s, (z.x + x.z) / s, (y.z - z.y) / s);
-  }
-  if (y.y > z.z) {
-    let s = 2.0 * sqrt(1.0 + y.y - x.x - z.z);
-    return vec4f((x.y + y.x) / s, 0.25 * s, (y.z + z.y) / s, (z.x - x.z) / s);
-  }
-  let s = 2.0 * sqrt(1.0 + z.z - x.x - y.y);
-  return vec4f((z.x + x.z) / s, (y.z + z.y) / s, 0.25 * s, (x.y - y.x) / s);
+/**
+ * normalize() with a stated answer for the vector that has no direction. The
+ * degenerate cases here are all real — a fish at a dead stop, flat ground with
+ * no gradient, a heading straight up — and normalize() answers NaN for them.
+ * Nudging the input by an epsilon instead is not a fix: it swaps the NaN for an
+ * arbitrary direction, and where the input is a cross product it also destroys
+ * the perpendicularity the caller was relying on.
+ */
+fn safeNormalize(v: vec3f, fallback: vec3f) -> vec3f {
+  let d = dot(v, v);
+  // Also catches a v that arrived already NaN, since the comparison is false.
+  return select(fallback, v * inverseSqrt(d), d > 1e-20);
+}
+
+fn quatMul(a: vec4f, b: vec4f) -> vec4f {
+  return vec4f(
+    a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz),
+    a.w * b.w - dot(a.xyz, b.xyz),
+  );
+}
+
+/** Rotation about a unit axis by an angle, as a quaternion. */
+fn quatAxis(axis: vec3f, angle: f32) -> vec4f {
+  return vec4f(axis * sin(angle * 0.5), cos(angle * 0.5));
 }
 
 @compute @workgroup_size(64)
@@ -1050,8 +1058,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     // little so the school breathes.
     let L = fishIn[leaderIndex];
     let lv = vec3f(L.vel.x, L.vel.y * 0.3, L.vel.z);
-    let lf = normalize(lv + vec3f(1e-4, 0.0, 0.0));
-    let lr = normalize(cross(vec3f(0.0, 1.0, 0.0), lf) + vec3f(1e-5, 0.0, 0.0));
+    let lf = safeNormalize(lv, vec3f(0.0, 0.0, 1.0));
+    let lr = safeNormalize(cross(vec3f(0.0, 1.0, 0.0), lf), vec3f(1.0, 0.0, 0.0));
     let lu = cross(lf, lr);
     var slot = vec3f(hashU(i * 3u), hashU(i * 3u + 1u), hashU(i * 3u + 2u)) * 2.0 - 1.0;
     slot = slot / max(length(slot), 1e-3) * pow(hashU(i * 7u + 5u), 0.4);
@@ -1089,7 +1097,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let steep = length(slope);
     if (steep > 0.35) {
       let close = clamp((ga + sp.band.x - ahead.y) / max(sp.band.x, 0.5), 0.0, 1.0);
-      acc += normalize(slope + vec3f(1e-5, 0.0, 0.0)) * steep * close * 9.0;
+      acc += safeNormalize(slope, vec3f(0.0, 0.0, 0.0)) * steep * close * 9.0;
     }
   }
 
@@ -1116,7 +1124,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (curious > 0.0 && cd < 18.0) {
     // Each curious fish holds its own spot so they don't pile up on one point.
     let side = sin(sim.time * 0.15 + fi * 2.1) * 1.0 + (fract(fi * 0.618) - 0.5) * 4.0;
-    let right = normalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)) + vec3f(1e-4));
+    let right = safeNormalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)), vec3f(1.0, 0.0, 0.0));
     // Far enough to stay inside the focus range (closer, they fill the lens as blurry shapes).
     let spot = sim.camPos + sim.camDir * (4.0 + fract(fi * 0.37) * 3.0) + right * side;
     acc += (spot - f.pos) * curious * 1.4 * smoothstep(22.0, 6.0, cd);
@@ -1131,7 +1139,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let r2 = fract(r1 * 91.7 + 0.31);
     let r3 = fract(r2 * 57.3 + 0.77);
     if (ph < 0.1 && r1 < 0.55) {
-      let d = normalize(vec3f(r2 - 0.5, (r3 - 0.5) * 0.35, fract(r3 * 13.1) - 0.5) + vec3f(1e-4));
+      let d = safeNormalize(vec3f(r2 - 0.5, (r3 - 0.5) * 0.35, fract(r3 * 13.1) - 0.5), vec3f(0.0, 0.0, 1.0));
       acc += d * sp.dart.x * (1.0 - ph / 0.1);
       maxSpeed = max(maxSpeed, sp.band.w * 3.0);
     }
@@ -1139,7 +1147,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   var vel = f.vel + acc * dt * sp.motion.x;
   let speed = clamp(length(vel), sp.band.z * 0.3, maxSpeed);
-  vel = normalize(vel + vec3f(1e-5, 0.0, 0.0)) * speed;
+  vel = safeNormalize(vel, vec3f(0.0, 0.0, 1.0)) * speed;
   // Fish rarely pitch steeply.
   vel.y = clamp(vel.y, -0.45 * speed, 0.45 * speed);
   f.vel = vel;
@@ -1150,14 +1158,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let prev = instances[i];
   var o: FishInstance;
   let scale = len * (0.85 + 0.3 * fract(fi * 0.618));
-  let fwd = normalize(vel);
-  let right = normalize(cross(vec3f(0.0, 1.0, 0.0), fwd) + vec3f(1e-5));
-  let up = cross(fwd, right);
+  let fwd = safeNormalize(vel, vec3f(0.0, 0.0, 1.0));
+  let right = safeNormalize(cross(vec3f(0.0, 1.0, 0.0), fwd), vec3f(1.0, 0.0, 0.0));
   let bank = clamp(dot(acc, right) * 0.08, -0.6, 0.6) * select(1.0, 0.3, sp.motion.z > 0.5);
-  let r2 = right * cos(bank) + up * sin(bank);
-  let u2 = cross(fwd, r2);
+  // Heading as a product of rotations rather than a basis to convert: yaw
+  // about the world's up axis, then pitch, then bank along the fish's own
+  // length. Each term is the sine and cosine of a half angle, so the product
+  // is a unit quaternion whatever the velocity, and there is no matrix that
+  // can go skew and no square root of a quantity that might have gone
+  // negative. It agrees exactly with the basis this replaces: yaw then pitch
+  // is what "face along the velocity, keep the head up" means.
+  let flat = select(vec2f(0.0, 1.0), fwd.xz, dot(fwd.xz, fwd.xz) > 1e-12);
+  let yaw = atan2(flat.x, flat.y);
+  let pitch = atan2(-fwd.y, length(fwd.xz));
   o.posScale = vec4f(f.pos, scale);
-  o.rot = normalize(quatFromBasis(r2, u2, fwd));
+  o.rot = quatMul(
+    quatMul(
+      quatAxis(vec3f(0.0, 1.0, 0.0), yaw),
+      quatAxis(vec3f(1.0, 0.0, 0.0), pitch),
+    ),
+    quatAxis(vec3f(0.0, 0.0, 1.0), bank),
+  );
   let fresh = prev.posScale.w == 0.0;
   o.prevPosScale = select(prev.posScale, o.posScale, fresh);
   o.prevRot = select(prev.rot, o.rot, fresh);
@@ -1576,7 +1597,10 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BOut 
   }
   // Blob elongated along the fish, growing softer and larger with height.
   let fwd3 = quatRotate(inst.rot, vec3f(0.0, 0.0, 1.0));
-  let fwd = normalize(vec2f(fwd3.x, fwd3.z) + vec2f(1e-4, 0.0));
+  // A fish pointing straight up or down has no heading on the ground plane;
+  // its blob is near enough a circle, so any direction will do for the axis.
+  let flat = vec2f(fwd3.x, fwd3.z);
+  let fwd = select(vec2f(0.0, 1.0), normalize(flat), dot(flat, flat) > 1e-12);
   let side = vec2f(-fwd.y, fwd.x);
   let spread = 1.0 + h * 0.8;
   let halfLen = len * 0.55 * spread + 0.05;
