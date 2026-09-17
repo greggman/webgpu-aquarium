@@ -44,7 +44,15 @@ fn down(i: FSOut) -> @location(0) vec4f {
   let w3 = karisWeight(g3) * 0.125;
   let w4 = karisWeight(g4) * 0.125;
   let col = (g0 * w0 + g1 * w1 + g2 * w2 + g3 * w3 + g4 * w4) / (w0 + w1 + w2 + w3 + w4);
-  return vec4f(col, 1.0);
+  // A net against non-finite pixels. Bloom is where one bad pixel stops being
+  // one bad pixel: it is averaged into a mip and then scaled back up, so a
+  // single NaN anywhere in the frame comes back as a block. Whether that block
+  // ends up black is then up to how the implementation treats NaN in min, max
+  // and clamp, which the specification leaves open — so this is exactly the
+  // kind of fault that shows on one browser and not another. Cheap to refuse
+  // it here, where the whole frame passes through.
+  let safe = select(vec3f(0.0), col, col == col);
+  return vec4f(min(safe, vec3f(64.0)), 1.0);
 }
 
 @fragment

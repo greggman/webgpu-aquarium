@@ -1399,14 +1399,20 @@ struct FOut {
 
 @fragment
 fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
-  var n = normalize(i.normal);
+  // Guarded: an interpolated normal can come out as zero where a fin's two
+  // faces meet, and normalize(0) is a NaN. One NaN pixel is not a small
+  // problem here — it is averaged into a bloom mip, which covers a large part
+  // of the screen once that mip is scaled back up, and tone mapping turns the
+  // result black. Every normalize in the simulation shader is already nudged
+  // like this; the render shader was not.
+  var n = normalize(i.normal + vec3f(1e-6, 1e-6, 1e-6));
   if (!front) {
     n = -n;
   }
   let inst = instances[i.instance];
   let sp = species[u32(inst.anim.w)];
   let part = u32(i.uv.w + 0.5);
-  let V = normalize(frame.camPos - i.world);
+  let V = normalize(frame.camPos - i.world + vec3f(1e-6, 1e-6, 1e-6));
   // Fish right in front of the lens dissolve instead of filling the frame
   // with a blurry blob.
   let camDist = length(frame.camPos - i.world);
@@ -1462,7 +1468,10 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     let h1 = fract(sin(dot(cellId, vec2f(12.9898, 78.233))) * 43758.5453);
     let h2 = fract(h1 * 17.13 + 0.37);
     let tilt = vec3f(h1 - 0.5, h2 - 0.5, (h1 + h2) * 0.5 - 0.5) * (0.25 + 0.6 * sp.colAccent.w);
-    s.normal = normalize(bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04) + tilt * 0.5);
+    s.normal = normalize(
+      bumpNormal(n, vec3f(0.0, scaleEdge - 0.5, 0.0) * 0.04) + tilt * 0.5 +
+        vec3f(1e-6, 1e-6, 1e-6),
+    );
     // Face: gill cover edge behind the eye, darker snout and mouth line, then the eye.
     if (!isRay) {
       let gill = smoothstep(0.012, 0.0, abs(i.uv.y - 0.2 - sin(i.uv.x * 6.2831853) * 0.015)) * smoothstep(0.9, 0.3, abs(sin(i.uv.x * 6.2831853)));
