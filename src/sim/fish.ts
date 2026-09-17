@@ -1266,6 +1266,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
  * that can discard defeats hidden-surface removal on tile-based GPUs, and a
  * big school overlapping itself then costs several times the frame budget.
  */
+/**
+ * ?fishcut=both puts the two discards this shader used to have back, which is
+ * the only reproduction we have of the WebKit fault that made them go away:
+ * with both present the colour attachment comes back with NaN texels, and with
+ * either one alone it does not. Kept so the bug can be demonstrated against a
+ * deployed build — see bugs/webkit-discard.html. Delete once WebKit is fixed.
+ */
+const bugCut =
+  typeof location === 'undefined'
+    ? ''
+    : (new URLSearchParams(location.search).get('fishcut') ?? '');
+const wantDissolve = bugCut === 'both' || bugCut === 'dissolve';
+const wantFin = bugCut === 'both' || bugCut === 'fin';
+
 const renderWgsl = (() => {
   return /* wgsl */ `
 ${surfaceLib}
@@ -1460,6 +1474,14 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let inst = instances[i.instance];
   let sp = species[u32(inst.anim.w)];
   let part = u32(i.uv.w + 0.5);
+${
+  wantDissolve
+    ? `  let camDist = length(frame.camPos - i.world);
+  if (ign(i.pos.xy, frame.frameIndex * 5u + i.instance) > smoothstep(0.35, 1.1, camDist)) {
+    discard;
+  }`
+    : ''
+}
   var s = defaultSurface();
   // How much of this pixel is gaps rather than tissue (fin webbing).
   var seeThrough = 0.0;
@@ -1549,6 +1571,13 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     // solid, so the same number drives how much light passes through it
     // instead. The webbing between the rays transmits nearly everything.
     let webbing = mix(0.3 + 0.35 * (1.0 - sp.colFin.w), 0.95, rayLine) * edgeFade;
+${
+  wantFin
+    ? `    if (ign(i.pos.xy, frame.frameIndex * 7u + i.instance) > webbing) {
+      discard;
+    }`
+    : ''
+}
     // Fins carry a little of the body colour and glow only softly when backlit.
     s.albedo = mix(sp.colFin.rgb, sp.colTop.rgb, 0.3) * mix(0.85, 1.0, rayLine) * inst.tint.rgb;
     s.translucency = max(sp.colFin.w, 0.6) * 0.55;

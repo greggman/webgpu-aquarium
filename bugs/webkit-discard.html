@@ -1,0 +1,480 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebKit WebGPU: two discards corrupt the colour attachment</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 60rem; }
+  h1 { font-size: 1.2rem; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .fail { background: #fdd; font-weight: bold; }
+  .pass { background: #dfd; }
+  canvas { image-rendering: pixelated; width: 192px; height: 192px; border: 1px solid #ccc; }
+  figure { display: inline-block; margin: 0 1rem 1rem 0; text-align: center; font-size: 12px; }
+</style>
+
+<h1>WebGPU in WebKit: two <code>discard</code>s in one fragment shader put
+garbage in the colour attachment</h1>
+
+<p><b>This page does not yet reproduce the fault.</b> It is the record of a
+search: every configuration below passes, in both Safari and Chrome. It is here
+so that whoever picks the bug up does not repeat the same ground.</p>
+
+<p>The fault is real and reproduces reliably in a full renderer
+(<a href="https://greggman.github.io/webgpu-aquarium/">webgpu-aquarium</a>).
+There, a fragment shader writes a constant and the colour attachment still
+comes back with NaN texels — inside the drawn object, interleaved with texels
+holding the constant. A discarded fragment must not write at all, so the value
+landing in the target is not something the shader computed.</p>
+
+<p>What was established there, by toggling one thing at a time:</p>
+<ul>
+  <li><b>Two <code>discard</code> statements in the one fragment shader are
+    required.</b> With either one alone the frame is clean; with both, roughly
+    2,600 NaN texels appear over 12 seconds. This is presumably why ordinary
+    alpha-tested transparency, which discards once, is unaffected.</li>
+  <li><b>The rest of the shading has to be live.</b> Cut the shader down to the
+    discards and a constant — so the compiler eliminates everything else — and
+    it is clean.</li>
+  <li>It is not the arithmetic: with the outputs forced to a constant, every
+    derivative removed, and the outputs initialised before the discards, the
+    NaNs still appear.</li>
+  <li>Chrome is clean throughout on the same hardware.</li>
+</ul>
+
+<p>Each variant below draws a triangle whose fragment shader writes one constant
+colour and discards a pseudo-random share of its pixels, over 120 frames
+reusing one set of textures. Every texel must end up either the clear value or
+that exact constant; anything else is counted. Ruled out as sufficient: one or
+two colour attachments, rgba16float and rgba8unorm, a depth attachment with
+reversed-Z, 200 overlapping instances, <code>drawIndirect</code> and
+<code>drawIndexedIndirect</code>, a discard pattern reseeded every frame, flat
+varyings and <code>front_facing</code>, a storage-buffer read in the fragment,
+implicit- and explicit-LOD texture sampling, two discards, and heavy live
+arithmetic between them.</p>
+
+<p>Magenta marks a NaN texel, red any other unexpected value, grey the written
+constant, black the clear value.</p>
+
+<div id="out">Running…</div>
+
+<script type="module">
+const SIZE = 128;
+const CLEAR = [0, 0, 0, 1];
+const WRITTEN = [0.25, 0.5, 0.75, 1];
+
+// Half of the pixels are discarded, chosen per pixel rather than per block, so
+// that most 2x2 quads are only partly discarded.
+const hash = (salt, seed) =>
+  `fract(sin(dot(floor(pos.xy), vec2f(12.9898, 78.233)) + ${salt}${seed}) * 43758.5453)`;
+
+// Enough live arithmetic between the two discards to put the shader under
+// something like the register pressure of a real material shader.
+const WORK = seed => `
+  var acc = 0.0;
+  var warp = pos.xy * 0.013;
+  for (var k = 0; k < 24; k++) {
+    let q = warp * (0.01 * f32(k) + 0.02) + vec2f(f32(k)${seed}, f32(k) * 1.7);
+    acc += sin(q.x * 3.1 + acc) * cos(q.y * 2.7 - acc) / f32(k + 1);
+    warp += vec2f(acc * 0.1, -acc * 0.07);
+  }`;
+
+// One discard, or two in sequence with work between them.
+const FS_BODY = (seed, count, work) =>
+  count === 2
+    ? `
+  let h1 = ${hash('0.0', seed)};
+  if (h1 > 0.8) {
+    discard;
+  }
+${work ? WORK(seed) : '  let acc = 0.0;'}
+  let mid = ${hash('11.0', seed)};
+  let h2 = ${hash('37.0', seed)} * (0.5 + 0.5 * mid) + acc * 0.001;
+  if (h2 > 0.35) {
+    discard;
+  }
+  o.color = vec4f(o.color.rgb * (1.0 + acc * 0.0001), 1.0);`
+    : `
+  let h = ${hash('0.0', seed)};
+  if (h > 0.5) {
+    discard;
+  }`;
+
+const MRT = ['rgba16float', 'rg16float'];
+const VARIANTS = [
+  {name: '1 attachment', formats: ['rgba16float']},
+  {name: '2 attachments', formats: MRT},
+  {name: '2 attachments + depth', formats: MRT, depth: true},
+  {name: '2 attachments + depth, 200 overlapping instances', formats: MRT, depth: true, instances: 200},
+  {name: '... drawn indirect', formats: MRT, depth: true, instances: 200, indirect: true},
+  {name: '... indexed indirect', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true},
+  // The discard pattern in the renderer this came from is reseeded every
+  // frame, and the fragment reads per-instance data out of a storage buffer.
+  {name: '... + per-frame discard pattern', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true, animated: true},
+  {name: '... + storage read in the fragment', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true, animated: true, storage: true},
+  // Sampling a texture in a shader that discards is the combination that
+  // matters: a discarded fragment stays alive as a helper invocation so that
+  // its neighbours can still take derivatives, and an implicitly mip-mapped
+  // sample needs exactly those derivatives.
+  {name: '... + textureSample (implicit LOD)', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true, animated: true, storage: true, texture: 'implicit'},
+  {name: '... + textureSampleLevel (explicit LOD)', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true, animated: true, storage: true, texture: 'explicit'},
+  // Two discard statements in one fragment shader. One is fine; two is not.
+  {name: 'TWO discards, otherwise as simple as possible', formats: MRT, discards: 2},
+  {name: 'TWO discards, single attachment', formats: ['rgba16float'], discards: 2},
+  {name: 'TWO discards + depth + 200 instances', formats: MRT, depth: true, instances: 200, discards: 2},
+  {name: 'TWO discards + heavy live arithmetic between them', formats: MRT, depth: true, instances: 200, discards: 2, work: true},
+  {name: '... + everything else', formats: MRT, depth: true, instances: 200, indirect: true, indexed: true, animated: true, storage: true, texture: 'implicit', discards: 2, work: true},
+];
+
+function shaderFor(formats, v = {}) {
+  const extra = formats
+    .slice(1)
+    .map((f, i) => `  @location(${i + 1}) aux${i}: vec2f,`)
+    .join('\n');
+  const assign = formats
+    .slice(1)
+    .map((_, i) => `  o.aux${i} = vec2f(0.0);`)
+    .join('\n');
+  const uniforms = v.animated
+    ? '@group(0) @binding(0) var<uniform> frame: vec4f;'
+    : '';
+  const storage = v.storage
+    ? '@group(0) @binding(1) var<storage, read> tint: array<vec4f>;'
+    : '';
+  const tex = v.texture
+    ? `@group(0) @binding(2) var samp: sampler;
+@group(0) @binding(3) var tex: texture_2d<f32>;`
+    : '';
+  const sampled = v.texture
+    ? v.texture === 'implicit'
+      ? ' * textureSample(tex, samp, pos.xy * 0.01).rgb'
+      : ' * textureSampleLevel(tex, samp, pos.xy * 0.01, 0.0).rgb'
+    : '';
+  const seed = v.animated ? ' + frame.x' : '';
+  const tinted = v.storage ? ' * tint[inst].x' : '';
+  return `
+${uniforms}
+${storage}
+${tex}
+
+struct FOut {
+  @location(0) color: vec4f,
+${extra}
+};
+
+@vertex
+struct VOut {
+  @builtin(position) pos: vec4f,
+  @location(0) @interpolate(flat) inst: u32,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32,
+      @builtin(instance_index) inst: u32) -> VOut {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  // Instances are stacked in depth so they overlap and the depth test has
+  // something to do, as geometry in a real scene does.
+  let z = 0.2 + 0.6 * (f32(inst) / 256.0);
+  var o: VOut;
+  o.pos = vec4f(p[i], z, 1.0);
+  o.inst = inst;
+  return o;
+}
+
+@fragment
+fn fs(@builtin(position) pos: vec4f,
+      @location(0) @interpolate(flat) inst: u32,
+      @builtin(front_facing) front: bool) -> FOut {
+  var o: FOut;
+  o.color = vec4f(vec3f(${WRITTEN.slice(0, 3).join(', ')})${sampled}, 1.0)${tinted};
+${assign}
+${FS_BODY(seed, v.discards ?? 1, v.work)}
+  return o;
+}`;
+}
+
+function halfToFloat(u) {
+  const s = u >> 15 ? -1 : 1;
+  const e = (u >> 10) & 0x1f;
+  const f = u & 0x3ff;
+  if (e === 0x1f) return f ? NaN : s * Infinity;
+  if (e === 0) return s * f * 2 ** -24;
+  return s * (1 + f / 1024) * 2 ** (e - 15);
+}
+
+const FRAMES = 120;
+
+async function runVariant(device, v) {
+  const textures = v.formats.map((format, i) =>
+    device.createTexture({
+      label: `attachment-${i}`,
+      size: [SIZE, SIZE],
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    }),
+  );
+  const module = device.createShaderModule({code: shaderFor(v.formats, v)});
+  const uniformBuf = device.createBuffer({
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  const tintBuf = device.createBuffer({
+    size: 256 * 16,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(tintBuf, 0, new Float32Array(256 * 4).fill(1));
+  // A 1x1 white texture with mips, so an implicitly mip-mapped sample has a
+  // real choice of level to make and still returns exactly white.
+  const texture = device.createTexture({
+    size: [4, 4],
+    mipLevelCount: 3,
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  for (let m = 0; m < 3; m++) {
+    const n = 4 >> m;
+    device.queue.writeTexture(
+      {texture, mipLevel: m},
+      new Uint8Array(n * n * 4).fill(255),
+      {bytesPerRow: n * 4},
+      [n, n],
+    );
+  }
+  const sampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+    mipmapFilter: 'linear',
+  });
+  const depthTex = v.depth
+    ? device.createTexture({
+        size: [SIZE, SIZE],
+        format: 'depth32float',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      })
+    : null;
+  const pipeline = await device.createRenderPipelineAsync({
+    layout: 'auto',
+    vertex: {module, entryPoint: 'vs'},
+    fragment: {
+      module,
+      entryPoint: 'fs',
+      targets: v.formats.map(format => ({format})),
+    },
+    ...(v.depth
+      ? {
+          depthStencil: {
+            format: 'depth32float',
+            depthWriteEnabled: true,
+            // Reversed Z, as the renderer this came from uses.
+            depthCompare: 'greater',
+          },
+        }
+      : {}),
+  });
+
+  const bytes = v.formats[0] === 'rgba16float' ? 8 : 4;
+  const bytesPerRow = Math.ceil((SIZE * bytes) / 256) * 256;
+  // One buffer and one set of textures reused for every frame, as a renderer
+  // does. The fault this reproduces is intermittent: most frames are correct.
+  const buffer = device.createBuffer({
+    size: bytesPerRow * SIZE,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  let nan = 0;
+  let other = 0;
+  let written = 0;
+  let cleared = 0;
+  let badFrames = 0;
+  let image = new ImageData(SIZE, SIZE);
+
+  for (let frame = 0; frame < FRAMES; frame++) {
+  device.queue.writeBuffer(
+    uniformBuf,
+    0,
+    new Float32Array([frame * 7.13, 0, 0, 0]),
+  );
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: textures.map((t, i) => ({
+      view: t.createView(),
+      loadOp: 'clear',
+      storeOp: 'store',
+      clearValue: i === 0 ? CLEAR : [0, 0, 0, 0],
+    })),
+    ...(depthTex
+      ? {
+          depthStencilAttachment: {
+            view: depthTex.createView(),
+            depthLoadOp: 'clear',
+            depthClearValue: 0,
+            depthStoreOp: 'store',
+          },
+        }
+      : {}),
+  });
+  pass.setPipeline(pipeline);
+  if (v.animated || v.storage || v.texture) {
+    const entries = [];
+    if (v.animated) {
+      entries.push({binding: 0, resource: {buffer: uniformBuf}});
+    }
+    if (v.storage) {
+      entries.push({binding: 1, resource: {buffer: tintBuf}});
+    }
+    if (v.texture) {
+      entries.push({binding: 2, resource: sampler});
+      entries.push({binding: 3, resource: texture.createView()});
+    }
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries,
+      }),
+    );
+  }
+  const instances = v.instances ?? 1;
+  if (v.indirect) {
+    const args = v.indexed
+      ? new Uint32Array([3, instances, 0, 0, 0])
+      : new Uint32Array([3, instances, 0, 0]);
+    const argsBuf = device.createBuffer({
+      size: args.byteLength,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(argsBuf, 0, args);
+    if (v.indexed) {
+      const idx = device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(idx, 0, new Uint32Array([0, 1, 2, 0]));
+      pass.setIndexBuffer(idx, 'uint32');
+      pass.drawIndexedIndirect(argsBuf, 0);
+    } else {
+      pass.drawIndirect(argsBuf, 0);
+    }
+  } else {
+    pass.draw(3, instances);
+  }
+  pass.end();
+
+  encoder.copyTextureToBuffer(
+    {texture: textures[0]},
+    {buffer, bytesPerRow},
+    [SIZE, SIZE],
+  );
+  device.queue.submit([encoder.finish()]);
+  await buffer.mapAsync(GPUMapMode.READ);
+  const raw = buffer.getMappedRange();
+
+  const px = (x, y) => {
+    if (bytes === 8) {
+      const u = new Uint16Array(raw, y * bytesPerRow, SIZE * 4);
+      return [0, 1, 2, 3].map(c => halfToFloat(u[x * 4 + c]));
+    }
+    const u = new Uint8Array(raw, y * bytesPerRow, SIZE * 4);
+    return [0, 1, 2, 3].map(c => u[x * 4 + c] / 255);
+  };
+  const near = (a, b) => Math.abs(a - b) < 0.02;
+  const frameImage = new ImageData(SIZE, SIZE);
+  let frameBad = 0;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const c = px(x, y);
+      const o = (y * SIZE + x) * 4;
+      let rgb;
+      if (c.some(Number.isNaN)) {
+        nan++;
+        frameBad++;
+        rgb = [255, 0, 255];
+      } else if (c.every((n, i) => near(n, WRITTEN[i]))) {
+        written++;
+        rgb = [140, 140, 140];
+      } else if (c.every((n, i) => near(n, CLEAR[i]))) {
+        cleared++;
+        rgb = [0, 0, 0];
+      } else {
+        other++;
+        frameBad++;
+        rgb = [255, 0, 0];
+      }
+      frameImage.data.set([...rgb, 255], o);
+    }
+  }
+  buffer.unmap();
+  if (frameBad) {
+    badFrames++;
+    // Keep the worst frame to show.
+    image = frameImage;
+  } else if (badFrames === 0) {
+    image = frameImage;
+  }
+  }
+  buffer.destroy();
+  uniformBuf.destroy();
+  tintBuf.destroy();
+  texture.destroy();
+  textures.forEach(t => t.destroy());
+  depthTex?.destroy();
+  return {
+    name: v.name,
+    nan,
+    other,
+    written: Math.round(written / FRAMES),
+    cleared: Math.round(cleared / FRAMES),
+    badFrames,
+    frames: FRAMES,
+    image,
+  };
+}
+
+async function main() {
+  const out = document.getElementById('out');
+  if (!navigator.gpu) {
+    out.textContent = 'This browser has no WebGPU.';
+    return;
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  const info = adapter.info ?? {};
+
+  const results = [];
+  for (const v of VARIANTS) {
+    results.push(await runVariant(device, v));
+  }
+
+  const rows = results
+    .map(r => {
+      const bad = r.nan + r.other;
+      return `<tr class="${bad ? 'fail' : 'pass'}"><td>${r.name}</td>
+        <td>${r.badFrames}/${r.frames}</td>
+        <td>${r.nan}</td><td>${r.other}</td><td>${r.written}</td>
+        <td>${r.cleared}</td><td>${bad ? 'FAIL' : 'pass'}</td></tr>`;
+    })
+    .join('');
+  out.innerHTML =
+    `<p>Adapter: <code>${[info.vendor, info.architecture, info.description]
+      .filter(Boolean)
+      .join(' / ') || 'unknown'}</code> — ${navigator.userAgent}</p>` +
+    `<table><tr><th>variant</th><th>bad frames</th><th>NaN</th><th>other</th>
+     <th>constant</th><th>clear</th><th></th></tr>${rows}</table>`;
+
+  for (const r of results) {
+    const fig = document.createElement('figure');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = SIZE;
+    canvas.getContext('2d').putImageData(r.image, 0, 0);
+    fig.append(canvas, document.createElement('figcaption'));
+    fig.lastChild.textContent = r.name;
+    out.append(fig);
+  }
+
+  window.__result = results.map(({image, ...r}) => r);
+}
+
+main().catch(e => {
+  document.getElementById('out').textContent = `Error: ${e}`;
+  window.__result = {error: String(e)};
+});
+</script>
