@@ -95,13 +95,18 @@ export class Caustics implements RenderSystem {
   private paramBuf: GPUBuffer;
   private mips: MipGenerator;
   private size: number;
+  /** Refresh one frame in `stride`. */
+  private stride: number;
+  private tick = 0;
 
   constructor(
     device: GPUDevice,
     size: number,
     waveData: Float32Array,
     phaseSeed: number,
+    stride = 1,
   ) {
+    this.stride = stride;
     this.device = device;
     this.size = size;
     this.texture = device.createTexture({
@@ -144,10 +149,18 @@ export class Caustics implements RenderSystem {
         },
       ],
     });
+    // Every level, including the 1x1: volumetrics reads the deepest one as the
+    // pattern's average brightness and divides by it.
     this.mips = new MipGenerator(device, this.texture);
   }
 
   update(ctx: FrameContext) {
+    // The pattern drifts slowly and is sampled through several mip levels, so
+    // refreshing it at half rate is invisible and saves a compute pass plus one
+    // render pass per mip level.
+    if (this.tick++ % this.stride !== 0) {
+      return;
+    }
     this.params.set('time', ctx.time);
     this.device.queue.writeBuffer(this.paramBuf, 0, this.params.data);
     const pass = ctx.encoder.beginComputePass({label: 'caustics:pass'});

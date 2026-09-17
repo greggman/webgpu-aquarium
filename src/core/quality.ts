@@ -23,6 +23,8 @@ export interface Quality {
   /** Multiplier for creature/plant counts. */
   density: number;
   causticsSize: number;
+  /** Refresh the caustics one frame in this many. */
+  causticsStride: number;
   targetFrameMs: number;
 }
 
@@ -44,6 +46,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     grain: false,
     density: 0.45,
     causticsSize: 256,
+    causticsStride: 2,
     targetFrameMs: 1000 / 30,
   },
   medium: {
@@ -61,6 +64,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     grain: true,
     density: 0.6,
     causticsSize: 512,
+    causticsStride: 2,
     targetFrameMs: 1000 / 60,
   },
   high: {
@@ -80,6 +84,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     grain: true,
     density: 1,
     causticsSize: 512,
+    causticsStride: 1,
     targetFrameMs: 1000 / 60,
   },
   ultra: {
@@ -97,6 +102,7 @@ const TIERS: Record<Tier, Omit<Quality, 'tier' | 'tierIndex'>> = {
     grain: true,
     density: 1.3,
     causticsSize: 1024,
+    causticsStride: 1,
     targetFrameMs: 1000 / 60,
   },
 };

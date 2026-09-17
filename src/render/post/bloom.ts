@@ -83,10 +83,12 @@ export class Bloom {
   private upGroups: GPUBindGroup[] = [];
   private input: GPUTexture | null = null;
   private levelCount: number;
+  private maxLevels: number;
 
-  constructor(device: GPUDevice, levelCount = 6) {
+  constructor(device: GPUDevice, maxLevels = 6) {
     this.device = device;
-    this.levelCount = levelCount;
+    this.maxLevels = maxLevels;
+    this.levelCount = maxLevels;
     this.sampler = device.createSampler({
       label: 'bloom:sampler',
       magFilter: 'linear',
@@ -149,6 +151,18 @@ export class Bloom {
   }
 
   resize(t: Targets) {
+    // How far the chain is worth taking depends on the frame's size, not on a
+    // fixed number. Each level is two render passes, and on a tiled GPU a pass
+    // costs about as much for a handful of pixels as for a screenful: on a
+    // phone the sixth level is some 6x13 pixels and still costs a full pass.
+    // Stop once a level stops being a meaningful fraction of the screen.
+    this.levelCount = Math.max(
+      3,
+      Math.min(
+        this.maxLevels,
+        Math.floor(Math.log2(Math.min(t.width, t.height))) - 4,
+      ),
+    );
     this.levels.forEach(l => l.destroy());
     this.levels = [];
     this.views = [];

@@ -98,7 +98,13 @@ async function main() {
   const waveRng = desc.rng.fork('waves');
   const waves = makeWaves(waveRng);
   const wavePhase = waveRng.range(0, 100);
-  const caustics = new Caustics(device, quality.causticsSize, waves, wavePhase);
+  const caustics = new Caustics(
+    device,
+    quality.causticsSize,
+    waves,
+    wavePhase,
+    quality.causticsStride,
+  );
   const shadow = new SunShadow(
     device,
     quality.shadowSize,
