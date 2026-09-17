@@ -128,10 +128,16 @@ fn groundInfo(p: vec3f) -> GroundInfo {
 
 /** Full lighting for a surface point. Returns radiance before water fog. */
 fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
-  let V = normalize(frame.camPos - p);
+  let toEye = frame.camPos - p;
+  let V = select(vec3f(0.0, 0.0, 1.0), normalize(toEye), dot(toEye, toEye) > 1e-12);
   let N = s.normal;
   let L = frame.sunDir;
-  let H = normalize(V + L);
+  // V + L cancels when the surface is looked at from exactly opposite the sun,
+  // which here means from below with the sun overhead — a camera under a fish,
+  // and the sun is always steeply overhead. The half vector is undefined
+  // there; L is the limit approached from either side.
+  let VL = V + L;
+  let H = select(L, normalize(VL), dot(VL, VL) > 1e-12);
   let NoV = max(dot(N, V), 1e-4);
   let NoLraw = dot(N, L);
   let NoL = max(NoLraw, 0.0);
@@ -183,5 +189,12 @@ fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   let Fa = F_Schlick(NoV, f0) * pow(1.0 - s.roughness, 1.5);
   color += Fa * inscatterColor(p.y, R) * s.ao * contact * 0.6;
 
-  return color + s.emissive;
+  // The scene buffer is rgba16float, which stops at 65504. A highlight on
+  // something nearly mirror-smooth can pass that — the sun is a point, so its
+  // reflection has no width to spread energy over — and what reaches the
+  // texture is an infinity. Bloom weights each tap by the inverse of its
+  // brightness to keep single bright pixels from taking over, and that weight
+  // is zero for an infinity, so the tap becomes inf * 0, which is NaN, and one
+  // pixel comes back as a block. Keep the result well inside the format.
+  return min(color + s.emissive, vec3f(4096.0));
 }

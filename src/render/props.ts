@@ -133,7 +133,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let lit = shadeSurface(s, i.world, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
-  o.velocity = (i.curClip.xy / i.curClip.w - i.prevClip.xy / i.prevClip.w) * vec2f(0.5, -0.5);
+  o.velocity = screenVelocity(i.curClip, i.prevClip);
   return o;
 }
 

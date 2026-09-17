@@ -91,7 +91,14 @@ fn fs(i: FSOut) -> @location(0) vec4f {
   }
   let vel = textureLoad(tVel, clamp(p + bestOff, vec2i(0), maxP), 0).xy;
   let prevUv = i.uv - vel;
-  if (reset > 0.5 || any(prevUv < vec2f(0.0)) || any(prevUv > vec2f(1.0))) {
+  // Stated as the condition for reusing history rather than as the condition
+  // for dropping it, so that a non-finite prevUv fails it. Written the other
+  // way round (any(prevUv < 0.0) || any(prevUv > 1.0)) both comparisons are
+  // false for a NaN, so it would sail through, miss the clip below, and be
+  // mixed into the history — which is read back and rewritten every frame
+  // after, so one bad fragment latches a texel for good.
+  let usable = all(prevUv >= vec2f(0.0)) && all(prevUv <= vec2f(1.0));
+  if (reset > 0.5 || !usable) {
     return vec4f(cur, 1.0);
   }
 
@@ -103,7 +110,14 @@ fn fs(i: FSOut) -> @location(0) vec4f {
   let lo = mean - sigma * gamma;
   let hi = mean + sigma * gamma;
 
-  var hist = toYCoCg(tonemapW(sampleHistory(prevUv, size)));
+  let histRgb = sampleHistory(prevUv, size);
+  // Second line: a history texel that is already bad (written before this
+  // guard existed, or by anything else that gets a pixel wrong) would survive
+  // the clip below, since every comparison against a NaN is false.
+  if (any(histRgb != histRgb)) {
+    return vec4f(cur, 1.0);
+  }
+  var hist = toYCoCg(tonemapW(histRgb));
   // Clip toward the mean (more accurate than clamping to the box corner).
   let center = (lo + hi) * 0.5;
   let extents = max((hi - lo) * 0.5, vec3f(1e-4));

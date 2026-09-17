@@ -900,7 +900,7 @@ fn fs(i: VOut) -> FOut {
   let lit = shadeSurface(s, p, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, p), 1.0);
-  o.velocity = (i.curClip.xy / i.curClip.w - i.prevClip.xy / i.prevClip.w) * vec2f(0.5, -0.5);
+  o.velocity = screenVelocity(i.curClip, i.prevClip);
   return o;
 }
 
@@ -918,7 +918,7 @@ fn fsFlat(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let col = vec3f(0.55, 0.6, 0.62) * (0.25 + 0.75 * key);
   var o: FOut;
   o.color = vec4f(select(vec3f(1.2, 0.0, 0.0), col, front), 1.0);
-  o.velocity = (i.curClip.xy / i.curClip.w - i.prevClip.xy / i.prevClip.w) * vec2f(0.5, -0.5);
+  o.velocity = screenVelocity(i.curClip, i.prevClip);
   return o;
 }
 

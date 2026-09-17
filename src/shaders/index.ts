@@ -28,6 +28,26 @@ ${FrameStruct.wgsl}
 @group(0) @binding(7) var tTerrain: texture_2d<f32>;
 @group(0) @binding(8) var tTerrainMask: texture_2d<f32>;
 @group(0) @binding(9) var tContact: texture_2d<f32>;
+
+/**
+ * How far a fragment moved on screen since the last frame, for TAA.
+ *
+ * A point that is in front of the camera now may have been behind it last
+ * frame, and then its previous w is zero or negative and the perspective
+ * divide means nothing: the answer runs off to infinity, or is a plain
+ * division by zero. TAA has no defence against that — its bounds test is a
+ * pair of comparisons that are both false for a NaN, so the bad value passes
+ * the test, skips the neighbourhood clip, and is written into the history,
+ * where it is read back and rewritten every frame after. One fragment latches
+ * a texel permanently. Report no motion instead; a point that was off-screen
+ * has no usable history anyway.
+ */
+fn screenVelocity(cur: vec4f, prev: vec4f) -> vec2f {
+  if (cur.w <= 0.0 || prev.w <= 0.0) {
+    return vec2f(0.0);
+  }
+  return (cur.xy / cur.w - prev.xy / prev.w) * vec2f(0.5, -0.5);
+}
 `;
 
 /** Everything a lit surface shader needs. */
