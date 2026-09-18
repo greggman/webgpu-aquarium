@@ -58,11 +58,15 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   if (pos.y > 1.0) {
     var p = pos.xy * 0.01;
     var sum = 0.0;
-    // This block, 12 times over (9 is enough; 6 is clean):
+    // The page repeats this four-line loop statement 12 times in a row
+    // (only the first is shown here). 9 copies fail too; 6 are clean.
+    // The iteration count of each loop does not matter: 24 copies of a
+    // one-iteration loop also fail.
     for (var k = 0; k < 3; k++) {
       sum += p.x * 0.001;
       p = p * 2.0 + 1.0;
     }
+    // ... 11 more copies of the loop above ...
     c = vec3f(sum);
   }
   return vec4f(c, 1.0);
