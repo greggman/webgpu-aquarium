@@ -2,7 +2,7 @@
 // the app with that file compiled in place of one shader (?wgsl=label=url),
 // renders a fixed number of frames, and counts NaN texels in the scene
 // buffer after each. One Safari session serves all candidates, so a
-// candidate costs a few seconds. Written to reduce bugs/webkit-discard.md;
+// candidate costs a few seconds. Written to reduce bugs/discard-nan.md;
 // the shape of that fault (a threshold in control flow) is why every
 // candidate is a whole shader rather than a construct built up from nothing.
 //

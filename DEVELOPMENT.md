@@ -20,7 +20,7 @@ Other scripts:
 | `npm run shots` | Screenshots for visual review (`--help` for options) |
 | `node test/perf.mjs` | GPU/CPU frame times at 1080p across `--seeds` and `--cameras` |
 | `node test/bench.mjs` | Uncapped cost per render, and per system (disables them one at a time) |
-| `node test/reduce.mjs a.wgsl b.wgsl` | Runs Safari once per candidate shader, swapped in for the fish shader via `?wgsl=`, and counts NaN texels in the scene buffer (see `bugs/webkit-discard.md`) |
+| `node test/reduce.mjs a.wgsl b.wgsl` | Runs Safari once per candidate shader, swapped in for the fish shader via `?wgsl=`, and counts NaN texels in the scene buffer (see `bugs/discard-nan.md`) |
 
 ## Controls
 

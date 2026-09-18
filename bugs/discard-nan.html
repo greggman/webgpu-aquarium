@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>WebKit WebGPU: two discards plus a few loops leave NaN in the colour attachment</title>
+<title>WebGPU: two discards plus a few loops leave NaN in the colour attachment</title>
 <style>
   body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 62rem; }
   h1 { font-size: 1.2rem; }
@@ -14,8 +14,9 @@
   pre { background: #f6f6f6; padding: .6rem .8rem; overflow-x: auto; font-size: 12px; }
 </style>
 
-<h1>WebGPU in WebKit: a fragment shader with two <code>discard</code>s and a
-handful of loops leaves NaN in the colour attachment</h1>
+<h1>WebGPU in Safari and Firefox: a fragment shader with two
+<code>discard</code>s and a handful of loops leaves NaN in the colour
+attachment</h1>
 
 <p>Every row draws one triangle covering a 256×256 <code>rgba16float</code>
 attachment cleared to black, 20 frames, and reads the attachment back after
@@ -28,14 +29,14 @@ magenta in the image of the worst frame.</p>
 <code>if</code>; then an <code>if</code> whose body holds about nine or more
 small <code>for</code> loops. Take away either discard, un-nest the second
 one, move the discards after the loops, drop the branch around the loops, or
-use fewer loops, and the attachment is clean. Chrome on the same GPU is clean
-in every row.</p>
+use fewer loops, and the attachment is clean. Safari and Firefox both fail;
+Chrome on the same GPU is clean in every row.</p>
 
 <div id="out">Running…</div>
 
 <p>Reduced from a full renderer
 (<a href="https://greggman.github.io/webgpu-aquarium/">webgpu-aquarium</a>),
-whose fish shader had this shape; see <code>bugs/webkit-discard.md</code> in
+whose fish shader had this shape; see <code>bugs/discard-nan.md</code> in
 that repository for the reduction. Knobs: <code>?frames=20</code>,
 <code>?size=256</code>, <code>?only=&lt;substring of a row name&gt;</code>.
 The page sets <code>window.__result</code> when done.</p>

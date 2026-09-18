@@ -1268,10 +1268,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
  */
 /**
  * ?fishcut=both puts the two discards this shader used to have back, which is
- * the only reproduction we have of the WebKit fault that made them go away:
+ * the only reproduction we have of the driver fault that made them go away:
  * with both present the colour attachment comes back with NaN texels, and with
  * either one alone it does not. Kept so the bug can be demonstrated against a
- * deployed build — see bugs/webkit-discard.html. Delete once WebKit is fixed.
+ * deployed build — see bugs/discard-nan.html. Safari and Firefox both have
+ * it; Chrome does not. Delete once they are fixed.
  */
 const bugCut =
   typeof location === 'undefined'
@@ -1365,7 +1366,7 @@ fn vs(v: VIn) -> VOut {
   // A fish that swims right up to the lens is taken away rather than left to
   // fill the frame with a wall of blurred scales. It used to be dithered out
   // per pixel, which needs discard, and a fish shader that discards leaves
-  // undefined values in the colour target in WebKit. Shrinking it to nothing
+  // undefined values in the colour target in Safari and Firefox. Shrinking it to nothing
   // here does the same job: at zero every triangle of the fish has no area, so
   // none of them are drawn, and the shader never has to refuse a fragment.
   let nearest = length(frame.camPos - inst.posScale.xyz) - inst.posScale.w * 0.6;
@@ -1444,7 +1445,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   // Declared and filled in before anything can discard. A discarded fragment
   // must not write, so what the outputs hold ought not to matter — but leaving
   // them undefined at the point of the discard is what put NaNs on the screen
-  // in Safari, in blocks, once bloom had spread them.
+  // in Safari and Firefox, in blocks, once bloom had spread them.
   var o: FOut;
   o.color = vec4f(0.0, 0.0, 0.0, 1.0);
   o.velocity = vec2f(0.0);

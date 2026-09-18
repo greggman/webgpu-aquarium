@@ -1,18 +1,22 @@
 # A fragment shader with two `discard`s and a few loops leaves NaN in the colour attachment
 
-**Safari 27.0 on macOS 27.0, Apple silicon** (first seen on Safari 26.6.2 /
-macOS 26.6.2). Chrome on the same GPU is clean in every case below.
+**Safari 27.0 and Firefox, on macOS 27.0, Apple silicon** (first seen on
+Safari 26.6.2 / macOS 26.6.2; Firefox shows the same fault on the same page).
+Chrome on the same GPU is clean in every case below. So this is not one
+browser's WGSL compiler: it is either the Metal compiler or the GPU, reached
+through two different front ends.
 
 ## Minimal reproduction
 
-`bugs/webkit-discard.html` is a standalone page. It draws one triangle
+`bugs/discard-nan.html` is a standalone page. It draws one triangle
 covering a 256×256 `rgba16float` attachment cleared to black, no vertex
 buffers, no depth, no blending, 20 frames, and reads the attachment back
 after each frame. The fragment shader writes one finite colour and discards
 some fragments, so every texel must be the clear value or a finite colour.
 NaN texels are painted magenta in the worst frame's image.
 
-Safari, default settings, one run:
+Safari, default settings, one run (the numbers below are Safari's; Firefox
+fails the same two rows):
 
 | fragment shader | bad frames | NaN texels |
 | --- | --- | --- |
