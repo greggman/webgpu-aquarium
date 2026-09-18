@@ -9,21 +9,20 @@
   th:first-child, td:first-child { text-align: left; }
   .fail { background: #fdd; font-weight: bold; }
   .pass { background: #dfd; }
-  canvas { width: 450px; border: 1px solid #ccc; image-rendering: pixelated; }
-  figure { display: inline-block; margin: 0 1rem 1rem 0; font-size: 12px; width: 450px; }
+  canvas { width: 256px; border: 1px solid #ccc; image-rendering: pixelated; }
+  figure { display: inline-block; margin: 0 1rem 1rem 0; font-size: 12px; width: 256px; }
   pre { background: #f6f6f6; padding: .6rem .8rem; overflow-x: auto; font-size: 12px; }
 </style>
 
 <h1>WebGPU in WebKit: a fragment shader with two <code>discard</code>s and a
 handful of loops leaves NaN in the colour attachment</h1>
 
-<p>Every row draws the same 300 instanced blobs (96 triangles each) into a
-512×512 <code>rgba16float</code> attachment cleared to black, with no depth
-attachment and no blending, for 60 frames, and reads the attachment back after
-each frame. The fragment shader writes one finite colour
-and discards some fragments, so every texel must be either the clear value or
-a finite colour. The rows differ only in the fragment shader, shown below.
-NaN texels are painted magenta in the image of the worst frame.</p>
+<p>Every row draws one triangle covering a 256×256 <code>rgba16float</code>
+attachment cleared to black, 20 frames, and reads the attachment back after
+each. The fragment shader writes one finite colour and discards some
+fragments, so every texel must be the clear value or a finite colour. The rows
+differ only in the fragment shader, shown below. NaN texels are painted
+magenta in the image of the worst frame.</p>
 
 <p><b>The failing shape</b>: two <code>discard</code>s, the second inside an
 <code>if</code>; then an <code>if</code> whose body holds about nine or more
@@ -34,42 +33,20 @@ in every row.</p>
 
 <div id="out">Running…</div>
 
-<h2>How it was found</h2>
-
 <p>Reduced from a full renderer
-(<a href="https://greggman.github.io/webgpu-aquarium/">webgpu-aquarium</a>)
-by swapping its 1,072-line fish shader for edited copies, one change at a time,
-against Safari 27.0 on an Apple M-series GPU
-(<code>?only=fish&amp;fishcut=both&amp;seed=221315123&amp;camera=reef&amp;paused=1&amp;time=0</code>
-in that app is the unreduced case). Around 15 NaN texels appear per frame at
-random positions inside the drawn objects; the count is stable, the positions
-are not. Everything the earlier standalone attempts tried, and that turned out
-not to matter: the hash used to decide the discard, texture sampling,
-derivatives, integer arithmetic, uniformity of the branch conditions,
-storage-buffer reads, and the amount of straight-line arithmetic (3,000 lines
-of <code>sin</code>/<code>cos</code> after the discards is clean). What does
-matter is the control flow: the number of loops after the nested discard.</p>
-
-<p>Knobs, as URL parameters: <code>?frames=60</code>,
-<code>?instances=300</code> (10 still fail; 1 and 4 are clean),
-<code>?scale=4</code> (instance size multiplier), <code>?w=512&amp;h=512</code>,
-<code>?mrt=1</code> (add a second, <code>rg16float</code> colour target, as the
-renderer has), <code>?depth=1</code> (add a reversed-Z <code>depth32float</code>
-attachment, as the renderer has), <code>?only=&lt;substring of a row
-name&gt;</code>. None of the additions change the result.</p>
+(<a href="https://greggman.github.io/webgpu-aquarium/">webgpu-aquarium</a>),
+whose fish shader had this shape; see <code>bugs/webkit-discard.md</code> in
+that repository for the reduction. Knobs: <code>?frames=20</code>,
+<code>?size=256</code>, <code>?only=&lt;substring of a row name&gt;</code>.
+The page sets <code>window.__result</code> when done.</p>
 
 <div id="src"></div>
 
 <script type="module">
 const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
-const W = num('w', 512);
-const H = num('h', 512);
-const FRAMES = num('frames', 60);
-const INSTANCES = num('instances', 300);
-const SCALE = num('scale', 4);
-const MRT = params.get('mrt') === '1';
-const DEPTH = params.get('depth') === '1';
+const SIZE = num('size', 256);
+const FRAMES = num('frames', 20);
 
 const VARIANTS = [
   {name: 'two discards, second nested, then 12 loops in a branch', discards: 2, nested: true, loops: 12},
@@ -83,113 +60,34 @@ const VARIANTS = [
 ];
 
 function shader(v) {
-  const H1 = 'fract(i.pos.x * 0.37 + f32(u.frameIndex) * 0.11) > 0.9';
-  const H2 = 'fract(i.pos.y * 0.29 + f32(u.frameIndex) * 0.07) > 0.6';
+  const H1 = 'fract(pos.x * 0.37 + f32(frame) * 0.11) > 0.9';
+  const H2 = 'fract(pos.y * 0.29 + f32(frame) * 0.07) > 0.6';
   const d1 = v.discards === 2 ? `  if (${H1}) {\n    discard;\n  }\n` : '';
   const d2 = v.nested
-    ? `  if (i.uv.w > 0.5) {\n    if (${H2}) {\n      discard;\n    }\n  }\n`
+    ? `  if (pos.x > 1.0) {\n    if (${H2}) {\n      discard;\n    }\n  }\n`
     : `  if (${H2}) {\n    discard;\n  }\n`;
   const discards = d1 + d2;
   const ind = v.branch === false ? '  ' : '    ';
   const loops = Array.from({length: v.loops}, () =>
     `${ind}for (var k = 0; k < 3; k++) {\n${ind}  sum += p.x * 0.001;\n${ind}  p = p * 2.0 + 1.0;\n${ind}}\n`).join('');
   const work = v.branch === false
-    ? `  var p = dir.xz * 40.0;\n  var sum = 0.0;\n${loops}  let c = vec3f(sum);\n`
-    : `  var c = vec3f(0.5);\n  if (dir.y > 0.0) {\n    var p = dir.xz * 40.0;\n    var sum = 0.0;\n${loops}    c = vec3f(sum);\n  }\n`;
+    ? `  var p = pos.xy * 0.01;\n  var sum = 0.0;\n${loops}  let c = vec3f(sum);\n`
+    : `  var c = vec3f(0.5);\n  if (pos.y > 1.0) {\n    var p = pos.xy * 0.01;\n    var sum = 0.0;\n${loops}    c = vec3f(sum);\n  }\n`;
   return /* wgsl */ `
-struct U {
-  viewProj: mat4x4f,
-  camPos: vec3f,
-  frameIndex: u32,
-};
-@group(0) @binding(0) var<uniform> u: U;
-// xyz: position, w: scale.
-@group(0) @binding(1) var<storage, read> instances: array<vec4f>;
-
-struct VIn {
-  @location(0) position: vec4f,
-  @location(1) normal: vec4f,
-  @location(2) uv: vec4f,
-  @builtin(instance_index) instance: u32,
-};
-struct VOut {
-  @builtin(position) pos: vec4f,
-  @location(0) world: vec3f,
-  @location(1) uv: vec4f,
-};
-struct FOut {
-  @location(0) color: vec4f,${MRT ? '\n  @location(1) velocity: vec2f,' : ''}
-};
+@group(0) @binding(0) var<uniform> frame: u32;
 
 @vertex
-fn vs(v: VIn) -> VOut {
-  let d = instances[v.instance];
-  var o: VOut;
-  o.world = v.position.xyz * d.w + d.xyz;
-  o.pos = u.viewProj * vec4f(o.world, 1.0);
-  o.uv = v.uv;
-  return o;
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  // One triangle covering the whole attachment.
+  let xy = vec2f(f32(i & 1u) * 4.0 - 1.0, f32(i >> 1u) * 4.0 - 1.0);
+  return vec4f(xy, 0.0, 1.0);
 }
 
 @fragment
-fn fs(i: VOut) -> FOut {
-  var o: FOut;
-  o.color = vec4f(0.0, 0.0, 0.0, 1.0);${MRT ? '\n  o.velocity = vec2f(0.0);' : ''}
-${v.late ? '' : discards}  let toP = i.world - u.camPos;
-  let dir = toP / max(length(toP), 1e-4);
-${work}${v.late ? discards : ''}  o.color = vec4f(c, 1.0);
-  return o;
+fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+${v.late ? '' : discards}${work}${v.late ? discards : ''}  return vec4f(c, 1.0);
 }
 `;
-}
-
-// A small closed blob: 8 segments around, 6 along. uv.w marks the last two
-// rings as the "fin" part that the nested discard applies to.
-function makeMesh() {
-  const SU = 8, SV = 6;
-  const verts = [];
-  for (let j = 0; j <= SV; j++) {
-    const t = j / SV;
-    const r = Math.sin(t * Math.PI) * 0.35;
-    for (let k = 0; k <= SU; k++) {
-      const a = (k / SU) * Math.PI * 2;
-      const x = Math.cos(a) * r, y = Math.sin(a) * r, z = t * 2 - 1;
-      verts.push(x, y, z, 1, Math.cos(a), Math.sin(a), 0, 0, k / SU, t, 0, t > 0.7 ? 1 : 0);
-    }
-  }
-  const idx = [];
-  for (let j = 0; j < SV; j++) {
-    for (let k = 0; k < SU; k++) {
-      const a = j * (SU + 1) + k, b = a + SU + 1;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  }
-  return {verts: new Float32Array(verts), idx: new Uint32Array(idx)};
-}
-
-function mulberry32(a) {
-  return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// Reversed-Z perspective (depth cleared to 0, compare greater), camera at the
-// origin looking down -Z.
-function viewProj() {
-  const f = 1 / Math.tan((60 / 180) * Math.PI / 2);
-  const n = 0.1, fa = 200;
-  const aspect = W / H;
-  // Standard 0..1 depth, then z' = w - z to reverse it.
-  const a = fa / (n - fa), b = (n * fa) / (n - fa);
-  return new Float32Array([
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, -1 - a, -1,
-    0, 0, -b, 0,
-  ]);
 }
 
 const halfToFloat = h => {
@@ -207,68 +105,37 @@ async function runVariant(device, v, res) {
   if (errors.length) return {name: v.name, code, error: errors.join('\n')};
   const pipeline = await device.createRenderPipelineAsync({
     layout: 'auto',
-    vertex: {
-      module, entryPoint: 'vs',
-      buffers: [{
-        arrayStride: 48,
-        attributes: [
-          {shaderLocation: 0, offset: 0, format: 'float32x4'},
-          {shaderLocation: 1, offset: 16, format: 'float32x4'},
-          {shaderLocation: 2, offset: 32, format: 'float32x4'},
-        ],
-      }],
-    },
-    fragment: {
-      module, entryPoint: 'fs',
-      targets: MRT ? [{format: 'rgba16float'}, {format: 'rg16float'}] : [{format: 'rgba16float'}],
-    },
-    primitive: {topology: 'triangle-list', cullMode: 'none'},
-    depthStencil: DEPTH ? {format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater'} : undefined,
+    vertex: {module, entryPoint: 'vs'},
+    fragment: {module, entryPoint: 'fs', targets: [{format: 'rgba16float'}]},
+    primitive: {topology: 'triangle-list'},
   });
   const bind = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      {binding: 0, resource: {buffer: res.uniform}},
-      {binding: 1, resource: {buffer: res.instances}},
-    ],
+    entries: [{binding: 0, resource: {buffer: res.uniform}}],
   });
-  const uni = new Float32Array(24);
-  uni.set(viewProj(), 0);
-  const uniU32 = new Uint32Array(uni.buffer);
-
-  let nan = 0, inf = 0, badFrames = 0, worst = 0;
-  let image = null;
+  let nan = 0, inf = 0, badFrames = 0, worst = 0, image = null;
   for (let frame = 0; frame < FRAMES; frame++) {
-    uniU32[19] = frame;
-    device.queue.writeBuffer(res.uniform, 0, uni);
+    device.queue.writeBuffer(res.uniform, 0, new Uint32Array([frame]));
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
-      colorAttachments: res.targets.map((t, i) => ({
-        view: t.createView(), loadOp: 'clear', storeOp: 'store',
-        clearValue: i === 0 ? [0, 0, 0, 1] : [0, 0, 0, 0],
-      })),
-      depthStencilAttachment: DEPTH ? {
-        view: res.depth.createView(), depthLoadOp: 'clear', depthClearValue: 0, depthStoreOp: 'store',
-      } : undefined,
+      colorAttachments: [{view: res.target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1]}],
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bind);
-    pass.setVertexBuffer(0, res.vertex);
-    pass.setIndexBuffer(res.index, 'uint32');
-    pass.drawIndexed(res.indexCount, INSTANCES);
+    pass.draw(3);
     pass.end();
-    encoder.copyTextureToBuffer({texture: res.targets[0]}, {buffer: res.readback, bytesPerRow: res.bytesPerRow}, [W, H]);
+    encoder.copyTextureToBuffer({texture: res.target}, {buffer: res.readback, bytesPerRow: res.bytesPerRow}, [SIZE, SIZE]);
     device.queue.submit([encoder.finish()]);
     await res.readback.mapAsync(GPUMapMode.READ);
     const raw = new Uint16Array(res.readback.getMappedRange());
     let frameNan = 0, frameInf = 0;
-    const img = new ImageData(W, H);
-    for (let y = 0; y < H; y++) {
+    const img = new ImageData(SIZE, SIZE);
+    for (let y = 0; y < SIZE; y++) {
       const row = (y * res.bytesPerRow) / 2;
-      for (let x = 0; x < W; x++) {
+      for (let x = 0; x < SIZE; x++) {
         const o = row + x * 4;
         const r = halfToFloat(raw[o]), g = halfToFloat(raw[o + 1]), b = halfToFloat(raw[o + 2]);
-        const p = (y * W + x) * 4;
+        const p = (y * SIZE + x) * 4;
         if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
           frameNan++;
           img.data.set([255, 0, 255, 255], p);
@@ -304,44 +171,20 @@ async function main() {
   const device = await adapter.requestDevice();
   device.addEventListener?.('uncapturederror', e => console.log(e.error.message));
   const info = adapter.info ?? {};
-
-  const mesh = makeMesh();
-  const rng = mulberry32(221315123);
-  const inst = new Float32Array(INSTANCES * 4);
-  for (let i = 0; i < INSTANCES; i++) {
-    inst[i * 4] = (rng() * 2 - 1) * 24;
-    inst[i * 4 + 1] = (rng() * 2 - 1) * 8;
-    inst[i * 4 + 2] = -4 - rng() * 44;
-    inst[i * 4 + 3] = (0.15 + rng() * 0.4) * SCALE;
-  }
-  const mk = (data, usage) => {
-    const b = device.createBuffer({size: data.byteLength, usage: usage | GPUBufferUsage.COPY_DST});
-    device.queue.writeBuffer(b, 0, data);
-    return b;
-  };
-  const bytesPerRow = Math.ceil((W * 8) / 256) * 256;
+  const bytesPerRow = Math.ceil((SIZE * 8) / 256) * 256;
   const res = {
-    vertex: mk(mesh.verts, GPUBufferUsage.VERTEX),
-    index: mk(mesh.idx, GPUBufferUsage.INDEX),
-    indexCount: mesh.idx.length,
-    instances: mk(inst, GPUBufferUsage.STORAGE),
-    uniform: device.createBuffer({size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST}),
-    targets: (MRT ? ['rgba16float', 'rg16float'] : ['rgba16float']).map(format =>
-      device.createTexture({size: [W, H], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC})),
-    depth: DEPTH ? device.createTexture({size: [W, H], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT}) : null,
+    uniform: device.createBuffer({size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST}),
+    target: device.createTexture({size: [SIZE, SIZE], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC}),
     bytesPerRow,
-    readback: device.createBuffer({size: bytesPerRow * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ}),
+    readback: device.createBuffer({size: bytesPerRow * SIZE, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ}),
   };
-
   const filter = params.get('only');
   const wanted = filter ? VARIANTS.filter(v => v.name.toLowerCase().includes(filter.toLowerCase())) : VARIANTS;
   const results = [];
   for (const v of wanted) {
-    const r = await runVariant(device, v, res);
-    results.push(r);
+    results.push(await runVariant(device, v, res));
     out.textContent = `Running… ${results.length}/${wanted.length}`;
   }
-
   const rows = results.map(r => {
     if (r.error) return `<tr class="fail"><td>${r.name}</td><td colspan="4">${r.error}</td></tr>`;
     const bad = r.nan + r.inf;
@@ -350,15 +193,13 @@ async function main() {
   }).join('');
   out.innerHTML =
     `<p>Adapter: <code>${[info.vendor, info.architecture, info.description].filter(Boolean).join(' / ') || 'unknown'}</code>` +
-    `<br>${navigator.userAgent}<br>${W}×${H}, ${INSTANCES} instances × ${mesh.idx.length / 3} triangles, ` +
-    `${MRT ? 'two colour targets' : 'one colour target'}, ${DEPTH ? 'depth32float reversed-Z' : 'no depth'}</p>` +
+    `<br>${navigator.userAgent}<br>${SIZE}×${SIZE}, ${FRAMES} frames per row</p>` +
     `<table><tr><th>fragment shader</th><th>bad frames</th><th>NaN texels</th><th>Inf texels</th><th></th></tr>${rows}</table>`;
   for (const r of results) {
     if (!r.image) continue;
     const fig = document.createElement('figure');
     const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = canvas.height = SIZE;
     canvas.getContext('2d').putImageData(r.image, 0, 0);
     const cap = document.createElement('figcaption');
     cap.textContent = `${r.name} — worst frame`;

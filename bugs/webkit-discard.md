@@ -5,19 +5,19 @@ macOS 26.6.2). Chrome on the same GPU is clean in every case below.
 
 ## Minimal reproduction
 
-`bugs/webkit-discard.html` is a standalone page. It draws 300 instanced
-blobs (96 triangles each) into a 512×512 `rgba16float` attachment cleared to
-black, no depth attachment, no blending, 60 frames, and reads the attachment
-back after each frame. The fragment shader writes one finite colour and
-discards some fragments, so every texel must be the clear value or a finite
-colour. NaN texels are painted magenta in the worst frame's image.
+`bugs/webkit-discard.html` is a standalone page. It draws one triangle
+covering a 256×256 `rgba16float` attachment cleared to black, no vertex
+buffers, no depth, no blending, 20 frames, and reads the attachment back
+after each frame. The fragment shader writes one finite colour and discards
+some fragments, so every texel must be the clear value or a finite colour.
+NaN texels are painted magenta in the worst frame's image.
 
 Safari, default settings, one run:
 
 | fragment shader | bad frames | NaN texels |
 | --- | --- | --- |
-| two discards, second nested, then 12 loops in a branch | **51/60** | **695** |
-| same, 9 loops | **49/60** | **593** |
+| two discards, second nested, then 12 loops in a branch | **20/20** | **39,761** |
+| same, 9 loops | **20/20** | **39,564** |
 | same, 6 loops | 0 | 0 |
 | same, no loops | 0 | 0 |
 | two discards, second not nested, 12 loops | 0 | 0 |
@@ -25,46 +25,34 @@ Safari, default settings, one run:
 | two discards, second nested, 12 loops not in a branch | 0 | 0 |
 | two discards, second nested, 12 loops, discards after the loops | 0 | 0 |
 
-Chrome (headless, same machine): 0 in every row.
+That is about 3% of all texels, every frame. Chrome (headless, same machine):
+0 in every row.
 
-The failing fragment shader, exactly as the page generates it (the vertex
-stage just places the instances):
+The failing shader, exactly as the page generates it:
 
 ```wgsl
-struct U {
-  viewProj: mat4x4f,
-  camPos: vec3f,
-  frameIndex: u32,
-};
-@group(0) @binding(0) var<uniform> u: U;
-@group(0) @binding(1) var<storage, read> instances: array<vec4f>;
+@group(0) @binding(0) var<uniform> frame: u32;
 
-struct VOut {
-  @builtin(position) pos: vec4f,
-  @location(0) world: vec3f,
-  @location(1) uv: vec4f,
-};
-struct FOut {
-  @location(0) color: vec4f,
-};
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  // One triangle covering the whole attachment.
+  let xy = vec2f(f32(i & 1u) * 4.0 - 1.0, f32(i >> 1u) * 4.0 - 1.0);
+  return vec4f(xy, 0.0, 1.0);
+}
 
 @fragment
-fn fs(i: VOut) -> FOut {
-  var o: FOut;
-  o.color = vec4f(0.0, 0.0, 0.0, 1.0);
-  if (fract(i.pos.x * 0.37 + f32(u.frameIndex) * 0.11) > 0.9) {
+fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  if (fract(pos.x * 0.37 + f32(frame) * 0.11) > 0.9) {
     discard;
   }
-  if (i.uv.w > 0.5) {
-    if (fract(i.pos.y * 0.29 + f32(u.frameIndex) * 0.07) > 0.6) {
+  if (pos.x > 1.0) {
+    if (fract(pos.y * 0.29 + f32(frame) * 0.07) > 0.6) {
       discard;
     }
   }
-  let toP = i.world - u.camPos;
-  let dir = toP / max(length(toP), 1e-4);
   var c = vec3f(0.5);
-  if (dir.y > 0.0) {
-    var p = dir.xz * 40.0;
+  if (pos.y > 1.0) {
+    var p = pos.xy * 0.01;
     var sum = 0.0;
     // This block, 12 times over (9 is enough; 6 is clean):
     for (var k = 0; k < 3; k++) {
@@ -73,8 +61,7 @@ fn fs(i: VOut) -> FOut {
     }
     c = vec3f(sum);
   }
-  o.color = vec4f(c, 1.0);
-  return o;
+  return vec4f(c, 1.0);
 }
 ```
 
@@ -93,10 +80,11 @@ What matters, each established by changing one thing:
   blocks instead of loops (48 tried): clean. 3,000 lines of straight-line
   `sin`/`cos` instead: clean. Loops in a function called from the branch, or
   inline in it: same result.
-- **More than a few primitives.** 10 instances fail (weakly), 300 fail
-  strongly; 1 or 4 instances are clean, however large. No depth attachment is
-  needed, nor a second colour target; adding either (`?depth=1`, `?mrt=1`, the
-  renderer has both) changes nothing.
+- **Nothing about the geometry.** One full-screen triangle is the worst
+  case. Small or few triangles only make it rarer: the renderer's fish, a few
+  pixels each, gave ~15 NaN texels a frame. No depth attachment, second colour
+  target, instancing, vertex buffers or storage reads are needed; the renderer
+  has all of them and they change nothing.
 
 What does not matter, all tried while reducing: the hash used to decide each
 discard (trivial `fract` is as good as interleaved gradient noise), texture
@@ -106,9 +94,8 @@ arithmetic. The count of NaN texels per frame is stable for a given shader;
 their positions are not, and they sit inside the drawn objects, interleaved
 with texels holding the expected colour.
 
-Knobs on the page, as URL parameters: `?frames=`, `?instances=`, `?scale=`,
-`?w=&h=`, `?mrt=1`, `?depth=1`, `?only=<substring of a row name>`. The page
-sets `window.__result` when done.
+Knobs on the page, as URL parameters: `?frames=`, `?size=`,
+`?only=<substring of a row name>`. The page sets `window.__result` when done.
 
 ## In the renderer
 
@@ -164,5 +151,4 @@ that stayed at ~15 NaN per frame was kept. The ladder:
 An earlier version of this file, and of the standalone page, concluded that
 no construct could reproduce it outside the renderer. That was wrong: the
 earlier standalone attempts built upward from a full-screen triangle with
-heavy arithmetic, and none of them had loops after a nested discard, nor
-more than a couple of primitives.
+heavy arithmetic, and none of them had loops after a nested discard.
