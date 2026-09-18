@@ -93,6 +93,20 @@ async function main() {
 
   const gpu = await initGPU(canvas);
   const {device} = gpu;
+  // ?wgsl=<label>=<url> (repeatable) compiles the WGSL at that URL in place of
+  // the shader with that label, so a driver fault can be reduced by editing
+  // the shader as a file. Labels are what __aquarium.shaders is keyed by.
+  for (const spec of params.getAll('wgsl')) {
+    const at = spec.indexOf('=');
+    const label = spec.slice(0, at);
+    const url = spec.slice(at + 1);
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`?wgsl: ${url} -> ${res.status}`);
+    }
+    window.__aquarium.shaderOverrides[label] = await res.text();
+    console.log(`[aquarium] shader "${label}" replaced by ${url}`);
+  }
   // ?profile=gpu: per-pass GPU timings and triangle counts.
   const gpuProfiler =
     params.get('profile') === 'gpu' ? GpuProfiler.install(device) : null;
@@ -535,7 +549,7 @@ async function main() {
   // Reads the scene's HDR buffer back and reports its brightest pixels. Bloom
   // turns one extreme pixel into a block, so when blocks appear this says
   // whether the scene handed bloom something absurd, and where.
-  const scanHdr = async () => {
+  const scanHdr = async (image = false) => {
     const t = renderer.targets;
     const bytesPerRow = Math.ceil((t.width * 8) / 256) * 256;
     const buf = device.createBuffer({
@@ -549,7 +563,7 @@ async function main() {
       {buffer: buf, bytesPerRow},
       [t.width, t.height],
     );
-    device.queue.submit([encoder.finish()]);
+    device.queue.submit([encoder.finish({label: 'scanHdr:commands'})]);
     const raw = new Uint16Array(await readBuffer(device, buf));
     buf.destroy();
     const half = (u: number) => {
@@ -589,7 +603,45 @@ async function main() {
       }
     }
     px.sort((a, b) => b.v - a.v);
-    return {nan, inf, over8: px.length, top: px.slice(0, 12), nanAt};
+    // A fingerprint of every texel that is not NaN, to tell whether two runs
+    // drew the same frame apart from the fault; and, on request, the buffer
+    // as a PNG with NaN texels in magenta, since Safari's automation window
+    // is hidden and a WebDriver screenshot of it is black.
+    let hash = 0x811c9dc5;
+    let png: string | null = null;
+    const img = image ? new ImageData(t.width, t.height) : null;
+    for (let y = 0; y < t.height; y++) {
+      const row = (y * bytesPerRow) / 2;
+      for (let x = 0; x < t.width; x++) {
+        const o = row + x * 4;
+        const r = half(raw[o]);
+        const g = half(raw[o + 1]);
+        const b = half(raw[o + 2]);
+        const bad = Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b);
+        if (!bad) {
+          for (let k = 0; k < 3; k++) {
+            hash = Math.imul(hash ^ raw[o + k], 0x01000193) >>> 0;
+          }
+        }
+        if (img) {
+          const p = (y * t.width + x) * 4;
+          const tone = (v: number) =>
+            Math.min(255, Math.sqrt(Math.max(v, 0)) * 255);
+          img.data[p] = bad ? 255 : tone(r);
+          img.data[p + 1] = bad ? 0 : tone(g);
+          img.data[p + 2] = bad ? 255 : tone(b);
+          img.data[p + 3] = 255;
+        }
+      }
+    }
+    if (img) {
+      const c = document.createElement('canvas');
+      c.width = t.width;
+      c.height = t.height;
+      c.getContext('2d')!.putImageData(img, 0, 0);
+      png = c.toDataURL('image/png');
+    }
+    return {nan, inf, over8: px.length, top: px.slice(0, 12), nanAt, hash, png};
   };
   window.__aquarium.scanHdr = scanHdr;
   window.__aquarium.info = {

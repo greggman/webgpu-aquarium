@@ -8,6 +8,10 @@ export interface DevHooks {
    * from chunks, so this is the only way to see what actually compiled —
    * needed when reporting a driver fault against one of them. */
   shaders: Record<string, string>;
+  /** WGSL to hand the device instead of the assembled shader, by label; set
+   * from ?wgsl=label=url before the world is built. For reducing a driver
+   * fault: the whole shader can be edited as a file and swapped in. */
+  shaderOverrides: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -23,6 +27,7 @@ window.__aquarium = {
   ready: new Promise<void>(r => (resolveReady = r)),
   frame: 0,
   shaders: {},
+  shaderOverrides: {},
 };
 
 export function markReady() {
@@ -181,8 +186,9 @@ function enforceLabels(device: GPUDevice) {
 export function createShader(
   device: GPUDevice,
   label: string,
-  code: string,
+  assembled: string,
 ): GPUShaderModule {
+  const code = window.__aquarium.shaderOverrides[label] ?? assembled;
   window.__aquarium.shaders[label] = code;
   const module = device.createShaderModule({label, code});
   void module.getCompilationInfo().then(info => {

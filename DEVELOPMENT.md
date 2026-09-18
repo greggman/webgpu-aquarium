@@ -20,6 +20,7 @@ Other scripts:
 | `npm run shots` | Screenshots for visual review (`--help` for options) |
 | `node test/perf.mjs` | GPU/CPU frame times at 1080p across `--seeds` and `--cameras` |
 | `node test/bench.mjs` | Uncapped cost per render, and per system (disables them one at a time) |
+| `node test/reduce.mjs a.wgsl b.wgsl` | Runs Safari once per candidate shader, swapped in for the fish shader via `?wgsl=`, and counts NaN texels in the scene buffer (see `bugs/webkit-discard.md`) |
 
 ## Controls
 
@@ -56,6 +57,9 @@ that was designed to be seen: a current gently pushes you back near the edges.
 | `hud` | `?hud=0` | Hide the HUD |
 | `scale` | `?scale=1` | Fixed render scale (disables dynamic resolution); the high tier renders at 0.8 and upscales |
 | `disable` | `?disable=volumetrics,ssao` | Drop render systems or effects (profiling) |
+| `only` | `?only=fish` | Keep only the named render systems, on black (bisecting a drawing fault) |
+| `watch` | `?watch=1` | Read the scene buffer back every 12 frames and log NaN, Inf and absurdly bright texels |
+| `wgsl` | `?wgsl=fish:render-shader=/x.wgsl` | Compile the WGSL at that URL in place of the shader with that label (labels: `__aquarium.shaders`); repeatable. For reducing a driver fault with `node test/reduce.mjs` |
 
 ## How it works
 
