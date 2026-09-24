@@ -408,6 +408,7 @@ async function main() {
     for (const [key, box] of toggles) {
       box.checked = settings[key] as boolean;
     }
+    autoCamBox.checked = autoCamera;
     dialog.showModal();
   });
   for (const [key, box] of toggles) {
@@ -421,6 +422,15 @@ async function main() {
     settings.quality = qualitySelect.value as Settings['quality'];
     saveSettings(settings);
     reloadKeepingSeed(seed);
+  });
+  // The auto camera switch is deliberately not a saved setting: a fresh load
+  // always opens on the tour.
+  const autoCamBox = document.getElementById('set-autocam') as HTMLInputElement;
+  autoCamBox.addEventListener('change', () => {
+    autoCamera = autoCamBox.checked;
+    if (!autoCamera && attractActive) {
+      stopAttract();
+    }
   });
   (document.getElementById('set-done') as HTMLButtonElement).addEventListener(
     'click',
@@ -468,7 +478,14 @@ async function main() {
     taa.reset();
   };
   let attractActive = !fixedCamera;
+  let autoCamera = true;
   let lastAutoPose: CameraPose = {pos: [0, 0, 0], yaw: 0, pitch: 0, roll: 0};
+  /** Hands control back from wherever the auto camera is. */
+  const stopAttract = () => {
+    attractActive = false;
+    camera.pose = {...lastAutoPose, roll: 0};
+    camera.vel = [0, 0, 0];
+  };
   if (posParam?.length === 3) {
     const [yawDeg, pitchDeg] = lookParam?.length === 2 ? lookParam : [0, 0];
     const yaw = (yawDeg * Math.PI) / 180;
@@ -746,10 +763,7 @@ async function main() {
     if (attractActive) {
       const step = clock.paused ? dt : realDt;
       if (input.idleTime < 0.05) {
-        // Hand control back from wherever the auto camera is.
-        attractActive = false;
-        camera.pose = {...lastAutoPose, roll: 0};
-        camera.vel = [0, 0, 0];
+        stopAttract();
         pose = camera.renderPose();
       } else {
         // Keep both running so the hand-over from the tour to following is
@@ -767,7 +781,12 @@ async function main() {
     } else {
       camera.update(inputState, clock.paused && dt === 0 ? 0 : realDt, nav);
       pose = camera.renderPose();
-      if (!fixedCamera && input.idleTime > idleToAttract && !clock.paused) {
+      if (
+        autoCamera &&
+        !fixedCamera &&
+        input.idleTime > idleToAttract &&
+        !clock.paused
+      ) {
         attractActive = true;
         tour.begin(camera.pose);
         follow.begin(camera.pose);
