@@ -3,9 +3,10 @@
 //
 //   node test/perf.mjs [--seeds=1,2,3,4] [--cameras=reef,wide] [--quality=high]
 //
-// Note: the GPU figure is submit-to-done latency. When a frame costs more than
-// the display interval, work queues up and it jumps to ~80 ms: treat anything
-// far above ~17 ms as "over budget", not as the literal frame cost.
+// Note: the GPU figure is estimated from when each frame's work completes, not
+// from timestamp queries, so it includes some scheduling slack. The app keeps at
+// most two frames in flight, so an over-budget frame shows as its own cost and
+// a lower fps, rather than as queueing latency.
 import {launch, openAquarium, waitFrames} from './harness.mjs';
 
 const arg = (name, def) => {

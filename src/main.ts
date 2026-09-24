@@ -701,7 +701,13 @@ async function main() {
   let focus = 8;
   let gpuMs = 0;
   let cpuMs = 0;
-  let gpuPending = false;
+  let lastGpuDone = 0;
+  // Frames submitted but not yet finished on the GPU. Browsers keep firing
+  // requestAnimationFrame when the GPU falls behind, so without a cap the
+  // queue grows until the browser pushes back (or the OS GPU watchdog fires),
+  // and dynamic resolution, which watches the frame interval, never sees it.
+  let framesInFlight = 0;
+  const MAX_FRAMES_IN_FLIGHT = 2;
   const profile = params.has('profile');
   const watching = params.get('watch') === '1';
   let watchBusy = false;
@@ -872,14 +878,16 @@ async function main() {
     }
     gpuProfiler?.endFrame();
     const submitted = performance.now();
-    if (!gpuPending) {
-      // Submit-to-done latency approximates GPU frame cost without timestamp queries.
-      gpuPending = true;
-      void device.queue.onSubmittedWorkDone().then(() => {
-        gpuMs = gpuMs * 0.9 + (performance.now() - submitted) * 0.1;
-        gpuPending = false;
-      });
-    }
+    framesInFlight++;
+    void device.queue.onSubmittedWorkDone().then(() => {
+      framesInFlight--;
+      // The GPU starts this frame once it is submitted and the previous one is
+      // done, so done minus the later of the two approximates its cost without
+      // timestamp queries (plain submit-to-done would also count the queue).
+      const done = performance.now();
+      gpuMs = gpuMs * 0.9 + (done - Math.max(submitted, lastGpuDone)) * 0.1;
+      lastGpuDone = done;
+    });
     cpuMs = cpuMs * 0.9 + (submitted - cpuStart) * 0.1;
     frameIndex++;
     window.__aquarium.frame++;
@@ -959,6 +967,11 @@ async function main() {
   };
   const frame = (now: number) => {
     requestAnimationFrame(frame);
+    // Skip this vsync rather than queue more work. The skipped time shows up
+    // in the next rendered frame's interval, which is what dynres reacts to.
+    if (framesInFlight >= MAX_FRAMES_IN_FLIGHT) {
+      return;
+    }
     renderFrame(now);
   };
   // Renders a frame without waiting for the browser to schedule one. Safari's
