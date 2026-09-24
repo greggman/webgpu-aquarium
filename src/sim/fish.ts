@@ -46,7 +46,7 @@ const SpeciesStruct = defineStruct('Species', {
   extra: 'vec4f',
   /** curiosity (0 shy .. 1 approaches the camera), fear radius, roam radius, roam angular speed */
   behavior: 'vec4f',
-  /** dart acceleration (0 = never darts), seconds between darts, unused, unused */
+  /** dart acceleration (0 = never darts), seconds between darts, approach distance, swirl ring radius (0 = never) */
   dart: 'vec4f',
   /** formation radius, elongation along the heading, spring strength, drift */
   school: 'vec4f',
@@ -82,6 +82,9 @@ const SimStruct = defineStruct('Sim', {
   ceiling: 'f32',
   camDir: 'vec3f',
   worldSize: 'f32',
+  camVel: 'vec3f',
+  /** seconds the camera has been nearly still */
+  camStill: 'f32',
 });
 
 export const Pattern = {
@@ -122,8 +125,15 @@ interface SpeciesDef {
   home: Home;
   homeRadius: number;
   eye: number;
-  /** 0 = shy; higher values hang around in front of the camera. */
+  /**
+   * 0 = shy; higher values come to look at a diver who holds still. 1 also
+   * hangs around (further off) while the diver swims.
+   */
   curiosity?: number;
+  /** How close (m) curious fish come to a still diver. */
+  approach?: number;
+  /** Schools that circle a diver who holds still nearby. */
+  swirl?: boolean;
   /** Radius (m) of a slow loop the school's home travels, stretching it into a ribbon. */
   roam?: number;
   /** Sudden bursts of speed: acceleration and mean seconds between them. */
@@ -206,6 +216,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     name: 'bait',
     count: Math.round(rng.int(480, 700) * k),
     school: rng.int(250, 450),
+    swirl: true,
     length: [0.2, 0.28],
     bodyType: 0,
     body: body(
@@ -261,6 +272,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         count: Math.round(rng.int(20, 32) * k),
         school: rng.int(6, 12),
         spread: 1.6,
+        swirl: true,
         length: [0.32, 0.46],
         bodyType: 0,
         body: body(
@@ -306,6 +318,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         // Butterflyfish swim in pairs.
         school: 2,
         spread: 1.4,
+        curiosity: 0.5,
+        approach: 1.2,
         length: [0.22, 0.32],
         bodyType: 0,
         body: body(
@@ -395,6 +409,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         school: rng.int(3, 6),
         spread: 1.8,
         length: [0.4, 0.62],
+        curiosity: 0.5,
+        approach: 1.8,
         bodyType: 0,
         body: body(
           0.3,
@@ -439,6 +455,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
         school: rng.int(5, 10),
         spread: 1.8,
         length: [0.2, 0.3],
+        swirl: true,
         bodyType: 0,
         body: body(
           0.22,
@@ -523,6 +540,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     homeRadius: 14,
     eye: 0.025,
     curiosity: 1,
+    approach: 1.6,
   });
 
   // Tiny reef fish hovering in little clouds over individual coral heads,
@@ -587,6 +605,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
       school: rng.int(4, 9),
       spread: 2,
       length: [0.24, 0.34],
+      swirl: true,
       bodyType: 0,
       body: body(
         0.3,
@@ -632,6 +651,8 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     name: 'grouper',
     count: Math.max(2, Math.round(rng.int(3, 6) * k)),
     length: [0.6, 1.0],
+    curiosity: 0.6,
+    approach: 2.2,
     bodyType: 0,
     body: body(
       0.28,
@@ -971,6 +992,23 @@ ${SimStruct.wgsl}
 @group(0) @binding(3) var<storage, read> species: array<Species>;
 @group(0) @binding(4) var<storage, read_write> instances: array<FishInstance>;
 @group(0) @binding(5) var<storage, read> obstacles: array<vec4f>;
+
+/**
+ * How strongly the school led by \`leader\` circles a diver who holds still
+ * (0..1): it starts after a couple of seconds, only for schools already
+ * close, about half of them bother at all, and each loses interest after
+ * 25-50 s.
+ */
+fn swirlWeight(ring: f32, leader: u32, leaderPos: vec3f) -> f32 {
+  if (ring <= 0.0 || hashU(leader * 17u + 1u) > 0.5) {
+    return 0.0;
+  }
+  let d = length(leaderPos.xz - sim.camPos.xz);
+  let bored = 25.0 + hashU(leader * 13u + 7u) * 25.0;
+  return smoothstep(2.0, 4.0, sim.camStill) *
+    smoothstep(bored + 5.0, bored, sim.camStill) *
+    smoothstep(ring + 4.0, ring + 2.0, d);
+}
 @group(0) @binding(6) var tTerrain: texture_2d<f32>;
 @group(0) @binding(7) var sClamp: sampler;
 
@@ -1052,6 +1090,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let speed = length(f.vel);
     let dir = select(vec3f(0.0, 0.0, 1.0), f.vel / speed, speed > 1e-4);
     acc += dir * (sp.band.z - speed) * 0.8;
+    // Circle a still diver: the school swims a ring around them instead.
+    let sw = swirlWeight(sp.dart.w, i, f.pos);
+    if (sw > 0.0) {
+      let rel = f.pos - sim.camPos;
+      let rh = max(length(rel.xz), 1e-3);
+      let radial = vec3f(rel.x, 0.0, rel.z) / rh;
+      let spin = select(-1.0, 1.0, hashU(i * 5u + 3u) > 0.5);
+      let tangent = cross(vec3f(0.0, 1.0, 0.0), radial) * spin;
+      let want = tangent * sp.band.z * 1.3 - radial * (rh - sp.dart.w) * 0.8 +
+        vec3f(0.0, (sim.camPos.y - f.pos.y) * 0.5, 0.0);
+      acc = mix(acc, (want - f.vel) * 1.5, sw);
+    }
   } else {
     // Follower: hold a slot in the leader's formation. The slot is fixed per
     // fish (hashed), laid out in the leader's heading frame, and drifts a
@@ -1071,7 +1121,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     ) * drift * 0.35;
     let radius = sp.school.x;
     let local = vec3f(slot.x * radius, slot.y * radius * 0.5, slot.z * radius * sp.school.y);
-    let slotPos = L.pos + lr * local.x + lu * local.y + lf * local.z;
+    var slotPos = L.pos + lr * local.x + lu * local.y + lf * local.z;
+    // While the school circles a still diver, the formation bends round the
+    // ring so it wraps the diver instead of cutting across as a line.
+    let sw = swirlWeight(sp.dart.w, leaderIndex, L.pos);
+    if (sw > 0.0) {
+      let lrel = L.pos - sim.camPos;
+      let a = atan2(lrel.z, lrel.x) + local.z / sp.dart.w * 1.5;
+      let r = sp.dart.w + local.x;
+      let ring = sim.camPos + vec3f(cos(a) * r, L.pos.y - sim.camPos.y + local.y, sin(a) * r);
+      slotPos = mix(slotPos, ring, sw);
+    }
     let k = sp.school.z;
     let toTarget = slotPos - f.pos;
     acc += toTarget * k + (L.vel - f.vel) * k * 0.9;
@@ -1112,22 +1172,37 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
 
-  // Shy of the camera, unless curious: curious fish drift in to look at the
-  // diver, holding a few metres in front of the lens.
+  // Shy of the camera, unless curious: curious fish come to look at a diver
+  // who holds still.
   let dc = f.pos - sim.camPos;
   let cd = length(dc) + 1e-4;
-  let fear = sp.behavior.y;
+  // Fish size up the diver by how fast they close in: drift up slowly and
+  // they let you within about a body length; swim at them and they keep
+  // their full distance (behavior.y).
+  let closing = max(dot(sim.camVel, dc / cd), 0.0);
+  let personal = 0.3 + len * 1.5;
+  let fear = clamp(personal + closing * 0.8, personal, max(sp.behavior.y, personal));
   if (cd < fear) {
     acc += dc / cd * (fear - cd) * 5.0;
   }
   let curious = sp.behavior.x;
   if (curious > 0.0 && cd < 18.0) {
-    // Each curious fish holds its own spot so they don't pile up on one point.
-    let side = sin(sim.time * 0.15 + fi * 2.1) * 1.0 + (fract(fi * 0.618) - 0.5) * 4.0;
-    let right = safeNormalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)), vec3f(1.0, 0.0, 0.0));
+    // Holding still invites a closer look: curious fish come in to their
+    // approach distance (dart.z), each losing interest after 30-60 s. The
+    // boldest (curiosity 1) also tag along further off while the diver swims.
+    let still = smoothstep(1.5, 4.0, sim.camStill);
+    let bored = 30.0 + fract(fi * 0.37) * 30.0;
+    let interest = still * smoothstep(bored + 5.0, bored, sim.camStill);
+    let bold = select(0.0, 1.0, curious >= 1.0);
+    let near = sp.dart.z + fract(fi * 0.37) * 0.8;
     // Far enough to stay inside the focus range (closer, they fill the lens as blurry shapes).
-    let spot = sim.camPos + sim.camDir * (4.0 + fract(fi * 0.37) * 3.0) + right * side;
-    acc += (spot - f.pos) * curious * 1.4 * smoothstep(22.0, 6.0, cd);
+    let far = 4.0 + fract(fi * 0.37) * 3.0;
+    let dist = mix(far, near, max(interest, 1.0 - bold));
+    // Each curious fish holds its own spot so they don't pile up on one point.
+    let side = (sin(sim.time * 0.15 + fi * 2.1) * 1.0 + (fract(fi * 0.618) - 0.5) * 4.0) * dist / 5.5;
+    let right = safeNormalize(cross(sim.camDir, vec3f(0.0, 1.0, 0.0)), vec3f(1.0, 0.0, 0.0));
+    let spot = sim.camPos + sim.camDir * dist + right * side;
+    acc += (spot - f.pos) * curious * max(bold, interest) * 1.4 * smoothstep(22.0, 6.0, cd);
   }
 
   // Darting: every few seconds a fish bolts a short way, then settles.
@@ -1763,8 +1838,10 @@ export async function createFish(
         s.roam ? 0.9 / s.roam : 0,
         s.dart?.[0] ?? 0,
         s.dart?.[1] ?? 1,
-        0,
-        0,
+        s.approach ?? 2,
+        // Ring wide enough that the school clears the diver's personal space
+        // and stays mostly inside the focus range.
+        s.swirl ? Math.max(3, schoolParams(s)[0] + 0.3 + len * 1.5 + 2.0) : 0,
         ...schoolParams(s),
       ],
       i * SPECIES_FLOATS,
@@ -2208,6 +2285,10 @@ export async function createFish(
   let flip = 0;
   let camPos: readonly number[] = [0, 0, 0];
   let camDir: readonly number[] = [0, 0, -1];
+  const prevCamPos = [0, 0, 0];
+  const camVel = [0, 0, 0];
+  let camStill = 0;
+  let haveCam = false;
   const bind = (pass: GPURenderPassEncoder, p: GPURenderPipeline) => {
     pass.setPipeline(p);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
@@ -2266,6 +2347,27 @@ export async function createFish(
       camDir = dir;
     },
     update(fc: FrameContext) {
+      // Camera velocity, so fish can tell a slow approach from a charge. A
+      // jump (teleport, fixed test cameras) counts as standing still.
+      const moved = Math.hypot(
+        camPos[0] - prevCamPos[0],
+        camPos[1] - prevCamPos[1],
+        camPos[2] - prevCamPos[2],
+      );
+      for (let k = 0; k < 3; k++) {
+        camVel[k] =
+          haveCam && fc.dt > 0 && moved < 2
+            ? (camPos[k] - prevCamPos[k]) / fc.dt
+            : 0;
+        prevCamPos[k] = camPos[k];
+      }
+      haveCam = true;
+      // Seconds the diver has (nearly) held still: what curious fish and
+      // swirling schools wait for. Gliding to a stop takes about a second.
+      camStill =
+        Math.hypot(camVel[0], camVel[1], camVel[2]) < 0.35
+          ? camStill + fc.dt
+          : 0;
       // Sub-step large time steps for stability. Each step needs its own
       // uniform contents, so large steps are split across submits.
       const steps = Math.min(4, Math.max(1, Math.ceil(fc.dt / (1 / 20))));
@@ -2278,6 +2380,8 @@ export async function createFish(
         simF[7] = ctx.nav.ceiling();
         simF.set(camDir, 8);
         simF[11] = ctx.desc.terrain.worldSize;
+        simF.set(camVel, 12);
+        simF[15] = camStill;
         const last = s === steps - 1;
         const encoder = last
           ? fc.encoder
