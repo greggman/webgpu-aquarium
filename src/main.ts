@@ -875,6 +875,14 @@ async function main() {
     g.set('terrain', [desc.terrain.worldSize, desc.terrain.size, 0, 0]);
     g.set('shadow', [shadow.texelWorld, shadow.size, 0, 0]);
     g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);
+    g.set('setDressing', [
+      numParam('sethue') ?? desc.colors.setHue,
+      numParam('pull') ?? desc.colors.huePull,
+      numParam('setsat') ?? desc.colors.setSaturation,
+      numParam('recede') ?? desc.colors.recession,
+    ]);
+    // The fish's own key light: strength, and how far out it reaches.
+    g.set('keyLight', [numParam('key') ?? 0.6, 12, 0, 0]);
     g.set('waves', waves);
 
     fish.setCamera(pose.pos, forward);

@@ -1,7 +1,7 @@
 // World description: everything chosen per seed that isn't a mesh.
 // Water colour, sun, the terrain basin, the play area, and camera spots.
 
-import {Rng} from '../core/rng.ts';
+import {Rng, hashString} from '../core/rng.ts';
 import type {Vec3} from '../math/vec3.ts';
 import {NavVolume} from '../player/navvolume.ts';
 import type {TourStop} from '../player/attract.ts';
@@ -130,11 +130,35 @@ export interface CameraSpot {
   target: Vec3;
 }
 
+/**
+ * The seed's colour script, set the way an art department would: the set
+ * (reef, plants, rock, sand) keeps to one family of hues at modest
+ * saturation, so the fish, which keep their full colour and take hues away
+ * from the set's, are where the eye goes.
+ */
+export interface ColorScript {
+  /** Key hue of the set, as a fraction of a turn. */
+  setHue: number;
+  /** How far set colours are pulled toward the key hue (0 none .. 1 all). */
+  huePull: number;
+  /** Share of its saturation the set keeps. */
+  setSaturation: number;
+  /** How strongly the set recedes into the water with distance (0..1). */
+  recession: number;
+}
+
+/**
+ * Key hues a reef set can be dressed in: warm sand, rose, violet, olive. Never
+ * the water's own blue-green, or the set dissolves into it.
+ */
+const SET_HUES = [0.09, 0.97, 0.78, 0.2];
+
 export interface WorldDesc {
   seed: number;
   rng: Rng;
   surfaceY: number;
   water: WaterStyle;
+  colors: ColorScript;
   /** Direction toward the sun, in water. */
   sunDir: Vec3;
   terrain: TerrainSettings;
@@ -168,7 +192,15 @@ export function describeWorld(
   ];
 
   const terrain = randomTerrainSettings(rng.fork('terrain'), surfaceY);
-  return {seed, rng, surfaceY, water, sunDir, terrain};
+  // A stream of its own, so choosing colours never moves anything else.
+  const pr = new Rng(hashString('colors') ^ seed);
+  const colors: ColorScript = {
+    setHue: (pr.pick(SET_HUES) + pr.range(-0.03, 0.03) + 1) % 1,
+    huePull: 0.35,
+    setSaturation: 0.75,
+    recession: 0.5,
+  };
+  return {seed, rng, surfaceY, water, colors, sunDir, terrain};
 }
 
 /** Builds the play area from generated terrain. */

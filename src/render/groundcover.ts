@@ -208,7 +208,8 @@ fn fs(i: VOut) -> FOut {
   s.ao = 0.5 + 0.5 * i.along;
   s.f0 = 0.02;
   s.translucency = 0.35;
-  let lit = shadeSurface(s, i.world, -1.0);
+  s.albedo = setDressing(s.albedo);
+  let lit = recede(shadeSurface(s, i.world, -1.0), i.world);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);

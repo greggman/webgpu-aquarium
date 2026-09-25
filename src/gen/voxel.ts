@@ -896,8 +896,9 @@ fn fs(i: VOut) -> FOut {
   // Ceilings and undercuts have no sky above them, and no baked height-map
   // occlusion to read: shade them by how far they face down instead.
   let ao = mix(t.a, 0.35, smoothstep(0.0, -0.5, n.y));
-  let s = terrainSurface(p, n, m, ao);
-  let lit = shadeSurface(s, p, -1.0);
+  var s = terrainSurface(p, n, m, ao);
+  s.albedo = setDressing(s.albedo);
+  let lit = recede(shadeSurface(s, p, -1.0), p);
   var o: FOut;
   o.color = vec4f(applyWater(lit, p), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);

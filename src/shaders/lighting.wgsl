@@ -126,6 +126,86 @@ fn groundInfo(p: vec3f) -> GroundInfo {
   return GroundInfo(ground, mix(1.0, c, nearGround));
 }
 
+/**
+ * Character light, as a studio lights its characters: a warm key from above
+ * and right of the lens that only the fish receive, so they carry more light
+ * than the set around them. It holds steady across the shot rather than
+ * falling off like a real lamp, fading only far out where fish are part of
+ * the background anyway.
+ */
+fn characterLight(s: Surface, p: vec3f, V: vec3f) -> vec3f {
+  let strength = frame.keyLight.x;
+  if (strength <= 0.0) {
+    return vec3f(0.0);
+  }
+  let right = vec3f(frame.view[0].x, frame.view[1].x, frame.view[2].x);
+  let up = vec3f(frame.view[0].y, frame.view[1].y, frame.view[2].y);
+  let fwd = -vec3f(frame.view[0].z, frame.view[1].z, frame.view[2].z);
+  // A direction, not a point: the key sits up and to the right of the view.
+  let L = normalize(up * 0.6 + right * 0.45 - fwd * 0.65);
+  let N = s.normal;
+  let NoLraw = dot(N, L);
+  let NoL = max(NoLraw, 0.0);
+  let wrap = s.translucency * 0.5;
+  let diffuseNoL = max((NoLraw + wrap) / ((1.0 + wrap) * (1.0 + wrap)), 0.0);
+  let VL = V + L;
+  let H = select(L, normalize(VL), dot(VL, VL) > 1e-12);
+  let NoV = max(dot(N, V), 1e-4);
+  let a = max(s.roughness * s.roughness, 0.002);
+  let f0 = mix(vec3f(s.f0), s.albedo, s.metallic);
+  let spec = D_GGX(max(dot(N, H), 0.0), a) * V_SmithGGXCorrelated(NoV, NoL, a) *
+    F_Schlick(max(dot(V, H), 0.0), f0);
+  let kd = 1.0 - s.metallic;
+  let sunLum = dot(frame.sunColor, vec3f(0.2126, 0.7152, 0.0722));
+  let reach = frame.keyLight.y;
+  let fade = smoothstep(reach, reach * 0.5, distance(p, frame.camPos));
+  let light = vec3f(1.0, 0.93, 0.82) * sunLum * strength * fade;
+  return (kd * s.albedo / PI * diffuseNoL + spec * NoL) * light;
+}
+
+fn rgbToHsv(c: vec3f) -> vec3f {
+  let k = vec4f(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  let p = mix(vec4f(c.bg, k.wz), vec4f(c.gb, k.xy), step(c.b, c.g));
+  let q = mix(vec4f(p.xyw, c.r), vec4f(c.r, p.yzx), step(p.x, c.r));
+  let d = q.x - min(q.w, q.y);
+  return vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x);
+}
+
+fn hsvToRgb(c: vec3f) -> vec3f {
+  let p = abs(fract(c.xxx + vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  return c.z * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), c.y);
+}
+
+/**
+ * Set dressing: the colour script's grade for everything that isn't a fish.
+ * Hues are pulled toward the set's key hue and saturation is held back, so
+ * the reef reads as one family of colours and the fish carry the strong ones.
+ */
+fn setDressing(albedo: vec3f) -> vec3f {
+  let c = rgbToHsv(albedo);
+  var dh = frame.setDressing.x - c.x;
+  dh -= round(dh);
+  let h = fract(c.x + dh * frame.setDressing.y);
+  return hsvToRgb(vec3f(h, c.y * frame.setDressing.z, c.z));
+}
+
+/**
+ * Depth staging for the set, as a matte painter layers a background: beyond
+ * the first couple of metres the set loses saturation and contrast toward the
+ * water's colour, so the reef reads in planes (foreground, middle, back) and
+ * fish, which skip this, keep their punch at any distance. Applied to lit
+ * colour before applyWater.
+ */
+fn recede(lit: vec3f, p: vec3f) -> vec3f {
+  let toP = p - frame.camPos;
+  let dist = length(toP);
+  let k = smoothstep(2.0, 14.0, dist) * frame.setDressing.w;
+  let dir = toP / max(dist, 1e-4);
+  let haze = inscatterColor(mix(frame.camPos.y, p.y, 0.5), dir);
+  let grey = vec3f(dot(lit, vec3f(0.2126, 0.7152, 0.0722)));
+  return mix(mix(lit, grey, k * 0.6), haze, k * 0.4);
+}
+
 /** Full lighting for a surface point. Returns radiance before water fog. */
 fn shadeSurface(s: Surface, p: vec3f, shadowOverride: f32) -> vec3f {
   let toEye = frame.camPos - p;

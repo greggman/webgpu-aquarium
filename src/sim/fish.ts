@@ -182,6 +182,21 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
   // smaller tiers, where each one costs relatively more).
   const k = Math.pow(ctx.quality.density, 1.5) * 10;
   const list: SpeciesDef[] = [];
+  // Fish take hues away from the set's key hue and from the water's whole
+  // green-to-blue range: warm characters against cool water, so they contrast
+  // with both. (One draw, as a plain random hue took, so nothing else shifts.
+  // Blue fish still come from species with fixed colours, such as chromis.)
+  const setHue = ctx.desc.colors.setHue;
+  const near = (h: number, c: number, w: number) =>
+    Math.abs(((h - c + 1.5) % 1) - 0.5) < w;
+  const fishHues: number[] = [];
+  for (let i = 0; i < 360; i++) {
+    const h = i / 360;
+    if (!near(h, setHue, 0.15) && !near(h, 0.44, 0.19)) {
+      fishHues.push(h);
+    }
+  }
+  const fishHue = () => fishHues[Math.floor(rng.float() * fishHues.length)];
   const body = (
     H: number,
     W: number,
@@ -265,7 +280,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
     ...rng.shuffle([...allArchetypes]).slice(0, 2),
   ];
   for (const a of reefArchetypes) {
-    const hue = rng.float();
+    const hue = fishHue();
     if (a === 'tang') {
       list.push({
         name: a,
@@ -427,10 +442,12 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
           2.3,
         ),
         colors: {
-          top: hsv(hue * 0.3 + 0.4, 0.7, 0.6),
-          belly: hsv(hue * 0.3 + 0.9, 0.5, 0.85),
+          // Off the water's colours like every reef fish, with the pink
+          // accent parrotfish are known for.
+          top: hsv(hue, 0.7, 0.6),
+          belly: hsv(hue + 0.06, 0.5, 0.85),
           accent: hsv(0.9, 0.6, 0.9),
-          fin: hsv(0.55, 0.7, 0.7),
+          fin: hsv(hue + 0.04, 0.7, 0.7),
         },
         pattern: Pattern.Gradient,
         patternFreq: 1,
@@ -498,7 +515,7 @@ function inventSpecies(rng: Rng, ctx: GenContext): SpeciesDef[] {
 
   // Curious hero fish: a few big, colourful fish that come to look at the
   // diver, so there is always readable life within a few metres.
-  const heroHue = rng.float();
+  const heroHue = fishHue();
   list.push({
     name: 'curious',
     count: Math.max(2, Math.round(rng.int(4, 7) * Math.min(1, k))),
@@ -1664,7 +1681,14 @@ ${
     }
   }
 
-  var lit = shadeSurface(s, i.world, -1.0);
+  var lit = shadeSurface(s, i.world, -1.0) + characterLight(s, i.world, V);
+  // Rim light, as a studio gives its characters: a bright edge round the
+  // silhouette, strongest along the back, so the fish reads as a shape against
+  // a busy reef. It takes the water's brightness but not its colour, which
+  // would only pull the fish toward the background.
+  let edge = pow(1.0 - max(dot(n, V), 0.0), 3.0) * mix(0.3, 1.0, n.y * 0.5 + 0.5);
+  let rimLum = dot(ambientAtDepth(i.world.y), vec3f(0.2126, 0.7152, 0.0722));
+  lit += vec3f(1.0, 0.97, 0.92) * rimLum * edge * 5.0;
   // The webbing between a fin's rays is mostly holes, and used to be dithered
   // out per pixel so the water showed through. Without discard the fin is
   // solid, so put the water back the only way left: mix in the colour that

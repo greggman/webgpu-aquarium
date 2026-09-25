@@ -32,6 +32,13 @@ export const FrameStruct = defineStruct('Frame', {
   shadow: 'vec4f',
   /** x: dt, y: tier (0 mobile .. 3 ultra), z: fog scale, w: wave phase seed. */
   misc: 'vec4f',
+  /**
+   * Colour script for the set. x: key hue (turns), y: hue pull, z: saturation
+   * kept, w: how strongly it recedes into the water with distance.
+   */
+  setDressing: 'vec4f',
+  /** Fish key light. x: strength (share of the surface sun, 0 = off), y: reach (m), z/w: unused. */
+  keyLight: 'vec4f',
   /** Surface waves: (k.x, k.z, amplitude, angular frequency). Tile every caustics.x metres. */
   waves: 'array<vec4f, 12>',
 });

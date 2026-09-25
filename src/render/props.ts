@@ -130,7 +130,8 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let buried = smoothstep(edge, 0.0, i.world.y - ground);
   s.albedo = mix(s.albedo, mix(s.albedo * 0.6, vec3f(0.5, 0.45, 0.36), sandy), buried * 0.85);
   s.ao *= mix(1.0, 0.6, buried);
-  let lit = shadeSurface(s, i.world, -1.0);
+  s.albedo = setDressing(s.albedo);
+  let lit = recede(shadeSurface(s, i.world, -1.0), i.world);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);

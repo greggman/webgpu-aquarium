@@ -941,9 +941,10 @@ fn fs(i: VOut) -> FOut {
   var n = normalize(vec3f(t.g, sqrt(max(1.0 - t.g * t.g - t.b * t.b, 0.0)), t.b));
   let p = i.world;
 
-  let s = terrainSurface(p, n, m, t.a);
+  var s = terrainSurface(p, n, m, t.a);
+  s.albedo = setDressing(s.albedo);
 
-  let lit = shadeSurface(s, p, -1.0);
+  let lit = recede(shadeSurface(s, p, -1.0), p);
   var o: FOut;
   o.color = vec4f(applyWater(lit, p), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
