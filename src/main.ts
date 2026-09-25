@@ -548,6 +548,32 @@ async function main() {
       },
     );
   });
+  // Full screen, where the page can have it (document.fullscreenEnabled is
+  // false where the API is missing, e.g. on iPhone, or not allowed, e.g. in
+  // an iframe). Going full screen closes the panel: that is nearly always
+  // all the viewer opened it for. The whole page goes full screen, not just
+  // the canvas, so the gear is still there to bring the settings back.
+  const fullscreenButton = document.getElementById(
+    'set-fullscreen',
+  ) as HTMLButtonElement;
+  if (document.fullscreenEnabled) {
+    fullscreenButton.hidden = false;
+    const label = () =>
+      (fullscreenButton.textContent = document.fullscreenElement
+        ? 'Exit full screen'
+        : 'Full screen');
+    document.addEventListener('fullscreenchange', label);
+    fullscreenButton.addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen();
+        return;
+      }
+      document.documentElement.requestFullscreen().then(
+        () => dialog.close(),
+        err => console.warn('[aquarium] full screen refused', err),
+      );
+    });
+  }
   (document.getElementById('set-done') as HTMLButtonElement).addEventListener(
     'click',
     () => dialog.close(),
