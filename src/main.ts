@@ -462,6 +462,9 @@ async function main() {
       const [input, out] = lookInputs.get(c.key)!;
       input.value = String(look[c.key]);
       out.value = look[c.key].toFixed(2);
+      if (c.hue) {
+        input.style.setProperty('--thumb', `hsl(${look[c.key] * 360} 60% 55%)`);
+      }
     }
   };
   let group = '';
@@ -482,9 +485,15 @@ async function main() {
     input.min = String(c.min);
     input.max = String(c.max);
     input.step = String(c.step);
+    if (c.hue) {
+      input.classList.add('hue');
+    }
     input.addEventListener('input', () => {
       look[c.key] = Number(input.value);
       out.value = look[c.key].toFixed(2);
+      if (c.hue) {
+        input.style.setProperty('--thumb', `hsl(${look[c.key] * 360} 60% 55%)`);
+      }
       applyGrade();
       volumetrics.setStrength(look.shafts);
     });

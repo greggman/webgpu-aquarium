@@ -33,6 +33,8 @@ export interface LookControl {
   min: number;
   max: number;
   step: number;
+  /** A hue (0..1 round the colour wheel): drawn as a rainbow slider. */
+  hue?: boolean;
 }
 
 export const LOOK_CONTROLS: LookControl[] = [
@@ -44,6 +46,7 @@ export const LOOK_CONTROLS: LookControl[] = [
     min: 0,
     max: 1,
     step: 0.01,
+    hue: true,
   },
   {
     key: 'reefMatch',

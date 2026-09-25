@@ -229,6 +229,49 @@
         margin: 0;
         accent-color: #7fd8ef;
       }
+      /* The reef colour picks a hue: show the wheel it picks from, with the
+         thumb in the chosen colour (--thumb, set as it moves). */
+      #settings-dialog .slider input.hue {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 10px;
+        margin: 5px 0;
+        border-radius: 5px;
+        background: linear-gradient(
+          to right,
+          hsl(0 60% 55%),
+          hsl(60 60% 55%),
+          hsl(120 60% 55%),
+          hsl(180 60% 55%),
+          hsl(240 60% 55%),
+          hsl(300 60% 55%),
+          hsl(360 60% 55%)
+        );
+      }
+      #settings-dialog .slider input.hue:focus-visible {
+        outline: 2px solid #7fd8ef;
+        outline-offset: 3px;
+      }
+      #settings-dialog .slider input.hue::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--thumb, #fff);
+        border: 2px solid #e6f6fb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      }
+      #settings-dialog .slider input.hue::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--thumb, #fff);
+        border: 2px solid #e6f6fb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      }
+      #settings-dialog .slider input.hue::-moz-range-track {
+        background: transparent;
+      }
       #settings-dialog .slider output {
         text-align: right;
         opacity: 0.6;
