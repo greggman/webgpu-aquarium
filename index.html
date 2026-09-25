@@ -148,21 +148,38 @@
       #settings:active {
         transform: rotate(60deg);
       }
+      /* A side panel under the gear, not a modal in the middle: the view stays
+         clear (and can still be steered) while the sliders change it. */
       #settings-dialog {
+        position: fixed;
+        top: calc(max(12px, env(safe-area-inset-top)) + 52px);
+        left: max(12px, env(safe-area-inset-left));
+        right: auto;
+        bottom: auto;
+        margin: 0;
+        z-index: 6;
+        width: min(19rem, calc(100vw - 24px));
+        max-height: calc(100vh - max(12px, env(safe-area-inset-top)) - 64px);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 14px;
         background: rgba(2, 16, 26, 0.82);
         color: #e6f6fb;
         padding: 18px 20px;
-        min-width: min(19rem, calc(100vw - 48px));
-        max-height: calc(100vh - 48px);
         overflow-y: auto;
         box-sizing: border-box;
         -webkit-backdrop-filter: blur(14px);
         backdrop-filter: blur(14px);
       }
-      #settings-dialog::backdrop {
-        background: rgba(0, 10, 18, 0.45);
+      /* Phones: a sheet along the bottom, leaving the top of the view. */
+      @media (max-width: 600px) {
+        #settings-dialog {
+          top: auto;
+          left: 8px;
+          right: 8px;
+          bottom: max(8px, env(safe-area-inset-bottom));
+          width: auto;
+          max-height: 45vh;
+        }
       }
       #settings-dialog h2 {
         margin: 0 0 14px;

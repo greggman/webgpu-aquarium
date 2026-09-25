@@ -424,14 +424,26 @@ async function main() {
   if (!quality.dof) {
     (document.getElementById('row-dof') as HTMLElement).hidden = true;
   }
+  // Not modal: the panel sits to the side without dimming the view, and the
+  // camera can still be moved, so a slider's effect can be judged as it moves.
   gear.addEventListener('click', e => {
     e.stopPropagation();
+    if (dialog.open) {
+      dialog.close();
+      return;
+    }
     qualitySelect.value = settings.quality;
     for (const [key, box] of toggles) {
       box.checked = settings[key] as boolean;
     }
     autoCamBox.checked = autoCamera;
-    dialog.showModal();
+    dialog.show();
+  });
+  // A modal dialog closes on Escape by itself; this one has to be told.
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && dialog.open) {
+      dialog.close();
+    }
   });
   for (const [key, box] of toggles) {
     box.addEventListener('change', () => {
