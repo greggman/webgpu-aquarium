@@ -14,7 +14,7 @@ import {
   DEPTH_FORMAT,
   HDR_FORMAT,
   VELOCITY_FORMAT,
-  type CullView,
+  type FrameContext,
   type Renderer,
   type RenderSystem,
 } from './renderer.ts';
@@ -335,6 +335,7 @@ export async function createPropKind(
   // Instances are kept on the CPU, sorted by variant. Each frame the ones the
   // camera or the shadow map can see are copied into the GPU buffer: first the
   // camera-visible set, then the shadow-visible set, each grouped by variant.
+  // The copy goes straight into a mapped staging buffer (see takeStaging).
   const {data, ranges} = packInstances(o.instances, inst =>
     o.fadeDistance
       ? o.fadeDistance(
@@ -358,12 +359,38 @@ export async function createPropKind(
       radiusOf[i] = vr * data[i * FLOATS + 3];
     }
   });
-  const visible = new Float32Array(count * 2 * FLOATS);
+  const instanceBytes = count * 2 * INSTANCE_SIZE;
   const instanceBuf = device.createBuffer({
     label: `${o.name}:instances`,
-    size: visible.byteLength,
+    size: instanceBytes,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
+
+  // Uploads go through a small pool of already-mapped staging buffers: the
+  // visible records are written straight into mapped memory and copied on
+  // the GPU, rather than built in a scratch array and handed to writeBuffer,
+  // which copies them again. A buffer can only be remapped once the frame
+  // that uses it has been submitted, so each update remaps the ones the
+  // previous frames used; they rejoin the pool when the map resolves.
+  const freeStaging: GPUBuffer[] = [];
+  const usedStaging: GPUBuffer[] = [];
+  const takeStaging = () =>
+    freeStaging.pop() ??
+    device.createBuffer({
+      label: `${o.name}:staging`,
+      size: instanceBytes,
+      usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true,
+    });
+  const recycleStaging = () => {
+    for (const b of usedStaging) {
+      b.mapAsync(GPUMapMode.WRITE).then(
+        () => freeStaging.push(b),
+        () => b.destroy(),
+      );
+    }
+    usedStaging.length = 0;
+  };
   const bindGroup = device.createBindGroup({
     label: `${o.name}:bind-group`,
     layout: localLayout,
@@ -391,8 +418,9 @@ export async function createPropKind(
     scratchOffset.push(scratchSize);
     scratchSize += capacity[w];
   }
-  const camScratch = new Float32Array(Math.max(1, scratchSize) * FLOATS);
-  const shadowScratch = new Float32Array(Math.max(1, scratchSize) * FLOATS);
+  // Indices of the visible instances, in per-drawn-variant regions.
+  const camIndex = new Uint32Array(Math.max(1, scratchSize));
+  const shadowIndex = new Uint32Array(Math.max(1, scratchSize));
   const camFill = new Uint32Array(variantCount);
   const shadowFill = new Uint32Array(variantCount);
 
@@ -411,7 +439,9 @@ export async function createPropKind(
   const camPlanes = new Float32Array(16);
   const shadowPlanes = new Float32Array(16);
 
-  const cull = (view: CullView) => {
+  const cull = (ctx: FrameContext) => {
+    recycleStaging();
+    const view = ctx.view;
     const m = view.viewProj;
     sidePlanes(view.viewProj, camPlanes);
     sidePlanes(view.shadowViewProj, shadowPlanes);
@@ -450,10 +480,7 @@ export async function createPropKind(
           const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
           if (cw > -rad && sphereInside(camPlanes, x, y, z, rad)) {
             const w = chain[level];
-            camScratch.set(
-              data.subarray(b, b + FLOATS),
-              (scratchOffset[w] + camFill[w]++) * FLOATS,
-            );
+            camIndex[scratchOffset[w] + camFill[w]++] = i;
           }
         }
 
@@ -467,43 +494,50 @@ export async function createPropKind(
         ) {
           if (sphereInside(shadowPlanes, x, y, z, rad)) {
             const w = chain[chain.length - 1];
-            shadowScratch.set(
-              data.subarray(b, b + FLOATS),
-              (scratchOffset[w] + shadowFill[w]++) * FLOATS,
-            );
+            shadowIndex[scratchOffset[w] + shadowFill[w]++] = i;
           }
         }
       }
     }
+    let total = 0;
+    for (let w = 0; w < variantCount; w++) {
+      total += camFill[w] + shadowFill[w];
+    }
     let cursor = 0;
+    let out: Float32Array | null = null;
+    let staging: GPUBuffer | null = null;
+    if (total) {
+      staging = takeStaging();
+      out = new Float32Array(staging.getMappedRange(0, total * INSTANCE_SIZE));
+    }
     const pack = (
-      scratch: Float32Array,
+      index: Uint32Array,
       fill: Uint32Array,
-      out: {first: number; count: number}[],
+      list: {first: number; count: number}[],
     ) => {
       for (let w = 0; w < variantCount; w++) {
-        out[w].first = cursor;
-        out[w].count = fill[w];
-        if (fill[w]) {
-          const start = scratchOffset[w] * FLOATS;
-          visible.set(
-            scratch.subarray(start, start + fill[w] * FLOATS),
-            cursor * FLOATS,
-          );
-          cursor += fill[w];
+        list[w].first = cursor;
+        list[w].count = fill[w];
+        const start = scratchOffset[w];
+        for (let k = 0; k < fill[w]; k++) {
+          const b = index[start + k] * FLOATS;
+          out!.set(data.subarray(b, b + FLOATS), cursor * FLOATS);
+          cursor++;
         }
       }
     };
-    pack(camScratch, camFill, camRanges);
-    pack(shadowScratch, shadowFill, shadowRanges);
-    if (cursor) {
-      device.queue.writeBuffer(
+    pack(camIndex, camFill, camRanges);
+    pack(shadowIndex, shadowFill, shadowRanges);
+    if (staging) {
+      staging.unmap();
+      ctx.encoder.copyBufferToBuffer(
+        staging,
+        0,
         instanceBuf,
         0,
-        visible.buffer,
-        0,
-        cursor * INSTANCE_SIZE,
+        total * INSTANCE_SIZE,
       );
+      usedStaging.push(staging);
     }
   };
 
@@ -529,7 +563,7 @@ export async function createPropKind(
 
   return {
     name: o.name,
-    update: ctx => cull(ctx.view),
+    update: cull,
     drawOpaque: pass => draw(pass, pipeline, camRanges),
     drawShadow: castShadows
       ? pass => draw(pass, shadowPipeline, shadowRanges)
