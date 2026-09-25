@@ -42,9 +42,10 @@ export class Input {
       if (e.metaKey || e.ctrlKey) {
         return;
       }
-      // Keys meant for the settings dialog (a slider's arrows, a checkbox's
-      // space) are not swimming.
+      // Keys meant for the settings panel (a slider's arrows, a checkbox's
+      // space) are not swimming, unless the view has the mouse.
       if (
+        document.pointerLockElement !== canvas &&
         e.target instanceof Element &&
         e.target.closest('dialog[open], input, select, textarea, button')
       ) {
@@ -64,6 +65,7 @@ export class Input {
         return;
       }
       this.activity();
+      this.takeFocus();
       if (canvas.requestPointerLock && document.pointerLockElement !== canvas) {
         const r = canvas.requestPointerLock() as unknown as
           Promise<void> | undefined;
@@ -94,9 +96,21 @@ export class Input {
     this.idleTime = 0;
   }
 
+  /**
+   * Pressing on the view means the keys are for swimming now: take focus off
+   * whatever settings control had it, or it would keep receiving them.
+   */
+  private takeFocus() {
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && el !== document.body) {
+      el.blur();
+    }
+  }
+
   private onTouchStart(e: TouchEvent) {
     e.preventDefault();
     this.activity();
+    this.takeFocus();
     const half = this.canvas.clientWidth / 2;
     for (const t of Array.from(e.changedTouches)) {
       if (t.clientX < half && this.stickId === null) {
