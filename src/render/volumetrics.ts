@@ -190,7 +190,7 @@ fn fs(i: FSOut) -> @location(0) vec4f {
 export async function createVolumetrics(
   renderer: Renderer,
   quality: Quality,
-): Promise<RenderSystem> {
+): Promise<RenderSystem & {setStrength(s: number): void}> {
   const device = renderer.device;
   const divisor =
     quality.volumetrics === 'high'
@@ -238,9 +238,12 @@ export async function createVolumetrics(
   });
   const paramData = new ArrayBuffer(16);
   new Uint32Array(paramData, 0, 1)[0] = quality.volumetricSteps;
-  const tune = Number(new URLSearchParams(location.search).get('vol') ?? 1);
-  new Float32Array(paramData, 4, 3).set([70, 0.3 * tune, 0.88]);
-  device.queue.writeBuffer(params, 0, paramData);
+  /** Shaft brightness, 1 = as designed. */
+  const setStrength = (s: number) => {
+    new Float32Array(paramData, 4, 3).set([70, 0.3 * s, 0.88]);
+    device.queue.writeBuffer(params, 0, paramData);
+  };
+  setStrength(1);
 
   const sampler = device.createSampler({
     label: 'volumetrics:sampler',
@@ -283,7 +286,8 @@ export async function createVolumetrics(
     });
   };
 
-  const system: RenderSystem = {
+  const system: RenderSystem & {setStrength(s: number): void} = {
+    setStrength,
     name: 'volumetrics',
     resize(targets: Targets) {
       textures.forEach(t => t.destroy());

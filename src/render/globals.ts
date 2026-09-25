@@ -37,7 +37,7 @@ export const FrameStruct = defineStruct('Frame', {
    * kept, w: how strongly it recedes into the water with distance.
    */
   setDressing: 'vec4f',
-  /** Fish key light. x: strength (share of the surface sun, 0 = off), y: reach (m), z/w: unused. */
+  /** Fish lights. x: key strength (share of the surface sun, 0 = off), y: its reach (m), z: rim glow, w: unused. */
   keyLight: 'vec4f',
   /** Surface waves: (k.x, k.z, amplitude, angular frequency). Tile every caustics.x metres. */
   waves: 'array<vec4f, 12>',

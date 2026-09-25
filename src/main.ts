@@ -28,6 +28,12 @@ import {SunShadow} from './render/shadows.ts';
 import {createVolumetrics} from './render/volumetrics.ts';
 import {createSsao} from './render/ssao.ts';
 import {createGrade} from './render/grade.ts';
+import {
+  LOOK_CONTROLS,
+  defaultLook,
+  lookFromParams,
+  lookParams,
+} from './core/look.ts';
 import {createDof} from './render/post/dof.ts';
 import {focusDistance} from './player/focus.ts';
 import {AutoFocus} from './render/autofocus.ts';
@@ -363,6 +369,23 @@ async function main() {
   // checks the setting inside its own run, and particles keep their place.
   // Quality is the exception and needs a rebuild, since how much there is to
   // draw is settled when the world is generated.
+  // Settings › Advanced: live look controls, starting from this ocean's own
+  // values or the URL. Not saved, like the auto camera switch.
+  const lookDefaults = defaultLook(desc);
+  const look = lookFromParams(lookDefaults, params);
+  volumetrics.setStrength(look.shafts);
+  const applyGrade = () =>
+    present.setGrade({
+      ...desc.water.grade,
+      contrast: look.contrast,
+      saturation: look.saturation,
+      vignette: look.vignette,
+      grain: quality.grain ? look.grain : 0,
+      // The pass may be gone, leaving a stale bloom texture behind, so the
+      // strength has to go to zero as well rather than instead.
+      bloom: settings.bloom ? desc.water.grade.bloom : 0,
+    });
+
   const allSystems = renderer.systems;
   const applySettings = () => {
     const off = new Set<string>();
@@ -383,13 +406,7 @@ async function main() {
     renderer.setShadows(
       shadowsAllowed && settings.shadows ? shadow.texture : null,
     );
-    present.setGrade({
-      ...desc.water.grade,
-      grain: quality.grain ? desc.water.grade.grain : 0,
-      // The pass may be gone, leaving a stale bloom texture behind, so the
-      // strength has to go to zero as well rather than instead.
-      bloom: settings.bloom ? desc.water.grade.bloom : 0,
-    });
+    applyGrade();
   };
   applySettings();
 
@@ -436,6 +453,79 @@ async function main() {
     if (!autoCamera && attractActive) {
       stopAttract();
     }
+  });
+  // Advanced: one slider per look control, applied as it moves.
+  const lookBox = document.getElementById('look-controls')!;
+  const lookInputs = new Map<string, [HTMLInputElement, HTMLOutputElement]>();
+  const showLook = () => {
+    for (const c of LOOK_CONTROLS) {
+      const [input, out] = lookInputs.get(c.key)!;
+      input.value = String(look[c.key]);
+      out.value = look[c.key].toFixed(2);
+    }
+  };
+  let group = '';
+  for (const c of LOOK_CONTROLS) {
+    if (c.group !== group) {
+      group = c.group;
+      const h = document.createElement('h3');
+      h.textContent = group;
+      lookBox.appendChild(h);
+    }
+    const row = document.createElement('label');
+    row.className = 'slider';
+    const name = document.createElement('span');
+    name.textContent = c.label;
+    const out = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(c.min);
+    input.max = String(c.max);
+    input.step = String(c.step);
+    input.addEventListener('input', () => {
+      look[c.key] = Number(input.value);
+      out.value = look[c.key].toFixed(2);
+      applyGrade();
+      volumetrics.setStrength(look.shafts);
+    });
+    row.append(name, out, input);
+    lookBox.appendChild(row);
+    lookInputs.set(c.key, [input, out]);
+  }
+  showLook();
+  (document.getElementById('look-reset') as HTMLButtonElement).addEventListener(
+    'click',
+    () => {
+      Object.assign(look, lookDefaults);
+      applyGrade();
+      volumetrics.setStrength(look.shafts);
+      showLook();
+    },
+  );
+  const copyButton = document.getElementById('look-copy') as HTMLButtonElement;
+  copyButton.addEventListener('click', () => {
+    // This ocean (the seed) with these settings; everything else in the URL
+    // is kept as it is.
+    const q = lookParams(
+      look,
+      lookDefaults,
+      new URLSearchParams(location.search),
+    );
+    q.set('seed', String(seed));
+    const url = `${location.origin}${location.pathname}?${q}`;
+    const done = (text: string) => {
+      copyButton.textContent = text;
+      setTimeout(() => (copyButton.textContent = 'Copy link'), 1500);
+    };
+    navigator.clipboard.writeText(url).then(
+      () => done('Copied'),
+      () => {
+        // No clipboard (an insecure origin, or permission refused): put the
+        // link in the address bar instead, where it can be copied by hand.
+        history.replaceState(null, '', url);
+        done('In address bar');
+      },
+    );
   });
   (document.getElementById('set-done') as HTMLButtonElement).addEventListener(
     'click',
@@ -860,7 +950,7 @@ async function main() {
     g.set('sunDir', desc.sunDir);
     g.set('frameIndex', frameIndex);
     g.set('sunColor', desc.water.sunColor);
-    g.set('exposure', desc.water.exposure * (numParam('exposure') ?? 1));
+    g.set('exposure', desc.water.exposure * look.brightness);
     g.set('absorption', desc.water.absorption);
     g.set('scattering', desc.water.scattering);
     g.set(
@@ -872,22 +962,22 @@ async function main() {
     g.set('jitter', [jx, jy]);
     g.set('caustics', [
       WAVE_TILE,
-      0.95,
+      look.ripples,
       28,
       // Mip bias so a smaller caustics texture stays as sharp per metre.
       Math.log2(512 / quality.causticsSize),
     ]);
     g.set('terrain', [desc.terrain.worldSize, desc.terrain.size, 0, 0]);
     g.set('shadow', [shadow.texelWorld, shadow.size, 0, 0]);
-    g.set('misc', [dt, quality.tierIndex, numParam('fog') ?? 0.6, wavePhase]);
+    g.set('misc', [dt, quality.tierIndex, look.haze, wavePhase]);
     g.set('setDressing', [
-      numParam('sethue') ?? desc.colors.setHue,
-      numParam('pull') ?? desc.colors.huePull,
-      numParam('setsat') ?? desc.colors.setSaturation,
-      numParam('recede') ?? desc.colors.recession,
+      look.reefHue,
+      look.reefMatch,
+      look.reefSaturation,
+      look.reefFade,
     ]);
-    // The fish's own key light: strength, and how far out it reaches.
-    g.set('keyLight', [numParam('key') ?? 0.6, 12, 0, 0]);
+    // The fish's own lights: key strength, how far out it reaches, rim glow.
+    g.set('keyLight', [look.fishLight, 12, look.fishGlow, 0]);
     g.set('waves', waves);
 
     fish.setCamera(pose.pos, forward);

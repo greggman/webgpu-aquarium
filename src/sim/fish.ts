@@ -1691,7 +1691,7 @@ ${
   // would only pull the fish toward the background.
   let edge = pow(1.0 - max(dot(n, V), 0.0), 3.0) * mix(0.3, 1.0, n.y * 0.5 + 0.5);
   let rimLum = dot(ambientAtDepth(i.world.y), vec3f(0.2126, 0.7152, 0.0722));
-  lit += vec3f(1.0, 0.97, 0.92) * rimLum * edge * 5.0;
+  lit += vec3f(1.0, 0.97, 0.92) * rimLum * edge * frame.keyLight.z;
   // The webbing between a fin's rays is mostly holes, and used to be dithered
   // out per pixel so the water showed through. Without discard the fin is
   // solid, so put the water back the only way left: mix in the colour that

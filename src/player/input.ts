@@ -42,6 +42,14 @@ export class Input {
       if (e.metaKey || e.ctrlKey) {
         return;
       }
+      // Keys meant for the settings dialog (a slider's arrows, a checkbox's
+      // space) are not swimming.
+      if (
+        e.target instanceof Element &&
+        e.target.closest('dialog[open], input, select, textarea, button')
+      ) {
+        return;
+      }
       this.keys.add(e.code);
       this.activity();
       if (e.code === 'Space' || e.code.startsWith('Arrow')) {
