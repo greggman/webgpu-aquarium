@@ -337,7 +337,11 @@ async function main() {
     renderer.systems.push({
       name: 'autofocus',
       afterOpaque: ctx => {
-        focusSampled = autoFocus.sample(ctx.encoder, ctx.targets.depth);
+        focusSampled = autoFocus.sample(
+          ctx.encoder,
+          ctx.targets.depth,
+          ctx.targets.id,
+        );
       },
     });
   }
