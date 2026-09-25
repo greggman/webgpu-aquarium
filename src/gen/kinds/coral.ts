@@ -2,6 +2,7 @@
 // coral, barrel and tube sponges, and swaying sea whips. All share one mesh
 // build and one pipeline; the kind lives in patch/instance parameters.
 
+import {Category} from '../../render/ids.ts';
 import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {scatter} from '../../world/scatter.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
@@ -1015,6 +1016,7 @@ export async function createCoral(
 
   return createPropKind(renderer, {
     name: 'coral',
+    category: Category.Coral,
     mesh,
     instances,
     wgsl: materialWgsl,

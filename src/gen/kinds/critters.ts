@@ -1,5 +1,6 @@
 // Small seafloor life: sea anemones, urchins, starfish and shells.
 
+import {Category} from '../../render/ids.ts';
 import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {scatter} from '../../world/scatter.ts';
 import {
@@ -719,6 +720,7 @@ export async function createCritters(
 
   return createPropKind(renderer, {
     name: 'critters',
+    category: Category.Critter,
     mesh,
     instances,
     wgsl: materialWgsl,

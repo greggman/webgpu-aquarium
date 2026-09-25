@@ -1,6 +1,7 @@
 // Draws open water wherever no geometry was rendered.
 
 import {createShader} from '../gpu/device.ts';
+import {ID_FORMAT} from './ids.ts';
 import {fullscreenVS, globals, noise, water, waves} from '../shaders/index.ts';
 import {
   DEPTH_FORMAT,
@@ -19,6 +20,7 @@ ${fullscreenVS}
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
+  @location(2) id: u32,
 };
 
 @fragment
@@ -33,6 +35,7 @@ fn fs(i: FSOut) -> FOut {
   let cur = frame.viewProjNoJitter * vec4f(dir, 0.0);
   let prev = frame.prevViewProjNoJitter * vec4f(dir, 0.0);
   o.velocity = (cur.xy / cur.w - prev.xy / prev.w) * vec2f(0.5, -0.5);
+  o.id = idOf(CAT_WATER);
   return o;
 }
 `;
@@ -52,7 +55,11 @@ export async function createBackground(
     fragment: {
       module,
       entryPoint: 'fs',
-      targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}],
+      targets: [
+        {format: HDR_FORMAT},
+        {format: VELOCITY_FORMAT},
+        {format: ID_FORMAT},
+      ],
     },
     // Only where the depth buffer is still clear (reversed-Z far = 0).
     depthStencil: {

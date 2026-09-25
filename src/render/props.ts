@@ -5,6 +5,7 @@
 // `material()` returns the surface description for lighting.
 
 import {createShader} from '../gpu/device.ts';
+import {ID_FORMAT, type Category} from './ids.ts';
 import {sidePlanes, sphereInside} from './frustum.ts';
 import {defineStruct} from '../gpu/structs.ts';
 import {surfaceLib} from '../shaders/index.ts';
@@ -27,7 +28,7 @@ export const InstanceStruct = defineStruct('Instance', {
   color: 'vec4f',
   /** free parameters (phase, sway strength, ...) */
   params: 'vec4f',
-  /** x: distance at which the instance has fully faded out (detail fade), yzw unused */
+  /** x: distance at which the instance has fully faded out (detail fade), y: type for the ID target (the variant), zw unused */
   fade: 'vec4f',
 });
 export const INSTANCE_SIZE = InstanceStruct.size;
@@ -76,9 +77,10 @@ struct VOut {
 };
 `;
 
-const propShader = (kindWgsl: string) => /* wgsl */ `
+const propShader = (kindWgsl: string, category: Category) => /* wgsl */ `
 ${propCommonWgsl}
 ${kindWgsl}
+const PROP_CATEGORY = ${category}u;
 
 fn detailFade(inst: Instance) -> f32 {
   let end = inst.fade.x;
@@ -111,6 +113,7 @@ fn vs(v: VIn) -> VOut {
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
+  @location(2) id: u32,
 };
 
 @fragment
@@ -130,11 +133,11 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   let buried = smoothstep(edge, 0.0, i.world.y - ground);
   s.albedo = mix(s.albedo, mix(s.albedo * 0.6, vec3f(0.5, 0.45, 0.36), sandy), buried * 0.85);
   s.ao *= mix(1.0, 0.6, buried);
-  s.albedo = setDressing(s.albedo);
-  let lit = recede(shadeSurface(s, i.world, -1.0), i.world);
+  let lit = shadeSurface(s, i.world, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOfType(PROP_CATEGORY, u32(inst.fade.y));
   return o;
 }
 
@@ -168,6 +171,8 @@ fn fsShadow(i: SOut) {
 
 export interface PropKindOptions {
   name: string;
+  /** What these are, for the ID target (render/ids.ts). */
+  category: Category;
   mesh: BuiltMesh;
   instances: Instance[];
   /**
@@ -224,7 +229,7 @@ export function packInstances(
         ...inst.color,
         ...inst.params,
         fadeOf(inst),
-        0,
+        inst.variant,
         0,
         0,
       ],
@@ -270,7 +275,11 @@ export async function createPropKind(
   const kindWgsl = o.alphaTest
     ? o.wgsl
     : `${o.wgsl}\nfn alphaMask(uv: vec4f, local: vec3f, inst: Instance) -> f32 { return 1.0; }`;
-  const module = createShader(device, `${o.name}:shader`, propShader(kindWgsl));
+  const module = createShader(
+    device,
+    `${o.name}:shader`,
+    propShader(kindWgsl, o.category),
+  );
   const localLayout = device.createBindGroupLayout({
     label: `${o.name}:local-bgl`,
     entries: [
@@ -294,7 +303,11 @@ export async function createPropKind(
       fragment: {
         module,
         entryPoint: 'fs',
-        targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}],
+        targets: [
+          {format: HDR_FORMAT},
+          {format: VELOCITY_FORMAT},
+          {format: ID_FORMAT},
+        ],
       },
       primitive: {topology: 'triangle-list', cullMode},
       depthStencil: {

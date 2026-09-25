@@ -1,6 +1,7 @@
 // Boulders and pebbles: noise-displaced, plane-chiselled spheres with
 // encrusting growth on their upper faces.
 
+import {Category} from '../../render/ids.ts';
 import {buildMesh, withLodChain, type Patch} from '../meshgen.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
@@ -528,6 +529,7 @@ export async function createRocks(
 
   return createPropKind(renderer, {
     name: 'rocks',
+    category: Category.Rock,
     mesh,
     instances,
     wgsl: materialWgsl,

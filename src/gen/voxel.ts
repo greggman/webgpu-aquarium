@@ -896,12 +896,12 @@ fn fs(i: VOut) -> FOut {
   // Ceilings and undercuts have no sky above them, and no baked height-map
   // occlusion to read: shade them by how far they face down instead.
   let ao = mix(t.a, 0.35, smoothstep(0.0, -0.5, n.y));
-  var s = terrainSurface(p, n, m, ao);
-  s.albedo = setDressing(s.albedo);
-  let lit = recede(shadeSurface(s, p, -1.0), p);
+  let s = terrainSurface(p, n, m, ao);
+  let lit = shadeSurface(s, p, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, p), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOf(CAT_GROUND);
   return o;
 }
 
@@ -920,6 +920,7 @@ fn fsFlat(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   var o: FOut;
   o.color = vec4f(select(vec3f(1.2, 0.0, 0.0), col, front), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOf(CAT_GROUND);
   return o;
 }
 
@@ -947,6 +948,7 @@ export async function createVoxelRenderer(
   targets: {
     color: GPUTextureFormat;
     velocity: GPUTextureFormat;
+    id: GPUTextureFormat;
     depth: GPUTextureFormat;
   },
   mesh: VoxelMesh,
@@ -974,7 +976,11 @@ export async function createVoxelRenderer(
       fragment: {
         module,
         entryPoint: debug ? 'fsFlat' : 'fs',
-        targets: [{format: targets.color}, {format: targets.velocity}],
+        targets: [
+          {format: targets.color},
+          {format: targets.velocity},
+          {format: targets.id},
+        ],
       },
       primitive: {topology: 'triangle-list', cullMode: debug ? 'none' : 'back'},
       depthStencil: {

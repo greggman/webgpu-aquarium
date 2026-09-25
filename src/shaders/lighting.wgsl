@@ -177,12 +177,13 @@ fn hsvToRgb(c: vec3f) -> vec3f {
 }
 
 /**
- * Set dressing: the colour script's grade for everything that isn't a fish.
- * Hues are pulled toward the set's key hue and saturation is held back, so
- * the reef reads as one family of colours and the fish carry the strong ones.
+ * Set dressing: the colour script's grade for everything that isn't a fish
+ * (render/grade.ts). Hues are pulled toward the set's key hue and saturation
+ * is held back, so the reef reads as one family of colours and the fish
+ * carry the strong ones.
  */
-fn setDressing(albedo: vec3f) -> vec3f {
-  let c = rgbToHsv(albedo);
+fn setDressing(color: vec3f) -> vec3f {
+  let c = rgbToHsv(color);
   var dh = frame.setDressing.x - c.x;
   dh -= round(dh);
   let h = fract(c.x + dh * frame.setDressing.y);
@@ -193,8 +194,8 @@ fn setDressing(albedo: vec3f) -> vec3f {
  * Depth staging for the set, as a matte painter layers a background: beyond
  * the first couple of metres the set loses saturation and contrast toward the
  * water's colour, so the reef reads in planes (foreground, middle, back) and
- * fish, which skip this, keep their punch at any distance. Applied to lit
- * colour before applyWater.
+ * fish, which skip this, keep their punch at any distance. Applied to the
+ * set's pixels by render/grade.ts.
  */
 fn recede(lit: vec3f, p: vec3f) -> vec3f {
   let toP = p - frame.camPos;

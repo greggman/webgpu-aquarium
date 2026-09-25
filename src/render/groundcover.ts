@@ -196,6 +196,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
+  @location(2) id: u32,
 };
 
 @fragment
@@ -208,11 +209,11 @@ fn fs(i: VOut) -> FOut {
   s.ao = 0.5 + 0.5 * i.along;
   s.f0 = 0.02;
   s.translucency = 0.35;
-  s.albedo = setDressing(s.albedo);
-  let lit = recede(shadeSurface(s, i.world, -1.0), i.world);
+  let lit = shadeSurface(s, i.world, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, i.world), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOf(CAT_SEAGRASS);
   return o;
 }
 `;
@@ -224,6 +225,7 @@ export async function createGroundCover(
   targets: {
     color: GPUTextureFormat;
     velocity: GPUTextureFormat;
+    id: GPUTextureFormat;
     depth: GPUTextureFormat;
   },
   quality: Quality,
@@ -249,7 +251,11 @@ export async function createGroundCover(
     fragment: {
       module,
       entryPoint: 'fs',
-      targets: [{format: targets.color}, {format: targets.velocity}],
+      targets: [
+        {format: targets.color},
+        {format: targets.velocity},
+        {format: targets.id},
+      ],
     },
     // Blades are thin: seen from either face.
     primitive: {topology: 'triangle-list', cullMode: 'none'},

@@ -759,6 +759,7 @@ fn rockBump(n: vec3f, p: vec3f, reef: f32, strength: f32, footprint: f32) -> vec
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
+  @location(2) id: u32,
 };
 
 /**
@@ -941,13 +942,13 @@ fn fs(i: VOut) -> FOut {
   var n = normalize(vec3f(t.g, sqrt(max(1.0 - t.g * t.g - t.b * t.b, 0.0)), t.b));
   let p = i.world;
 
-  var s = terrainSurface(p, n, m, t.a);
-  s.albedo = setDressing(s.albedo);
+  let s = terrainSurface(p, n, m, t.a);
 
-  let lit = recede(shadeSurface(s, p, -1.0), p);
+  let lit = shadeSurface(s, p, -1.0);
   var o: FOut;
   o.color = vec4f(applyWater(lit, p), 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOf(CAT_GROUND);
   return o;
 }
 
@@ -967,6 +968,7 @@ fn fsFlat(i: VOut, @builtin(front_facing) front: bool) -> FOut {
     1.0,
   );
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOf(CAT_GROUND);
   return o;
 }
 
@@ -991,6 +993,7 @@ export async function createTerrainRenderer(
   targets: {
     color: GPUTextureFormat;
     velocity: GPUTextureFormat;
+    id: GPUTextureFormat;
     depth: GPUTextureFormat;
   },
   gridCount: number,
@@ -1025,7 +1028,11 @@ export async function createTerrainRenderer(
     fragment: {
       module,
       entryPoint: debug ? 'fsFlat' : 'fs',
-      targets: [{format: targets.color}, {format: targets.velocity}],
+      targets: [
+        {format: targets.color},
+        {format: targets.velocity},
+        {format: targets.id},
+      ],
     },
     primitive: {topology: 'triangle-list', cullMode: 'back'},
     depthStencil: {

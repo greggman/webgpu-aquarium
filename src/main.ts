@@ -27,6 +27,7 @@ import {createContactMap} from './render/contact.ts';
 import {SunShadow} from './render/shadows.ts';
 import {createVolumetrics} from './render/volumetrics.ts';
 import {createSsao} from './render/ssao.ts';
+import {createGrade} from './render/grade.ts';
 import {createDof} from './render/post/dof.ts';
 import {focusDistance} from './player/focus.ts';
 import {AutoFocus} from './render/autofocus.ts';
@@ -234,6 +235,7 @@ async function main() {
   const targetsFormats = {
     color: 'rgba16float',
     velocity: 'rg16float',
+    id: 'r32uint',
     depth: 'depth32float',
   } as const;
   const bloom = new Bloom(device);
@@ -288,6 +290,9 @@ async function main() {
     background,
     ...content.filter(s => ALPHA_TESTED.has(s.name)),
     await createSsao(renderer),
+    // After SSAO (occlusion is part of the surface) and before the light
+    // shafts (water, not set).
+    await createGrade(renderer, params.get('ids') === '1'),
     volumetrics,
   );
   // ?disable=ssao,volumetrics,coral,... drops systems, for profiling.

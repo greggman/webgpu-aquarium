@@ -2,6 +2,7 @@
 // draw into each pass.
 
 import type {Gpu} from '../gpu/device.ts';
+import {ID_FORMAT} from './ids.ts';
 import type {Quality} from '../core/quality.ts';
 import {
   createGlobals,
@@ -21,6 +22,8 @@ export interface Targets {
   height: number;
   color: GPUTexture;
   velocity: GPUTexture;
+  /** What drew each pixel (see render/ids.ts). */
+  id: GPUTexture;
   depth: GPUTexture;
 }
 
@@ -204,6 +207,7 @@ export class Renderer {
     }
     this.targets?.color.destroy();
     this.targets?.velocity.destroy();
+    this.targets?.id.destroy();
     this.targets?.depth.destroy();
     const d = this.device;
     const usage =
@@ -221,6 +225,12 @@ export class Renderer {
         label: 'targets:velocity',
         size: [width, height],
         format: VELOCITY_FORMAT,
+        usage,
+      }),
+      id: d.createTexture({
+        label: 'targets:id',
+        size: [width, height],
+        format: ID_FORMAT,
         usage,
       }),
       depth: d.createTexture({
@@ -299,6 +309,12 @@ export class Renderer {
         },
         {
           view: t.velocity,
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: [0, 0, 0, 0],
+        },
+        {
+          view: t.id,
           loadOp: 'clear',
           storeOp: 'store',
           clearValue: [0, 0, 0, 0],

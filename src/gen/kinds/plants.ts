@@ -1,5 +1,6 @@
 // Swaying plants: seagrass meadows, giant kelp forests, and gorgonian sea fans.
 
+import {Category} from '../../render/ids.ts';
 import {buildMesh, type Patch} from '../meshgen.ts';
 import {createPropKind, quatUpYaw, type Instance} from '../../render/props.ts';
 import type {Renderer, RenderSystem} from '../../render/renderer.ts';
@@ -643,6 +644,7 @@ export async function createPlants(
   return Promise.all([
     createPropKind(renderer, {
       name: 'plants',
+      category: Category.Plant,
       mesh,
       instances,
       wgsl: plantMaterial,
@@ -663,6 +665,7 @@ export async function createPlants(
     }),
     createPropKind(renderer, {
       name: 'fans',
+      category: Category.Fan,
       mesh: fanMesh,
       instances: fans,
       wgsl: fanMaterial,

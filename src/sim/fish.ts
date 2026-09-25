@@ -10,6 +10,7 @@
 // drawn with GPU-written indirect draw calls.
 
 import {createShader} from '../gpu/device.ts';
+import {ID_FORMAT} from '../render/ids.ts';
 import {sidePlanes} from '../render/frustum.ts';
 import {defineStruct} from '../gpu/structs.ts';
 import {buildMesh, vertexLayout, type Patch} from '../gen/meshgen.ts';
@@ -1530,6 +1531,7 @@ fn fishPattern(sp: Species, i: VOut, n: vec3f) -> vec3f {
 struct FOut {
   @location(0) color: vec4f,
   @location(1) velocity: vec2f,
+  @location(2) id: u32,
 };
 
 @fragment
@@ -1541,6 +1543,7 @@ fn fs(i: VOut, @builtin(front_facing) front: bool) -> FOut {
   var o: FOut;
   o.color = vec4f(0.0, 0.0, 0.0, 1.0);
   o.velocity = vec2f(0.0);
+  o.id = 0u;
   let toEye = frame.camPos - i.world;
   let V = select(
     vec3f(0.0, 0.0, 1.0),
@@ -1698,6 +1701,7 @@ ${
   let watered = applyWater(lit, i.world);
   o.color = vec4f(watered, 1.0);
   o.velocity = screenVelocity(i.curClip, i.prevClip);
+  o.id = idOfInstance(CAT_FISH, u32(inst.anim.w), i.instance);
   return o;
 }
 `;
@@ -2224,7 +2228,11 @@ export async function createFish(
       fragment: {
         module,
         entryPoint: 'fs',
-        targets: [{format: HDR_FORMAT}, {format: VELOCITY_FORMAT}],
+        targets: [
+          {format: HDR_FORMAT},
+          {format: VELOCITY_FORMAT},
+          {format: ID_FORMAT},
+        ],
       },
       primitive: {topology: 'triangle-list', cullMode: 'none'},
       depthStencil: {

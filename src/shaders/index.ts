@@ -1,6 +1,7 @@
 // WGSL chunks, assembled into complete shaders by concatenation.
 
 import {FrameStruct} from '../render/globals.ts';
+import {idWgsl} from '../render/ids.ts';
 import noise from './noise.wgsl';
 import water from './water.wgsl';
 import lighting from './lighting.wgsl';
@@ -28,6 +29,7 @@ ${FrameStruct.wgsl}
 @group(0) @binding(7) var tTerrain: texture_2d<f32>;
 @group(0) @binding(8) var tTerrainMask: texture_2d<f32>;
 @group(0) @binding(9) var tContact: texture_2d<f32>;
+${idWgsl}
 
 /**
  * How far a fragment moved on screen since the last frame, for TAA.
