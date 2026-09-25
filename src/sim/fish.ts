@@ -1456,14 +1456,17 @@ fn vs(v: VIn) -> VOut {
   let sp = species[u32(inst.anim.w)];
   let local = swim(v.position.xyz, v.uv, inst.anim.x, inst.anim.z, sp);
   let prevLocal = swim(v.position.xyz, v.uv, inst.anim.y, inst.anim.z, sp);
-  // A fish that swims right up to the lens is taken away rather than left to
-  // fill the frame with a wall of blurred scales. It used to be dithered out
-  // per pixel, which needs discard, and a fish shader that discards leaves
-  // undefined values in the colour target in Safari and Firefox. Shrinking it to nothing
-  // here does the same job: at zero every triangle of the fish has no area, so
-  // none of them are drawn, and the shader never has to refuse a fragment.
+  // A fish about to swim through the lens is taken away rather than cut open
+  // by the near plane (0.05 m). Only in the last few centimetres: fish now
+  // come within a body length of a diver who holds still, and shrinking them
+  // any further out looked like fish vanishing as they came to look. It used
+  // to be dithered out per pixel, which needs discard, and a fish shader that
+  // discards leaves undefined values in the colour target in Safari and
+  // Firefox. Shrinking it to nothing does the same job: at zero every
+  // triangle of the fish has no area, so none of them are drawn, and the
+  // shader never has to refuse a fragment.
   let nearest = length(frame.camPos - inst.posScale.xyz) - inst.posScale.w * 0.6;
-  let shrink = smoothstep(0.35, 0.9, nearest);
+  let shrink = smoothstep(0.08, 0.25, nearest);
   let world = quatRotate(inst.rot, local * inst.posScale.w * shrink) + inst.posScale.xyz;
   let prevWorld = quatRotate(inst.prevRot, prevLocal * inst.prevPosScale.w * shrink) + inst.prevPosScale.xyz;
   var o: VOut;
