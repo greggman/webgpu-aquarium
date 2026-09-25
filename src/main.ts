@@ -421,7 +421,15 @@ async function main() {
     'set-quality',
   ) as HTMLSelectElement;
   const toggles: [keyof Settings, HTMLInputElement][] = (
-    ['bloom', 'volumetrics', 'shadows', 'dof', 'grass', 'dust'] as const
+    [
+      'bloom',
+      'volumetrics',
+      'shadows',
+      'dof',
+      'grass',
+      'dust',
+      'frameCap',
+    ] as const
   ).map(k => [k, document.getElementById(`set-${k}`) as HTMLInputElement]);
   // Depth of field is not built at every quality, and a switch that does
   // nothing is worse than no switch.
@@ -1108,8 +1116,30 @@ async function main() {
       void device.queue.onSubmittedWorkDone().then(markReady);
     }
   };
+  // Displays can ask for 120 frames a second or more. Past 60 the extra
+  // frames add little but heat and fan noise, and dynamic resolution spends
+  // the time on pixels instead of letting the GPU rest, so by default vsyncs
+  // are skipped to hold 60. Frames are due on a fixed 60 Hz schedule, taken
+  // at the nearest vsync (half a vsync early is on time), so the rate
+  // averages 60 whatever the display runs at, even when it does not divide.
+  const FRAME_MS = 1000 / 60;
+  let vsyncMs = FRAME_MS;
+  let lastVsync = 0;
+  let nextDue = 0;
   const frame = (now: number) => {
     requestAnimationFrame(frame);
+    if (lastVsync > 0) {
+      vsyncMs += (Math.min(now - lastVsync, 50) - vsyncMs) * 0.1;
+    }
+    lastVsync = now;
+    if (settings.frameCap) {
+      if (now < nextDue - vsyncMs / 2) {
+        return;
+      }
+      // Fell a whole frame behind (a hitch, a hidden tab): start afresh
+      // rather than rush to catch up.
+      nextDue = now - nextDue > FRAME_MS ? now + FRAME_MS : nextDue + FRAME_MS;
+    }
     // Skip this vsync rather than queue more work. The skipped time shows up
     // in the next rendered frame's interval, which is what dynres reacts to.
     if (framesInFlight >= MAX_FRAMES_IN_FLIGHT) {

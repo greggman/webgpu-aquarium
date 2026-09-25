@@ -17,6 +17,8 @@ export interface Settings {
   dof: boolean;
   grass: boolean;
   dust: boolean;
+  /** Hold about 60 fps even on faster displays (less heat and fan). */
+  frameCap: boolean;
 }
 
 export const QUALITY_CHOICES: Settings['quality'][] = [
@@ -39,6 +41,7 @@ const DEFAULTS: Settings = {
   dof: true,
   grass: true,
   dust: true,
+  frameCap: true,
 };
 
 export function loadSettings(): Settings {
@@ -59,6 +62,7 @@ export function loadSettings(): Settings {
       dof: v.dof !== false,
       grass: v.grass !== false,
       dust: v.dust !== false,
+      frameCap: v.frameCap !== false,
     };
   } catch {
     return {...DEFAULTS};
