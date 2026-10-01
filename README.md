@@ -1,4 +1,4 @@
-# WebGPU Aquarium
+# WebGPU Aquarium in 102k
 
 A procedurally generated underwater world rendered with WebGPU. Every run grows a
 new reef: terrain, rocks, coral, plants, creatures and fish species are all
